@@ -532,7 +532,7 @@ function parseNum(v) {
   var pct = /%$/.test(s); s = s.replace(/[%$€£¥\s]/g, "");
   if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, "");
   if (!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(s)) return undefined;
-  return +s;
+  return isFinite(+s) ? +s : null;
 }
 function isMissing(v) { return v == null || v === "" || parseNum(v) === null && !/\S/.test(String(v)) || /^(na|n\/a|nan|null|none|no data( found)?)$/i.test(String(v).trim()); }
 function splitCSV(text) {
@@ -897,7 +897,7 @@ function coefChart(coefs) {
 // --- views ---
 function noData(title, text) { return '<h1 class="vt">' + title + '</h1><p class="lede">' + text + "</p><p>" + go2("data", "Add a dataset") + "</p>"; }
 function dataView() {
-  var ds = cur(), store = ST.on ? "Your files are kept privately for you: nobody else, the page owner included, can read them." : "Your files stay in this tab until you close or reload it. Keep a copy of your original file.";
+  var ds = cur(), store = ST.on ? "Your files are kept privately for you: nobody else, the page owner included, can read them." : "Use Keep in this browser or Save project to keep your work between visits. Keep a copy of your original file.";
   var add = '<section class="card drop" id="drop" aria-labelledby="add-h"><h2 id="add-h">Add your data</h2><p class="count">CSV, TSV, Excel (.xlsx) or JSON, up to 25 MB. The first row should name the columns. ' + store + "</p>" +
     '<div class="slot"><label class="btn btn-primary" for="afile">Choose a file</label><input type="file" id="afile" accept=".csv,.tsv,.txt,.json,.xlsx,.xls" class="sr-file"><span class="count">or drop it here</span></div>' +
     '<details class="paste"><summary>Paste from a spreadsheet instead</summary><textarea id="apaste" rows="5" placeholder="Paste cells with a header row"></textarea><button type="button" class="btn" data-apaste="1">Use pasted data</button></details>' +
@@ -2463,51 +2463,226 @@ view.addEventListener("click", function (e) {
 });
 
 // ===== local-model.js =====
-// Optional same-origin bridge, available only when the user starts local_ai/server.py.
-var LM = {key: '', state: '', lines: [], request: 0, question: ''};
+// Same-origin loopback bridge with independent evidence validation and cancellation.
+var LM = {key: '', state: '', lines: [], request: 0, question: '', ctl: null, health: 'Check connection to confirm Ollama and the configured model are available.'};
 function modelEvidence(ds, R) {
   var evidence = {};
   ['result', 'uncertainty', 'assumptions', 'pvalue', 'next'].forEach(function (topic) { evidence[topic] = localExplanation(ds, R, topic); });
   return evidence;
 }
 function modelKey(ds, R) { return JSON.stringify([ds.id, A.sel, R.kind, R.summary, modelEvidence(ds, R)]); }
+function completeModelLines(data, evidence) {
+  if (!data || Object.keys(data).sort().join(',') !== 'lines,status,topic' || data.status !== 'validated' || !Object.prototype.hasOwnProperty.call(evidence, data.topic) || !Array.isArray(data.lines)) return false;
+  var expected = evidence[data.topic].slice(), actual = data.lines.slice();
+  if (actual.length !== expected.length) return false;
+  // Multiset equality allows reordering, not omissions, duplicates or cross-topic mixing.
+  return actual.every(function (line) { var i = expected.indexOf(line); if (typeof line !== 'string' || i < 0) return false; expected.splice(i, 1); return true; });
+}
+function cancelLocalModel() {
+  LM.request++; if (LM.ctl) LM.ctl.abort(); LM.ctl = null;
+  LM.state = 'Request cancelled. No model response was applied. Local inference may take a moment to release.'; LM.lines = []; render();
+}
 var _localModelPanel = explanationPanel;
 explanationPanel = function (ds, R) {
   var html = _localModelPanel(ds, R);
   if (!window.EKM_LOCAL) return html;
   var key = modelKey(ds, R), current = LM.key === key;
-  return html + '<section class="card assistant"><h2>Local language model</h2><p class="count">Ask about the result above. The model selects evidence; EKM displays only supplied statements with their limitations. Questions and computed summaries stay on this computer. Rows are not sent.</p>' +
-    '<form class="ask" id="local-model-form"><label class="field assistant-question" for="local-model-question">Question about this result<input id="local-model-question" maxlength="300" value="' + esc(LM.question) + '" placeholder="How uncertain is this result?" required></label><button type="submit" class="btn btn-primary"' + (current && LM.state === 'wait' ? ' disabled' : '') + '>Ask local model</button></form>' +
+  return html + '<section class="card assistant"><h2>Local language model</h2><p class="count">The model selects evidence for supported statistical questions. EKM retains all statements and limitations for that topic. Questions and computed summaries stay on this computer; rows are not sent. This mode does not run new analyses or support open-ended chat.</p>' +
+    '<div class="slot"><button type="button" class="btn" data-model-health="1">Check connection</button><span class="count" id="model-health" role="status">' + esc(LM.health) + '</span></div>' +
+    '<form class="ask" id="local-model-form"><label class="field assistant-question" for="local-model-question">Question about this result<input id="local-model-question" maxlength="300" value="' + esc(LM.question) + '" placeholder="How uncertain is this result?" required></label><button type="submit" class="btn btn-primary"' + (LM.ctl ? ' disabled' : '') + '>Ask local model</button>' + (LM.ctl ? '<button type="button" class="btn" data-model-cancel="1">Cancel request</button>' : '') + '</form>' +
     '<div id="local-model-answer" class="assistant-answer" role="status">' + (current ? (LM.state === 'wait' ? '<p>Selecting evidence locally…</p>' : '<p class="count">' + esc(LM.state) + '</p>' + localList(LM.lines)) : '') + '</div></section>';
 };
+view.addEventListener('click', function (e) {
+  var b = e.target.closest('button'); if (!b || !window.EKM_LOCAL) return;
+  if (b.dataset.modelCancel) cancelLocalModel();
+  if (b.dataset.modelHealth) {
+    LM.health = 'Checking local Ollama…'; render();
+    var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 5000);
+    fetch('/health', {signal: ctl.signal}).then(function (r) { if (!r.ok) throw new Error(); return r.json(); }).then(function (data) {
+      LM.health = (data.ready ? 'Ready: ' : 'Not ready: ') + String(data.model || '') + '. ' + String(data.message || '');
+    }).catch(function () { LM.health = 'Local service unavailable. Start Python and Ollama, then check again.'; }).finally(function () { clearTimeout(timer); render(); });
+  }
+});
 view.addEventListener('submit', function (e) {
   if (e.target.id !== 'local-model-form' || !window.EKM_LOCAL) return;
   e.preventDefault();
   var ds = cur(), R = LAST_R, question = document.getElementById('local-model-question').value.trim();
-  if (!ds || !R || !question) return;
+  if (!ds || !R || R.valid === false || !question || LM.ctl) return;
   var key = modelKey(ds, R), evidence = modelEvidence(ds, R), request = ++LM.request;
-  LM.key = key; LM.question = question; LM.state = 'wait'; LM.lines = []; render();
-  var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 95000);
-  fetch('/api/explain', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-EKM-Token': window.EKM_LOCAL.token},
-    body: JSON.stringify({question: question, evidence: evidence}), signal: ctl.signal}).then(function (r) {
-    if (!r.ok) throw new Error('Local service unavailable'); return r.json();
+  var ctl = new AbortController(), timedout = false, timer = setTimeout(function () { timedout = true; ctl.abort(); }, 95000);
+  LM.ctl = ctl; LM.key = key; LM.question = question; LM.state = 'wait'; LM.lines = []; render();
+  var messages = {busy: 'The local model is busy. Try again shortly.', timeout: 'The local model timed out. Try a shorter question or a smaller model.', rejected: 'Model response rejected. Showing the offline explanation.', missing_model: 'The configured model is not installed. Check connection for setup instructions.', offline: 'Ollama is not running. Start Ollama and check connection.', unavailable: 'The local model is unavailable. Check connection and try again.'};
+  fetch('/api/explain', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-EKM-Token': window.EKM_LOCAL.token}, body: JSON.stringify({question: question, evidence: evidence}), signal: ctl.signal}).then(function (r) {
+    if (r.status === 429) throw new Error('busy'); if (!r.ok) throw new Error('unavailable'); return r.json();
   }).then(function (data) {
     if (request !== LM.request) return;
-    // Validate again at the display boundary. Never accept arbitrary model text.
-    var allowed = [].concat.apply([], Object.keys(evidence).map(function (t) { return evidence[t]; }));
-    if (data.status === 'validated' && Array.isArray(data.lines) && data.lines.length && data.lines.every(function (line) { return allowed.indexOf(line) >= 0; })) {
-      LM.state = 'Evidence selection validated. Text and numbers come from EKM.'; LM.lines = data.lines;
-    } else if (data.status === 'refused') {
-      LM.state = 'Unsupported question.'; LM.lines = ['This mode cannot establish causes or diagnoses. Ask about the displayed statistics, uncertainty, assumptions or next steps.'];
-    } else throw new Error('No valid evidence selection');
-  }).catch(function () {
+    if (completeModelLines(data, evidence)) { LM.state = 'Evidence selection validated. Text and numbers come from EKM.'; LM.lines = data.lines; }
+    else if (data.status === 'refused') { LM.state = 'Unsupported question.'; LM.lines = ['Ask about the displayed result, uncertainty, assumptions, p-values or next steps. This mode cannot establish causes, diagnose conditions or answer unrelated questions.']; }
+    else if (data.status === 'fallback') { LM.state = messages[data.code] || messages.rejected; LM.lines = evidence.result; }
+    else throw new Error('rejected');
+  }).catch(function (err) {
     if (request !== LM.request) return;
-    LM.state = 'Local model unavailable or response rejected. Showing the offline explanation.'; LM.lines = evidence.result;
+    LM.state = timedout ? messages.timeout : messages[err.message] || messages.unavailable; LM.lines = evidence.result;
   }).finally(function () {
-    clearTimeout(timer);
-    if (request === LM.request && cur() && key === modelKey(cur(), LAST_R)) { render(); refocus('#local-model-question'); }
+    clearTimeout(timer); if (request !== LM.request) return; LM.ctl = null;
+    if (cur() && key === modelKey(cur(), LAST_R)) { render(); refocus('#local-model-question'); }
+    else render();
   });
 });
+
+// ===== reliability.js =====
+// Shared validity gate: no interpretation, export or write-up for undefined results.
+function invalidResult(kind, controls, message) {
+  return {kind: kind, valid: false, controls: controls || '', head: '<p class="warn" role="status">' + esc(message) + '</p>', chart: '', extra: '', reading: [], caveats: [], summary: {}, apa: '', next: [], reason: message};
+}
+var _checkedAnalysis = runAnalysis;
+runAnalysis = function (ds) {
+  var c = defaults(ds), s = A.sel, rows = filterRows(ds), problem = '', controls = '';
+  if (A.kind === 'relate' && c.nums.length >= 2) {
+    controls = pick('x', 'First number (across)', c.nums, s.x) + pick('y', 'Second number (up)', c.nums, s.y);
+    var pairs = rows.filter(function (r) { return localNumber(r[idxOf(ds, s.x)]) && localNumber(r[idxOf(ds, s.y)]); });
+    if (pairs.length < 3) problem = 'Correlation needs at least three complete pairs. Choose columns with more shared observations.';
+    else if ([s.x, s.y].some(function (name) { var v = getCol(ds, pairs, name); return v.every(function (x) { return x === v[0]; }); }))
+      problem = 'Correlation is undefined because a selected column is constant in the complete pairs. Choose two columns that both vary. No association or confidence interval can be inferred.';
+  }
+  var R;
+  if (problem) R = invalidResult(A.kind, controls, problem);
+  else {
+    try { R = _checkedAnalysis(ds); } catch (err) { R = invalidResult(A.kind, '', 'This analysis could not be calculated. Check column types, missing values and the number of independent observations.'); }
+    // Undefined summaries in other inferential methods must never reach prose.
+    function nonfinite(v) { return typeof v === 'number' ? !isFinite(v) : Array.isArray(v) ? v.some(nonfinite) : v && typeof v === 'object' ? Object.keys(v).some(function (k) { return nonfinite(v[k]); }) : false; }
+    if (['describe', 'pivot', 'matrix'].indexOf(A.kind) < 0 && nonfinite(R.summary))
+      R = invalidResult(A.kind, R.controls, 'This analysis has undefined estimates. Check for constant columns, insufficient observations or a singular model. No statistical conclusion is available.');
+    if (R.valid !== false) {
+      var undefinedText = function (text) { return /\b(NaN|Infinity|undefined)\b/.test(localText(text)); };
+      if (undefinedText(R.head)) R = invalidResult(A.kind, R.controls, 'A required statistic is undefined for this selection. Choose columns with usable variation and enough observations.');
+      else {
+        if (undefinedText(R.extra)) R.extra = '<p class="count">Some supplementary checks are undefined for this selection.</p>';
+        R.caveats = R.caveats.filter(function (t) { return !undefinedText(t); });
+        R.reading = R.reading.filter(function (t) { return !undefinedText(t); });
+        if (undefinedText(R.apa)) R.apa = '';
+      }
+    }
+  }
+  LAST_R = R; return R;
+};
+var _validExplanation = localExplanation;
+localExplanation = function (ds, R, topic) { return R.valid === false ? [R.reason] : _validExplanation(ds, R, topic); };
+var _validPaper = addToPaper;
+addToPaper = function (ds, R) { if (R.valid === false || !R.reading.length) { XP.msg = 'No valid result is available to add to the write-up.'; render(); return; } return _validPaper(ds, R); };
+
+// ===== project.js =====
+// Local downloads and portable projects. Imported content is rebuilt from a schema.
+var PROJECT = {remember: !!window.EKM_LOCAL, message: '', key: 'ekm-project-v1', last: '', storageMessage: ''};
+function nativeDownload(filename, data) {
+  var mime = /\.csv$/i.test(filename) ? 'text/csv' : /\.json$/i.test(filename) ? 'application/json' : /\.svg$/i.test(filename) ? 'image/svg+xml' : /\.doc$/i.test(filename) ? 'application/msword' : 'text/html';
+  var blob = data instanceof Blob ? data : new Blob([data], {type: mime + ';charset=utf-8'}), url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+}
+saveFile = function (filename, data) {
+  function native() {
+    try { nativeDownload(filename, data); XP.msg = 'Download started: ' + filename; } catch (err) { XP.msg = 'Could not download. Check your browser download settings and try again.'; }
+    render();
+  }
+  if (!window.claude || !window.claude.use || window.EKM_LOCAL) { native(); return; }
+  return Promise.resolve().then(function () { return window.claude.use('downloads'); }).then(function (dl) {
+    if (!dl) { native(); return; }
+    return dl.save({filename: filename, data: data}).then(function () { XP.msg = 'Saved ' + filename; render(); });
+  }).catch(function (err) { if (err && err.code === 'cancelled') { XP.msg = 'Download cancelled.'; render(); } else native(); });
+};
+
+function projectSnapshot() {
+  if (A.sets.some(function (ds) { return !Array.isArray(ds.rows); })) throw new Error('Load every dataset before saving the project.');
+  return {format: 'ekm-project', version: 1, datasets: A.sets, current: A.cur, analysis: A.kind, selection: A.sel, chart: A.chart,
+    writeup: {title: WP.title, items: WP.items}, history: {undo: E.undo, original: E.orig}};
+}
+function projectSvg(text) {
+  if (!text) return '';
+  if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw new Error('Invalid figure.');
+  var doc = new DOMParser().parseFromString(text, 'image/svg+xml'), root = doc.documentElement;
+  if (root.localName !== 'svg' || doc.querySelector('parsererror')) throw new Error('Invalid figure.');
+  var tags = ['svg','g','rect','circle','line','polyline','path','text','title'];
+  var attrs = ['xmlns','width','height','viewBox','x','y','x1','x2','y1','y2','cx','cy','r','rx','d','points','transform','text-anchor','font-family','font-size','font-style','font-weight','fill','stroke','stroke-width','opacity','fill-opacity','stroke-opacity'];
+  function clean(node) {
+    if (tags.indexOf(node.localName) < 0) return null;
+    var el = document.createElementNS('http://www.w3.org/2000/svg', node.localName);
+    [].forEach.call(node.attributes, function (a) { if (attrs.indexOf(a.name) >= 0 && !/url\s*\(|javascript:|data:|https?:|\/\//i.test(a.value.replace('http://www.w3.org/2000/svg', ''))) el.setAttribute(a.name, a.value); });
+    [].forEach.call(node.childNodes, function (child) { if (child.nodeType === 3) el.appendChild(document.createTextNode(child.textContent)); else if (child.nodeType === 1) { var c = clean(child); if (c) el.appendChild(c); } });
+    return el;
+  }
+  return new XMLSerializer().serializeToString(clean(root));
+}
+function validateProject(p) {
+  function tree(v, depth) {
+    if (depth > 50) throw new Error('Project nesting is too deep.');
+    if (typeof v === 'number' && !isFinite(v)) throw new Error('Invalid numeric value.');
+    if (v && typeof v === 'object') Object.keys(v).forEach(function (k) { if (['__proto__','constructor','prototype'].indexOf(k) >= 0) throw new Error('Unsafe project field.'); tree(v[k], depth + 1); });
+  }
+  tree(p, 0);
+  if (!p || p.format !== 'ekm-project' || p.version !== 1 || !Array.isArray(p.datasets) || !p.writeup || !Array.isArray(p.writeup.items)) throw new Error('Choose an EKM project JSON file (version 1).');
+  var ids = Object.create(null);
+  if (p.selection && (typeof p.selection !== 'object' || Array.isArray(p.selection) || Object.keys(p.selection).some(function (k) { var v = p.selection[k]; return v !== null && typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean' && !(Array.isArray(v) && v.every(function (x) { return typeof x === 'string'; })); }))) throw new Error('Invalid analysis selection.');
+  if (p.chart && (typeof p.chart !== 'object' || Array.isArray(p.chart) || Object.keys(p.chart).some(function (k) { return p.chart[k] !== null && ['string','number','boolean'].indexOf(typeof p.chart[k]) < 0; }))) throw new Error('Invalid chart settings.');
+  function dataset(ds) {
+    if (!ds || typeof ds.id !== 'string' || !/^[\w-]{1,100}$/.test(ds.id) || typeof ds.name !== 'string' || !Array.isArray(ds.cols) || !ds.cols.length || !Array.isArray(ds.rows)) throw new Error('Invalid dataset.');
+    var names = Object.create(null);
+    var cols = ds.cols.map(function (c) { if (!c || typeof c.name !== 'string' || names[c.name] || ['number','year','date','category','text','empty'].indexOf(c.type) < 0) throw new Error('Invalid columns.'); names[c.name] = true; return {name: c.name, type: c.type}; });
+    var rows = ds.rows.map(function (r) { if (!Array.isArray(r) || r.length !== cols.length) throw new Error('Invalid data row.'); return r.map(function (v,j) { if (v !== null && typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') throw new Error('Invalid cell.'); if (v !== null && isNum(cols[j]) && typeof v !== 'number') throw new Error('Numeric cells must contain numbers.'); return v; }); });
+    return {id: ds.id, name: ds.name, cols: cols, rows: rows, origin: 'file', source: String(ds.source || ''), note: String(ds.note || ''), added: String(ds.added || ''), saved: false, recipe: Array.isArray(ds.recipe) ? ds.recipe : []};
+  }
+  var sets = p.datasets.map(function (ds) { var d = dataset(ds); if (ids[d.id]) throw new Error('Duplicate dataset identifier.'); ids[d.id] = true; return d; });
+  var items = p.writeup.items.map(function (it) {
+    if (!it || !Array.isArray(it.reading) || !Array.isArray(it.caveats)) throw new Error('Invalid write-up result.');
+    var out = {};
+    ['id','at','dataset','source','kind','test','title'].forEach(function (k) { out[k] = String(it[k] || ''); });
+    out.reading = it.reading.map(function (s) { if (typeof s !== 'string') throw new Error('Invalid reading.'); return esc(localText(s)); });
+    out.caveats = it.caveats.map(function (s) { if (typeof s !== 'string') throw new Error('Invalid caveat.'); return esc(localText(s)); });
+    out.apa = esc(localText(it.apa)); out.fig = projectSvg(it.fig); out.p = localNumber(it.p) ? it.p : null; out.n = localNumber(it.n) ? it.n : null;
+    // Imported reporting flags are not certificates; review them again.
+    out.evidence = null; return out;
+  });
+  var history = {undo: {}, original: {}};
+  if (p.history) sets.forEach(function (ds) {
+    var orig = (p.history.original || {})[ds.id], undo = (p.history.undo || {})[ds.id];
+    if (orig) history.original[ds.id] = dataset(Object.assign({}, ds, orig));
+    if (Array.isArray(undo)) history.undo[ds.id] = undo.map(function (u) { var d = dataset(Object.assign({}, ds, u)); return {rows: d.rows, cols: d.cols, recipe: d.recipe}; });
+  });
+  return {datasets: sets, current: ids[p.current] ? p.current : (sets[0] || {}).id, analysis: KINDS.some(function (k) { return k[0] === p.analysis; }) ? p.analysis : 'describe',
+    selection: p.selection && typeof p.selection === 'object' && !Array.isArray(p.selection) ? p.selection : {}, chart: p.chart && typeof p.chart === 'object' ? p.chart : {type:'histogram'}, writeup: {title: String(p.writeup.title || 'Results'), items: items}, history: history};
+}
+function restoreProject(p) {
+  var v = validateProject(p); // Validate everything before replacing live state.
+  A.sets = v.datasets; A.cur = v.current; A.kind = v.analysis; A.sel = v.selection; A.chart = v.chart; A.ai = {}; A.askmsg = ''; A.askq = '';
+  WP.title = v.writeup.title; WP.items = v.writeup.items; WP.review = null;
+  E.undo = v.history.undo; E.orig = v.history.original; E.openFix = null; E.iso = null; E.clusters = null; E.picked = {};
+  LM.request++; if (LM.ctl) LM.ctl.abort(); LM.key = ''; LM.state = ''; PROJECT.last = ''; XP.msg = '';
+}
+function cacheProject() {
+  if (!PROJECT.remember) return;
+  try { var text = JSON.stringify(projectSnapshot()); if (text !== PROJECT.last) { localStorage.setItem(PROJECT.key, text); PROJECT.last = text; } PROJECT.storageMessage = 'Saved in this browser. Keep a project file as a backup.'; }
+  catch (err) { PROJECT.storageMessage = 'Browser save unavailable or full. Save a project file to keep your work.'; }
+}
+function projectControls() {
+  return '<section class="card"><h2>Keep your project</h2><div class="slot"><button type="button" class="btn" data-project-save="1">Save project (.json)</button><button type="button" class="btn" data-project-open="1">Open project</button><input class="sr-file" id="project-file" tabindex="-1" type="file" accept=".json"><label class="chk"><input type="checkbox" id="project-remember"' + (PROJECT.remember ? ' checked' : '') + '> Keep in this browser</label><button type="button" class="btn" data-project-clear="1">Forget browser copy</button></div><p class="count" role="status">' + esc((PROJECT.message ? PROJECT.message + ' ' : '') + (PROJECT.storageMessage || 'A project file includes your datasets, cleaning history and write-up. Opening one replaces the current project; save your work first.')) + '</p></section>';
+}
+var _projectData = VIEWS.data;
+VIEWS.data = function () { return projectControls() + _projectData(); };
+var _projectRender = render;
+render = function () { cacheProject(); _projectRender(); };
+view.addEventListener('click', function (e) {
+  var b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.projectOpen) { document.getElementById('project-file').value = ''; document.getElementById('project-file').click(); }
+  if (b.dataset.projectSave) { try { nativeDownload('ekm-project.json', JSON.stringify(projectSnapshot(), null, 2)); PROJECT.message = 'Project download started.'; } catch (err) { PROJECT.message = err.message; } render(); }
+  if (b.dataset.projectClear) { try { localStorage.removeItem(PROJECT.key); } catch (err) {} PROJECT.remember = false; PROJECT.storageMessage = ''; try { localStorage.setItem('ekm-remember', 'off'); } catch (err) {} PROJECT.last = ''; PROJECT.message = 'Browser copy removed. Your current tab is unchanged; save a project file before closing it.'; render(); }
+});
+view.addEventListener('change', function (e) {
+  if (e.target.id === 'project-remember') { PROJECT.remember = e.target.checked; PROJECT.storageMessage = ''; try { localStorage.setItem('ekm-remember', PROJECT.remember ? 'on' : 'off'); } catch (err) {} if (!PROJECT.remember) { try { localStorage.removeItem(PROJECT.key); } catch (err) {} PROJECT.message = 'Browser saving off. Save a project file before closing this tab.'; } render(); }
+  if (e.target.id === 'project-file' && e.target.files[0]) {
+    var f = e.target.files[0]; if (f.size > 50e6) { PROJECT.message = 'Project files up to 50 MB can be opened.'; render(); return; }
+    f.text().then(function (text) { restoreProject(JSON.parse(text)); PROJECT.message = 'Project opened. Review imported results before using them.'; nav('data'); }).catch(function (err) { PROJECT.message = 'Project not opened. ' + err.message; render(); });
+  }
+});
+try { var pref = localStorage.getItem('ekm-remember'); if (pref) PROJECT.remember = pref === 'on'; var cached = localStorage.getItem(PROJECT.key); if (cached) { restoreProject(JSON.parse(cached)); PROJECT.remember = true; } } catch (err) { PROJECT.remember = false; PROJECT.message = 'Saved browser project could not be restored. Open a project backup.'; }
 
 nav((location.hash || "").slice(1) || "data");
 </script>

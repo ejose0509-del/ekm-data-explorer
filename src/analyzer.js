@@ -11,7 +11,7 @@ function parseNum(v) {
   var pct = /%$/.test(s); s = s.replace(/[%$€£¥\s]/g, "");
   if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, "");
   if (!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(s)) return undefined;
-  return +s;
+  return isFinite(+s) ? +s : null;
 }
 function isMissing(v) { return v == null || v === "" || parseNum(v) === null && !/\S/.test(String(v)) || /^(na|n\/a|nan|null|none|no data( found)?)$/i.test(String(v).trim()); }
 function splitCSV(text) {
@@ -376,7 +376,7 @@ function coefChart(coefs) {
 // --- views ---
 function noData(title, text) { return '<h1 class="vt">' + title + '</h1><p class="lede">' + text + "</p><p>" + go2("data", "Add a dataset") + "</p>"; }
 function dataView() {
-  var ds = cur(), store = ST.on ? "Your files are kept privately for you: nobody else, the page owner included, can read them." : "Your files stay in this tab until you close or reload it. Keep a copy of your original file.";
+  var ds = cur(), store = ST.on ? "Your files are kept privately for you: nobody else, the page owner included, can read them." : "Use Keep in this browser or Save project to keep your work between visits. Keep a copy of your original file.";
   var add = '<section class="card drop" id="drop" aria-labelledby="add-h"><h2 id="add-h">Add your data</h2><p class="count">CSV, TSV, Excel (.xlsx) or JSON, up to 25 MB. The first row should name the columns. ' + store + "</p>" +
     '<div class="slot"><label class="btn btn-primary" for="afile">Choose a file</label><input type="file" id="afile" accept=".csv,.tsv,.txt,.json,.xlsx,.xls" class="sr-file"><span class="count">or drop it here</span></div>' +
     '<details class="paste"><summary>Paste from a spreadsheet instead</summary><textarea id="apaste" rows="5" placeholder="Paste cells with a header row"></textarea><button type="button" class="btn" data-apaste="1">Use pasted data</button></details>' +

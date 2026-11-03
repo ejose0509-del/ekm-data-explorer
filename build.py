@@ -24,6 +24,8 @@ MODULES = [
     "writeup.js",    # Write-up tab
     "assistant.js",  # Offline questions, explanations, and write-up review
     "local-model.js", # Opt-in loopback Python/Ollama evidence selection
+    "reliability.js", # Validity gate for interpretable results
+    "project.js",     # Browser downloads, project files and local persistence
 ]
 
 

@@ -12,7 +12,40 @@ from pathlib import Path
 TOPICS = ('result', 'uncertainty', 'assumptions', 'pvalue', 'next')
 LIMIT = 128 * 1024
 ROOT = Path(__file__).resolve().parents[1]
-CAUSAL = re.compile(r'\b(caus\w*|prove|guarantee|why|diagnos\w*)\b', re.I)
+CAUSAL = re.compile(r'\b(caus\w*|prove|guarantee|diagnos\w*|cures?|treatment|ignore|invent|fabricat\w*)\b', re.I)
+
+
+def question_topic(question):
+    if CAUSAL.search(question):
+        return None
+    q = question.lower()
+    if re.search(r'\bp[- ]?values?\b|significan', q):
+        return 'pvalue'
+    if re.search(r'uncertain|confidence|interval|effect|how (big|large|strong)|size of', q):
+        return 'uncertainty'
+    if re.search(r'assum|independen|normal|valid|reliable|method', q):
+        return 'assumptions'
+    if re.search(r'next|follow.up|what should|what (can|do) i do', q):
+        return 'next'
+    if re.search(r'\b(results?|findings?|summar\w*|explain|interpret|correlat\w*|associat\w*|differences?)\b', q):
+        return 'result'
+    return None
+
+
+def model_readiness(model):
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open('http://127.0.0.1:11434/api/tags', timeout=3) as response:
+            models = json.loads(response.read(LIMIT + 1))['models']
+        item = next((v for v in models if v.get('name') == model), None)
+        if not item:
+            return {'ready': False, 'code': 'missing_model', 'message': 'Model not installed. Run ollama pull ' + model + '.'}
+        if item.get('remote_model') or item.get('remote_host') or item.get('details', {}).get('format') != 'gguf':
+            return {'ready': False, 'code': 'nonlocal_model', 'message': 'Choose an installed local GGUF model.'}
+        return {'ready': True, 'code': 'ready', 'message': 'Local model installed; ready to accept questions.'}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {'ready': False, 'code': 'offline', 'message': 'Ollama is unavailable. Start Ollama and check again.'}
+
 
 
 def validate_packet(packet):
@@ -42,8 +75,8 @@ def validate_plan(plan, evidence):
         raise ValueError('Invalid evidence references.')
     if len(ids) != len(set(ids)) or any(i < 0 or i >= len(evidence[topic]) for i in ids):
         raise ValueError('Unknown evidence reference.')
-    if plan['abstain'] or not ids:
-        raise ValueError('The model could not select supported evidence.')
+    if plan['abstain']:
+        raise ValueError('The model declined this question.')
     # Retain the whole topic, including uncertainty and limitations. The model
     # chooses emphasis, but cannot suppress caveats or alter supplied sentences.
     ordered = ids + [i for i in range(len(evidence[topic])) if i not in ids]
@@ -52,7 +85,7 @@ def validate_plan(plan, evidence):
 
 def ollama_plan(question, evidence, model):
     schema = {'type': 'object', 'additionalProperties': False,
-              'properties': {'topic': {'type': 'string', 'enum': list(TOPICS)},
+              'properties': {'topic': {'type': 'string', 'enum': [question_topic(question)] if question_topic(question) else list(TOPICS)},
                              'evidence_ids': {'type': 'array', 'maxItems': 2, 'uniqueItems': True, 'items': {'type': 'integer', 'enum': list(range(min(2, min(len(v) for v in evidence.values()))))}},
                              'abstain': {'type': 'boolean'}},
               'required': ['topic', 'evidence_ids', 'abstain']}
@@ -85,14 +118,26 @@ def ollama_plan(question, evidence, model):
 
 def answer(packet, model, planner=None):
     question, evidence = validate_packet(packet)
-    planner = planner or ollama_plan
-    if CAUSAL.search(question):
-        return {'status': 'refused', 'lines': ['This analysis cannot establish causes, diagnose conditions, or explain why a pattern exists. Ask about the displayed result, uncertainty, assumptions or next steps.']}
+    intent = question_topic(question)
+    if intent is None:
+        return {'status': 'refused', 'lines': ['This question is outside supported statistical explanations. Ask about the displayed result, uncertainty, assumptions, p-values or next steps.']}
+    if planner is None:
+        readiness = model_readiness(model)
+        if not readiness['ready']:
+            return {'status': 'fallback', 'code': readiness['code'], 'lines': evidence[intent]}
+        planner = ollama_plan
     try:
-        topic, lines = validate_plan(planner(question, evidence, model), evidence)
+        plan = planner(question, evidence, model)
+        topic, lines = validate_plan(plan, evidence)
+        if topic != intent:
+            raise ValueError('Model topic does not match the supported question.')
         return {'status': 'validated', 'topic': topic, 'lines': lines}
-    except (ValueError, KeyError, TypeError, OSError, TimeoutError):
-        return {'status': 'fallback', 'lines': ['The local model was unavailable or did not return a valid evidence selection. Here is the current rules-based explanation.'] + evidence['result']}
+    except (ValueError, KeyError, TypeError):
+        return {'status': 'fallback', 'code': 'rejected', 'lines': evidence[intent]}
+    except TimeoutError:
+        return {'status': 'fallback', 'code': 'timeout', 'lines': evidence[intent]}
+    except OSError:
+        return {'status': 'fallback', 'code': 'unavailable', 'lines': ['The local model was unavailable or did not return a valid evidence selection. Here is the current rules-based explanation.'] + evidence[intent]}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -115,7 +160,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.valid_host():
             return self.send_json(403, {'error': 'Loopback host required.'})
         if self.path == '/health':
-            return self.send_json(200, {'mode': 'local', 'model': self.server.model})
+            return self.send_json(200, dict(mode='local', model=self.server.model, **model_readiness(self.server.model)))
         if self.path != '/':
             return self.send_json(404, {'error': 'Not found.'})
         try:
@@ -134,7 +179,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if (not self.valid_host() or self.headers.get('Origin') != 'http://' + self.server.authority
-                or not secrets.compare_digest(self.headers.get('X-EKM-Token', ''), self.server.token)):
+                or not secrets.compare_digest(self.headers.get('X-EKM-Token', '').encode(), self.server.token.encode())):
             return self.send_json(403, {'error': 'Open the app from this local service.'})
         if self.path != '/api/explain':
             return self.send_json(404, {'error': 'Not found.'})
@@ -150,7 +195,7 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, OSError):
             return self.send_json(400, {'error': 'Invalid request.'})
         if not self.server.model_lock.acquire(blocking=False):
-            return self.send_json(429, {'error': 'The local model is busy. Try again shortly.'})
+            return self.send_json(429, {'error': 'The local model is busy. Try again shortly.', 'code': 'busy'})
         try:
             result = answer(packet, self.server.model)
         finally:

@@ -29,6 +29,8 @@ Open `dist/index.html` in a browser to use it. Run the stats check after any cha
 | `src/deep.js` | Go deeper panel: worked steps, Q-Q/residual plots, null simulation, sampling lab, distribution fits, prediction, correlation map |
 | `src/space.js` | 3D view (canvas renderer) and the 3D chart type |
 | `src/writeup.js` | Write-up tab, limitations, saved result evidence |
+| `src/reliability.js` | Validity checks before interpretation and write-up capture |
+| `src/project.js` | Native downloads, portable projects, browser persistence |
 | `src/local-model.js` | Optional same-origin local model bridge |
 | `src/assistant.js` | Offline question routing, grounded explanations, self-check and write-up review |
 
@@ -36,7 +38,7 @@ Open `dist/index.html` in a browser to use it. Run the stats check after any cha
 
 ## How an analysis renders
 
-`analyzeView()` calls `runAnalysis(ds)`, which returns `R = {controls, head, chart, extra, reading[], caveats[], summary, apa, next[]}`. The poster panel shows `1 Method` (help text plus `formula(R)` MathML), `2 Result` (`R.head`, chart, `R.extra`) and `3 Conclusion` (reading, caveats, APA, next steps). Below it are `explanationPanel()`, `deepPanel()`, `toolsBar()`, and the shared results. The offline assistant runs last and uses the existing statistics; explanation and review hooks are defined in `assistant.js`. To add an analysis kind:
+`analyzeView()` calls `runAnalysis(ds)`, which returns `R = {controls, head, chart, extra, reading[], caveats[], summary, apa, next[]}`. The poster panel shows `1 Method` (help text plus `formula(R)` MathML), `2 Result` (`R.head`, chart, `R.extra`) and `3 Conclusion` (reading, caveats, APA, next steps). Below it are `explanationPanel()`, `deepPanel()`, `toolsBar()`, and the shared results. The offline assistant runs after the analysis modules and uses the existing statistics; validity and project hooks run after it. Explanation and review hooks are defined in `assistant.js`. To add an analysis kind:
 1. Push to `KINDS` and `KIND_HELP`.
 2. Handle it in a `runAnalysis` wrapper.
 3. Optionally extend `formula`, `caption` and `deepTabs`.

@@ -4,7 +4,7 @@ A statistical analyzer that runs entirely in the browser. Add a CSV, Excel or JS
 
 ## Use it
 
-Open `dist/index.html` in a browser. CSV, TSV, JSON, pasted tables, statistics and charts work offline from disk. Excel imports load the spreadsheet reader from cdnjs on demand and need network access unless that script is cached. The offline assistant works without an account or connection. Private storage between visits, downloads and team sharing still use optional Claude artifact services.
+Open `dist/index.html` in a browser. CSV, TSV, JSON, pasted tables, statistics and charts work offline from disk. Excel imports load the spreadsheet reader from cdnjs on demand and need network access unless that script is cached. The offline assistant works without an account or connection. Native browser downloads and portable project files work without Claude. Local mode keeps a browser copy by default, with an option to turn saving off or forget the copy. Team sharing still uses optional Claude artifact services.
 
 ## Change it
 
@@ -78,3 +78,20 @@ node tests/check_local_model.js
 ```
 
 The browser test uses the same `PLAYWRIGHT_MODULE` / `BROWSER_CHANNEL` settings as the existing suites. It starts a temporary real Python service and simulates model responses for repeatable validation, fallback and stale-state checks. A live model must also be smoke-tested separately.
+
+## Reliability and local projects
+
+Undefined estimates (including correlation with a constant complete-pair column) are blocked before interpretation or write-up capture. Supplemental checks that cannot be computed are omitted or marked unavailable. No new statistical method is introduced by these validity checks.
+
+On Your data, **Save project (.json)** downloads datasets, column types, cleaning recipes, undo history, the current selection and write-up figures/text. **Open project** validates the entire file before replacing the current project; save existing work first. Project files up to 50 MB can be opened. Imported figures are rebuilt from allowed SVG elements/attributes and imported reporting flags must be reviewed again.
+
+**Keep in this browser** is on by default for Python local mode and opt-in for the standalone file. Saving can fail because of browser quota or privacy settings; the UI then directs you to save a project file. **Forget browser copy** removes the saved copy and turns saving off without clearing the current tab. The saved copy is associated with the current origin/port, not synced across devices. Project files are the portable backup. Original source files remain your responsibility.
+
+**Check connection** checks Ollama availability and whether the configured local model is installed. The local assistant accepts supported intents before model inference, constrains the model's topic, and distinguishes unsupported questions from invalid outputs, missing models, timeouts and a busy service. Empty emphasis lists retain the complete known topic rather than treating missing ranking as an inference failure. Both Python and the browser verify topic membership and complete evidence, including duplicate counts. **Cancel request** aborts the browser request and discards late responses; already-started Ollama computation may continue until it finishes or times out, so a subsequent request may briefly be busy.
+
+Additional verification:
+
+```bash
+node tests/check_reliability.js   # same Playwright configuration as other browser suites
+python3 tests/eval_local_model.py --model qwen2.5:1.5b  # actual local inference
+```

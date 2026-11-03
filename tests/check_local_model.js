@@ -21,7 +21,7 @@ var assert = require('assert'), spawn = require('child_process').spawn, path = r
       await page.route('**/api/explain', async function (route) {
         var packet = route.request().postDataJSON();
         assert.deepEqual(Object.keys(packet).sort(), ['evidence', 'question']);
-        await route.fulfill({json: {status: 'validated', lines: packet.evidence.uncertainty}});
+        await route.fulfill({json: {status: 'validated', topic: 'uncertainty', lines: packet.evidence.uncertainty}});
       });
       async function ask(q) {
         await page.locator('#local-model-question').fill(q);
@@ -37,13 +37,24 @@ var assert = require('assert'), spawn = require('child_process').spawn, path = r
       assert((await page.locator('#local-model-answer').innerText()).includes('response rejected'));
       assert(!(await page.locator('#local-model-answer').innerText()).includes('99%'));
       await page.unroute('**/api/explain');
+      for (var kind of ['omitted', 'duplicate', 'mixed']) {
+        await page.route('**/api/explain', function (r) {
+          var packet = r.request().postDataJSON(), lines = packet.evidence.result.slice();
+          if (kind === 'omitted') lines.pop();
+          if (kind === 'duplicate') lines[lines.length - 1] = lines[0];
+          if (kind === 'mixed') lines[0] = packet.evidence.pvalue[0];
+          return r.fulfill({json: {status: 'validated', topic: 'result', lines: lines}});
+        });
+        await ask('Explain the result'); assert((await page.locator('#local-model-answer').innerText()).includes('response rejected'));
+        await page.unroute('**/api/explain');
+      }
       // Exercise the actual refusal path in Python, without calling Ollama.
       await ask('Prove Score causes a cure');
       assert((await page.locator('#local-model-answer').innerText()).includes('Unsupported question'));
       await page.route('**/api/explain', async function (r) {
         var packet = r.request().postDataJSON();
         await new Promise(function (resolve) { setTimeout(resolve, 150); });
-        await r.fulfill({json: {status: 'validated', lines: packet.evidence.result}});
+        await r.fulfill({json: {status: 'validated', topic: 'result', lines: packet.evidence.result}});
       });
       await page.locator('#local-model-question').fill('Explain this result');
       await page.getByRole('button', {name: 'Ask local model', exact: true}).click();
