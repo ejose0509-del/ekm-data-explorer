@@ -1,0 +1,237 @@
+/* Lecture-hall chalkboard. One committed dark world for every viewer.
+   Layout: a ledge band carries name and tabs; work sits on ruled board panels; results read 1 Method | 2 Result | 3 Conclusion. */
+:root {
+  --board: #1d3630; --board-2: #234139; --board-3: #172c27; --ledge: #12221e;
+  --chalk: #edf0e8; --chalk-2: #b7c4bb; --chalk-3: #9aaca3; --rule: rgba(237, 240, 232, .16); --rule-2: rgba(237, 240, 232, .32);
+  --yellow: #f2d56b; --yellow-hi: #f6e08f; --blue: #93c8f2; --pink: #f3a6be; --green: #a9dda0; --orange: #f4b27a; --red: #ff9b8f; --violet: #c7b3f5;
+  --display: "STIX Two Text", "Cambria Math", Georgia, serif;
+  --ui: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --t1: 12px; --t2: 13.5px; --t3: 15px; --t4: 18px; --t5: 24px; --t6: 34px;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 36px;
+  /* names the chart code uses */
+  --accent: var(--blue); --ve: var(--yellow); --accent-soft: rgba(147, 200, 242, .16); --line: var(--rule); --muted: var(--chalk-3); --ink: var(--chalk); --neutral: var(--chalk-3); --card: var(--board-2); --paper: var(--board-3);
+  color-scheme: dark;
+}
+* { box-sizing: border-box }
+html { background: var(--ledge); scrollbar-color: var(--chalk-3) var(--board-3) }
+body { margin: 0; background: var(--board); color: var(--chalk); font: 400 var(--t3)/1.55 var(--ui); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--ledge) }
+::selection { background: var(--yellow); color: var(--board) }
+a { color: var(--blue); text-underline-offset: 3px }
+:focus-visible { outline: 2px solid var(--yellow); outline-offset: 2px }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: 0; text-wrap: balance; margin: 0 }
+h2 { font-size: var(--t5); line-height: 1.2 }
+p { margin: 0 }
+.num, td.num { font-variant-numeric: tabular-nums }
+
+/* ledge band */
+.ledge { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--ledge); border-bottom: 1px solid var(--rule) }
+.ledge-in { max-width: 1240px; margin: 0 auto; display: flex; align-items: center; gap: var(--s6); padding: 0 max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); min-height: 60px; flex-wrap: wrap }
+.brand { font: 700 var(--t5)/1 var(--display); color: var(--chalk); text-decoration: none; display: flex; align-items: baseline; gap: var(--s2) }
+.brand small { font: 500 var(--t2) var(--ui); color: var(--chalk-2) }
+#tabs { display: flex; gap: var(--s5); overflow-x: auto; scrollbar-width: none; flex: 1 1 auto; min-width: 0 }
+#tabs a { color: var(--chalk-2); text-decoration: none; font: 600 var(--t2) var(--ui); padding: 20px 0 17px; border-bottom: 3px solid transparent; white-space: nowrap }
+#tabs a:hover { color: var(--chalk) }
+#tabs a[aria-current="page"] { color: var(--chalk); border-bottom-color: var(--yellow) }
+
+.wrap { max-width: 1240px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: var(--s6) 64px }
+#view { display: grid; gap: var(--s5); min-width: 0 }
+.lede { font: 400 var(--t4)/1.45 var(--display); color: var(--chalk); max-width: 70ch }
+.count { color: var(--chalk-2); font-size: var(--t2) }
+.nd { color: var(--chalk-3); font-style: italic }
+.warn { color: var(--orange) }
+.how { color: var(--chalk); background: var(--board-3); border: 1px solid var(--rule); border-radius: 4px; padding: var(--s3) var(--s4); font-size: var(--t2) }
+.more-link { color: var(--blue); font-weight: 600; text-decoration: none } .more-link:hover { text-decoration: underline }
+.label { font: 600 var(--t1) var(--ui); color: var(--chalk-2) }
+
+/* panels (the board's ruled areas) */
+.card { background: var(--board-2); border: 1px solid var(--rule); border-radius: 4px; padding: var(--s5); display: grid; gap: var(--s4); align-content: start; min-width: 0 }
+.card > * { min-width: 0 }
+.card h2 { font-size: var(--t4) }
+.card h2 .count { font: 500 var(--t2) var(--ui) }
+.agrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); gap: var(--s5); align-items: start }
+.amain, .aside { display: grid; gap: var(--s5); min-width: 0 }
+
+/* figures */
+.figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule) }
+.fig { display: grid; gap: 2px; padding: var(--s3) var(--s4) var(--s3) 0; min-width: 0 }
+.fig + .fig { padding-left: var(--s4); border-left: 1px solid var(--rule) }
+.fig b { font: 600 var(--t5)/1.15 var(--ui); color: var(--chalk); overflow-wrap: anywhere }
+
+/* controls: standard, drawn in chalk */
+.btn { font: 600 var(--t2) var(--ui); color: var(--chalk); background: transparent; border: 1.5px solid var(--chalk-2); border-radius: 3px; padding: 7px 14px; cursor: pointer; transition: background-color .15s ease-out, border-color .15s ease-out }
+.btn:hover { border-color: var(--chalk); background: rgba(237, 240, 232, .06) }
+.btn:disabled { opacity: .45; cursor: not-allowed }
+.btn-primary { background: var(--yellow); border-color: var(--yellow); color: var(--board) }
+.btn-primary:hover { background: var(--yellow-hi); border-color: var(--yellow-hi) }
+label.btn { display: inline-block }
+.linkbtn { font: inherit; font-weight: 600; color: var(--blue); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; overflow-wrap: anywhere }
+.linkbtn:hover { text-decoration: underline }
+.toolbar { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: end }
+.slot { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s3); align-items: center }
+.field { display: grid; gap: var(--s1); font: 600 var(--t1) var(--ui); color: var(--chalk-2); min-width: 0; max-width: 100% }
+select, input[type=text], input:not([type]), input[type=search], textarea, .field input {
+  font: 400 var(--t2) var(--ui); color: var(--chalk); background: var(--board-3); border: 1.5px solid var(--chalk-3); border-radius: 3px; padding: 7px 10px; min-width: 0; max-width: 100% }
+select:hover, input:hover, textarea:hover { border-color: var(--chalk-2) }
+::placeholder { color: var(--chalk-3) }
+textarea { width: 100%; resize: vertical }
+input[type=checkbox] { accent-color: var(--yellow); width: 15px; height: 15px }
+.chk { display: inline-flex; gap: var(--s2); align-items: center; font: 400 var(--t2) var(--ui); color: var(--chalk) }
+.preds { border: 1px solid var(--rule); border-radius: 4px; padding: var(--s2) var(--s3); display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4); max-width: 100% }
+.preds legend { padding: 0 var(--s1) }
+.field.inline { display: inline-flex; align-items: center; gap: var(--s2) } .field.inline input { width: 14ch; padding: 4px 8px }
+.pills { display: flex; flex-wrap: wrap; gap: var(--s2) }
+.pill { font: 600 var(--t2) var(--ui); color: var(--chalk-2); background: transparent; border: 1.5px solid var(--rule-2); border-radius: 3px; padding: 6px 12px; cursor: pointer }
+.pill:hover { color: var(--chalk); border-color: var(--chalk-2) }
+.pill.on { color: var(--board); background: var(--chalk); border-color: var(--chalk) }
+.pill .num { opacity: .7; font-weight: 500 }
+details > summary { cursor: pointer; color: var(--blue); font: 600 var(--t2) var(--ui) }
+details[open] { display: grid; gap: var(--s3) }
+.sr-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none }
+.drop .slot:focus-within label.btn { outline: 2px solid var(--yellow); outline-offset: 2px }
+.drop { border: 1.5px dashed var(--chalk-3); background: transparent } .drop.over { border-color: var(--yellow); background: rgba(242, 213, 107, .07) }
+
+/* chips: chalk outlines carry state */
+.chip { display: inline-block; font: 600 var(--t1)/1.6 var(--ui); padding: 0 8px; border-radius: 3px; border: 1.5px solid var(--chalk-3); color: var(--chalk-2); white-space: nowrap }
+.chip.q-verified { border-color: var(--green); color: var(--green) }
+.chip.q-reported { border-color: var(--blue); color: var(--blue) }
+.chip.q-estimated { border-color: var(--orange); color: var(--orange) }
+.chip.q-excluded { border-color: var(--red); color: var(--red) }
+
+/* tables */
+.tablewrap { overflow-x: auto; border-top: 1px solid var(--rule-2); min-width: 0 }
+table { border-collapse: collapse; width: 100%; font-size: var(--t2) }
+th { text-align: left; font: 600 var(--t1) var(--ui); color: var(--chalk-2); padding: var(--s2) var(--s3) var(--s2) 0; border-bottom: 1px solid var(--rule-2); white-space: nowrap }
+td { padding: var(--s2) var(--s3) var(--s2) 0; border-bottom: 1px solid var(--rule); vertical-align: top }
+td select { padding: 4px 6px }
+tbody tr:hover td { background: rgba(237, 240, 232, .03) }
+
+/* datasets list */
+.dslist { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s1) }
+.dslist li { padding: var(--s2) var(--s3); border-radius: 3px; border: 1px solid transparent }
+.dslist li.on { border-color: var(--rule-2); background: var(--board-3) }
+.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2) }
+
+/* the poster panel: 1 Method | 2 Result | 3 Conclusion */
+.poster { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.5fr) minmax(0, 1fr); border: 1px solid var(--rule-2); border-radius: 4px; background: var(--board-2) }
+.poster > section { padding: var(--s5); display: grid; gap: var(--s4); align-content: start; min-width: 0 }
+.poster > section + section { border-left: 1px solid var(--rule) }
+.step { display: flex; align-items: center; gap: var(--s2); font: 600 var(--t4) var(--display) }
+.step i { font: 700 var(--t2)/1 var(--ui); font-style: normal; width: 26px; height: 26px; display: grid; place-items: center; border: 1.5px solid var(--yellow); color: var(--yellow); border-radius: 50% }
+.math { font: 400 var(--t4)/1.6 var(--display); color: var(--chalk); padding: var(--s3) 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); overflow-x: auto; white-space: nowrap }
+.math sub, .math sup { font-size: .7em }
+.math .op { font-style: normal; padding: 0 .15em }
+.method-note { font-size: var(--t2); color: var(--chalk-2) }
+.figcap { font: italic var(--t2) var(--display); color: var(--chalk-2) } .figcap b { font-style: normal; color: var(--chalk) }
+.poster .figs { grid-template-columns: 1fr 1fr }
+.poster .fig b { font-size: var(--t4) }
+.reading h3, .caveats h3 { font-size: var(--t3); margin-bottom: var(--s2) }
+.reading li { line-height: 1.55 }
+.caveats li { padding-left: var(--s3); border-left: 1px solid var(--orange); color: var(--chalk) }
+.ai { border-color: var(--rule-2) } .ai-out { white-space: pre-wrap; max-width: 75ch; font-family: var(--display); font-size: var(--t3) }
+.ai .slot input { flex: 1 1 240px }
+
+/* charts drawn in chalk */
+.chartwrap { overflow-x: auto; min-width: 0 }
+.achart { width: 100%; min-width: 440px; height: auto; display: block }
+.achart .tk { font: 11px var(--ui); fill: var(--chalk-3) } .achart .ax { font: italic 13px var(--display); fill: var(--chalk-2) }
+.legend { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4); font-size: var(--t2) } .legend i { display: inline-block; width: 14px; height: 2px; margin-right: 6px; vertical-align: middle }
+
+/* clean & enhance */
+.halves { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--rule-2); border-radius: 4px; overflow: hidden }
+.halves > div { padding: var(--s4) var(--s5); display: grid; gap: var(--s2) }
+.halves > div + div { border-left: 1px solid var(--rule-2); background: var(--board-2) }
+.halves h3 { font-size: var(--t3) }
+.halves dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s2) var(--s4); margin: 0 }
+.halves dt { font: 600 var(--t1) var(--ui); color: var(--chalk-2) } .halves dd { margin: 0; font: 600 var(--t4) var(--ui) }
+.halves .up { color: var(--green) } .halves .down { color: var(--orange) }
+.checks { gap: 0 } .chk-row { display: grid; gap: var(--s2); padding: var(--s3) 0; border-bottom: 1px solid var(--rule) } .chk-row:last-child { border-bottom: 0 }
+.chk-row .btn { justify-self: start } .src { font-style: italic }
+.fixform { display: grid; gap: var(--s2); padding: var(--s3) var(--s4); border-radius: 4px; background: var(--board-3); border: 1px solid var(--rule) }
+.recipe { margin: 0; padding-left: 20px; display: grid; gap: var(--s2) } .recipe li::marker { color: var(--yellow); font-weight: 700 }
+.clusters { gap: var(--s2) } .clusters li { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; padding: var(--s2) 0; border-bottom: 1px solid var(--rule) }
+.sub-h { font-size: var(--t3) } .methods li { font-size: var(--t2) }
+
+@media (max-width: 960px) {
+  .poster { grid-template-columns: 1fr } .poster > section + section { border-left: 0; border-top: 1px solid var(--rule) }
+}
+@media (max-width: 860px) {
+  .agrid { grid-template-columns: 1fr } .aside { order: -1 }
+  .ledge-in { gap: var(--s4) } #tabs a { padding: 12px 0 10px } .brand { padding-top: 12px }
+  .halves { grid-template-columns: 1fr } .halves > div + div { border-left: 0; border-top: 1px solid var(--rule-2) } .halves dl { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important } }
+
+.vt { font-size: var(--t6); line-height: 1.1 }
+.poster .figs { gap: 0 var(--s4) } .poster .fig + .fig { border-left: 0; padding-left: 0 } .poster .fig { padding-right: 0 }
+.poster { grid-template-columns: minmax(0, .85fr) minmax(0, 1.75fr) minmax(0, .95fr) }
+.achart .tk { font-size: 14px } .achart .ax { font-size: 15px }
+@media (max-width: 960px) { .poster { grid-template-columns: minmax(0, 1fr) } .poster > section + section { border-left: 0; border-top: 1px solid var(--rule) } }
+.math { overflow-x: auto; white-space: nowrap; padding: var(--s3) 0 }
+.math math { font-family: "STIX Two Math", "Cambria Math", math; font-size: 1.12em; color: var(--chalk) }
+.fig.key b { font: 600 var(--t6)/1 var(--display); border: 1.5px solid var(--yellow); border-radius: 2px; padding: 4px 12px; justify-self: start; color: var(--chalk) }
+.poster .fig.key { grid-column: 1 / -1 } .poster .fig.key b { font-size: var(--t6) }
+.rewrite { display: inline-block; animation: chalk-write .45s cubic-bezier(.16, 1, .3, 1) }
+@keyframes chalk-write { from { clip-path: inset(0 100% 0 0) } to { clip-path: inset(0) } }
+@media (prefers-reduced-motion: reduce) { .rewrite { animation: none } }
+@media (max-width: 600px) { .achart { min-width: 0 } .fig.key b { font-size: var(--t5) } }
+.poster { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, .95fr) }
+.math math { font-size: 1.04em }
+@media (max-width: 960px) { .poster { grid-template-columns: minmax(0, 1fr) } }
+.achart { max-width: 960px; margin-inline: auto }
+.empty { max-width: 640px }
+/* first-run board */
+.sketch { width: 100%; max-width: 132px; height: auto; display: block; fill: none; stroke: var(--chalk-2); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round }
+.sketch .hl { stroke: var(--yellow) } .sketch circle { fill: var(--blue); stroke: none; opacity: .85 }
+.sketch .sk-t { fill: var(--chalk-2); stroke: none; font: italic 13px var(--display) } .sketch .sk-t.sm { font-size: 9.5px }
+.first { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: var(--s6); align-items: start }
+.first-main { display: grid; gap: var(--s5); align-content: start }
+.first-note { max-width: 56ch }
+.board-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--rule-2); border-radius: 4px; background: var(--board-2) }
+.board-steps li { display: grid; gap: var(--s3); padding: var(--s5); align-content: start; position: relative }
+.board-steps li:nth-child(even) { border-left: 1px solid var(--rule) } .board-steps li:nth-child(n+3) { border-top: 1px solid var(--rule) }
+.board-steps h2 { font-size: var(--t4) }
+.sn { position: absolute; top: var(--s4); right: var(--s4); font: 700 var(--t2)/1 var(--ui); width: 26px; height: 26px; display: grid; place-items: center; border: 1.5px solid var(--yellow); color: var(--yellow); border-radius: 50% }
+.ghost { opacity: .62; border-style: dashed }
+.ghost .math { color: var(--chalk-2) }
+.ghost-fig { font: 600 var(--t6)/1 var(--display); color: var(--chalk-2); border: 1.5px dashed var(--yellow); border-radius: 2px; padding: 4px 12px; justify-self: start }
+.ghost .sketch { max-width: 100%; stroke-width: 1 }
+.ghost-line { height: 9px; border-radius: 5px; background: var(--rule-2) } .w90 { width: 90% } .w85 { width: 85% } .w75 { width: 75% } .w60 { width: 60% }
+.halves.ghost dd { color: var(--chalk-3) }
+.looks { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--s2) }
+.chart-row { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: var(--s4) }
+.chart-row li { display: grid; gap: var(--s2); justify-items: center; padding: var(--s5) var(--s4); border: 1px dashed var(--rule-2); border-radius: 4px; background: var(--board-2); font: 600 var(--t2) var(--ui); color: var(--chalk-2) }
+a.btn { text-decoration: none; display: inline-block }
+@media (max-width: 960px) { .first { grid-template-columns: minmax(0, 1fr) } }
+@media (max-width: 560px) { .board-steps { grid-template-columns: minmax(0, 1fr) } .board-steps li:nth-child(even) { border-left: 0 } .board-steps li + li { border-top: 1px solid var(--rule) } }
+.ghost-card { border-style: dashed }
+.ghost-checks li { display: grid; gap: var(--s2); padding: var(--s3) 0; border-bottom: 1px solid var(--rule); opacity: .7 } .ghost-checks .chip { justify-self: start }
+.ghost-btn { width: 140px; height: 30px; border: 1.5px dashed var(--chalk-3); border-radius: 3px }
+.ghost-hist li { opacity: .7 } .ghost-hist .ghost-line { margin-top: 6px }
+/* analysis extras, tools, ask, shared */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0) }
+.ask { display: flex; gap: var(--s2); flex-wrap: wrap } .ask input { flex: 1 1 320px; font-size: var(--t3); padding: 10px 12px }
+.apa { display: grid; gap: var(--s2); padding: var(--s3) var(--s4); border: 1px solid var(--rule-2); border-radius: 4px; background: var(--board-3) } .apa h3, .next h3 { font-size: var(--t3) }
+.apa-t { font: 400 var(--t3)/1.5 var(--display); color: var(--chalk) } .apa .btn { justify-self: start }
+.next { display: grid; gap: var(--s2) }
+.tools { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s3); align-items: center; padding: var(--s3) 0; border-top: 1px solid var(--rule) } .tools .label { margin-right: var(--s2) }
+.dt { border-top: 1px solid var(--rule); padding: var(--s3) 0 } .dt > summary { font: 600 var(--t3) var(--ui) } .dt-body { display: grid; gap: var(--s3); padding-top: var(--s3) } .dt-body .btn { justify-self: start }
+.shared li { display: grid; gap: var(--s2); padding: var(--s2) 0; border-bottom: 1px solid var(--rule) } .shared-body { display: grid; gap: var(--s2); padding: var(--s2) 0 var(--s2) var(--s4); border-left: 1px solid var(--rule-2) }
+table.pivot td.num { color: var(--chalk) }
+/* go deeper */
+.deep { gap: var(--s4) } .deep-body { display: grid; gap: var(--s4); min-width: 0 }
+table.worked th { white-space: nowrap; font: italic 400 var(--t3) var(--display); color: var(--chalk); text-transform: none; border-bottom: 1px solid var(--rule) }
+.ws-expr { font: 400 var(--t3)/1.5 var(--display); color: var(--chalk-2) } .ws-val { font: 600 var(--t3) var(--ui); color: var(--yellow); white-space: nowrap }
+.plots2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--s4) } .plots2 .achart { min-width: 0 }
+.achart .mval { font-size: 12px; fill: var(--board) }
+.space { position: relative; border: 1px solid var(--rule); border-radius: 4px; background: var(--board-3) }
+.space canvas { display: block; width: 100%; height: clamp(300px, 46vw, 480px); cursor: grab; touch-action: none } .space canvas:active { cursor: grabbing }
+input[type=range] { accent-color: var(--yellow); width: min(320px, 70vw) }
+/* the manuscript: paper pinned to the board */
+.paper { background: #f7f6f1; color: #1d2722; border-radius: 3px; padding: clamp(20px, 4vw, 44px); display: grid; gap: var(--s3); font: 400 16px/1.65 var(--display); max-width: 820px }
+.paper h1, .paper h2, .paper h3 { color: #1d2722 } .paper .ptitle { font-size: 28px } .paper h2 { font-size: 19px; margin-top: var(--s4); border-bottom: 1px solid #cfd6d1; padding-bottom: 4px } .paper h3 { font-size: 16.5px; margin-top: var(--s3) }
+.paper .pmeta { font: 400 13px var(--ui); color: #59665f } .paper ul { margin: 0; padding-left: 20px } .paper figure { margin: var(--s3) 0 } .paper figcaption { font-size: 14px }
+.paper svg { max-width: 100%; height: auto } .paper .pitem { display: grid; gap: var(--s2) }
+.paper .pctl { display: flex; gap: var(--s2); flex-wrap: wrap } .paper .pctl .btn { color: #1d2722; border-color: #8a958f; font-size: 12px; padding: 4px 10px } .paper .pctl .btn:hover { background: rgba(0,0,0,.05) }
+.paper.ghost { background: var(--board-2); border: 1.5px dashed var(--rule-2) } .paper.ghost .ghost-fig { margin: var(--s3) 0 }
+.checklist li { display: flex; gap: var(--s2); align-items: baseline }

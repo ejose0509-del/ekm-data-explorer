@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>EKM Data Explorer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=STIX+Two+Text:ital,wght@0,400;0,600;0,700;1,400&family=STIX+Two+Math&display=swap">
+<style>
+/*@CSS@*/
+</style>
+</head>
+<body>
+<header class="ledge"><div class="ledge-in">
+  <div class="brand">EKM <small>Data Explorer</small></div>
+  <nav id="tabs" aria-label="Sections">
+    <a href="#data">Your data</a>
+    <a href="#enhance">Clean &amp; enhance</a>
+    <a href="#analyze">Analyze</a>
+    <a href="#charts">Charts</a>
+    <a href="#writeup">Write-up</a>
+  </nav>
+</div></header>
+<main class="wrap"><div id="view"></div></main>
+<script>
+/*@JS@*/
+nav((location.hash || "").slice(1) || "data");
+</script>
+</body>
+</html>
