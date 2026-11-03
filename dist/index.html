@@ -527,7 +527,16 @@ function parseNum(v) {
 }
 function isMissing(v) { return v == null || v === "" || parseNum(v) === null && !/\S/.test(String(v)) || /^(na|n\/a|nan|null|none|no data( found)?)$/i.test(String(v).trim()); }
 function splitCSV(text) {
-  var first = text.split(/\r?\n/, 1)[0], d = [",", ";", "\t", "|"].map(function (c) { return [c, first.split(c).length]; }).sort(function (a, b) { return b[1] - a[1]; })[0][0];
+  text = String(text).replace(/^\uFEFF/, "");
+  // Count separators only outside quoted cells in the first nonblank record.
+  var counts = [0, 0, 0, 0], seps = [",", ";", "\t", "|"], quoted = false, started = false;
+  for (var k = 0; k < text.length; k++) {
+    var c = text[k];
+    if (c === '"') { if (quoted && text[k + 1] === '"') k++; else quoted = !quoted; started = true; }
+    else if (!quoted && (c === "\r" || c === "\n")) { if (started) break; }
+    else if (!quoted) { var at = seps.indexOf(c); if (at >= 0) counts[at]++; if (/\S/.test(c)) started = true; }
+  }
+  var d = seps[counts.indexOf(Math.max.apply(null, counts))];
   var rows = [], row = [], cell = "", q = false;
   for (var i = 0; i < text.length; i++) {
     var ch = text[i];
@@ -537,6 +546,7 @@ function splitCSV(text) {
     else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
     else cell += ch;
   }
+  if (q) throw new Error("A quoted cell is not closed. Close the quote and try again.");
   if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
   return rows.filter(function (r) { return r.some(function (c) { return String(c).trim() !== ""; }); });
 }
@@ -556,7 +566,11 @@ function typeColumn(vals, name) {
 }
 function makeSet(name, header, body, origin, extra) {
   header = header.map(function (h, i) { h = String(h || "").trim(); return h || "Column " + (i + 1); });
-  var seen = {}; header = header.map(function (h) { seen[h] = (seen[h] || 0) + 1; return seen[h] > 1 ? h + " (" + seen[h] + ")" : h; });
+  var seen = Object.create(null), reserved = Object.create(null);
+  header.forEach(function (h) { reserved[h] = true; });
+  header = header.map(function (h) { var n = h, i = 2; if (seen[n]) { do { n = h + " (" + i++ + ")"; } while (seen[n] || reserved[n]); } seen[n] = true; return n; });
+  if (!header.length) throw new Error("No columns were found. Add a header row and try again.");
+  body.forEach(function (r, i) { if (r.length > header.length) throw new Error("Data row " + (i + 1) + " has more values than the header. Add the missing column names or remove the extra values."); });
   var cols = header.map(function (h, j) { return {name: h, type: typeColumn(body.map(function (r) { return r[j]; }), h)}; });
   var rows = body.map(function (r) { return cols.map(function (c, j) { var v = r[j]; if (isMissing(v)) return null; if (c.type === "number" || c.type === "year") { var n = parseNum(v); return typeof n === "number" ? n : null; } return String(v).trim(); }); });
   return Object.assign({id: "d" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: name, origin: origin || "file", source: "", note: "", added: new Date().toISOString().slice(0, 10), cols: cols, rows: rows, saved: false}, extra || {});
@@ -613,31 +627,36 @@ function readFile(file) {
   var fail = function (m) { A.busy = ""; A.msg = m; render(); };
   if (file.size > 25e6) return fail(file.name + " is " + (file.size / 1e6).toFixed(0) + " MB. Files up to 25 MB can be opened.");
   if (ext === "xlsx" || ext === "xls") {
-    loadXLSX().then(function (X) {
-      file.arrayBuffer().then(function (buf) {
-        var wb = X.read(buf, {type: "array"}), sh = wb.Sheets[wb.SheetNames[0]], aoa = X.utils.sheet_to_json(sh, {header: 1, raw: true, defval: ""});
+    return loadXLSX().then(function (X) {
+      return file.arrayBuffer().then(function (buf) {
+        var wb = X.read(buf, {type: "array"}), sh = wb.Sheets[wb.SheetNames[0]];
+        if (!sh) throw new Error("No worksheets were found.");
+        var aoa = X.utils.sheet_to_json(sh, {header: 1, raw: true, defval: ""});
         aoa = aoa.filter(function (r) { return r.some(function (c) { return String(c).trim() !== ""; }); });
         done(makeSet(name + (wb.SheetNames.length > 1 ? " (" + wb.SheetNames[0] + ")" : ""), aoa[0] || [], aoa.slice(1)));
-      });
+      }).catch(function () { fail("Could not read " + file.name + ". Open it in a spreadsheet app and save it as XLSX or CSV, then try again."); });
     }).catch(function () { fail("The spreadsheet reader did not load. Save the sheet as CSV and add that instead."); });
-    return;
   }
-  file.text().then(function (t) {
+  return file.text().then(function (t) {
     if (ext === "json" || /^\s*[\[{]/.test(t)) {
-      try { var j = JSON.parse(t); if (!Array.isArray(j)) j = j.data || j.rows || Object.values(j).filter(Array.isArray)[0] || [];
-        var keys = []; j.forEach(function (o) { Object.keys(o || {}).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); }); });
-        return done(makeSet(name, keys, j.map(function (o) { return keys.map(function (k) { var v = o[k]; return v != null && typeof v === "object" ? JSON.stringify(v) : v; }); })));
-      } catch (e) { return fail(file.name + " is not valid JSON."); }
+      var j;
+      try { j = JSON.parse(t); } catch (e) { return fail(file.name + " is not valid JSON. Check its commas, quotes and brackets, then try again."); }
+      if (j && !Array.isArray(j) && typeof j === "object") j = j.data || j.rows || Object.values(j).filter(Array.isArray)[0];
+      if (!Array.isArray(j) || j.some(function (o) { return !o || typeof o !== "object" || Array.isArray(o); }))
+        return fail(file.name + " needs a JSON array of row objects, optionally inside data or rows. Export the table as CSV if needed.");
+      var keys = []; j.forEach(function (o) { Object.keys(o).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); }); });
+      return done(makeSet(name, keys, j.map(function (o) { return keys.map(function (k) { var v = Object.prototype.hasOwnProperty.call(o, k) ? o[k] : null; return v != null && typeof v === "object" ? JSON.stringify(v) : v; }); })));
     }
     var rows = splitCSV(t); if (rows.length < 2) return fail(file.name + " needs a header row and at least one data row.");
     done(makeSet(name, rows[0], rows.slice(1)));
-  }).catch(function () { fail("Could not read " + file.name + "."); });
+  }).catch(function (e) { fail("Could not read " + file.name + ". " + (e && e.message || "Save the table as UTF-8 CSV and try again.")); });
 }
+
 var _xlsx = null;
 function loadXLSX() {
   if (window.XLSX) return Promise.resolve(window.XLSX);
   if (_xlsx) return _xlsx;
-  _xlsx = new Promise(function (ok, no) { var s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; s.onload = function () { ok(window.XLSX); }; s.onerror = no; document.head.appendChild(s); });
+  _xlsx = new Promise(function (ok, no) { var s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; s.onload = function () { if (window.XLSX) ok(window.XLSX); else { _xlsx = null; s.remove(); no(new Error("Spreadsheet reader unavailable")); } }; s.onerror = function () { _xlsx = null; s.remove(); no(new Error("Spreadsheet reader unavailable")); }; document.head.appendChild(s); });
   return _xlsx;
 }
 
@@ -1025,7 +1044,7 @@ view.addEventListener("click", function (e) {
   if (d.akind) { A.kind = d.akind; render(); refocus('[data-akind="' + d.akind + '"]'); return; }
   if (d.ctype) { A.chart.type = d.ctype; render(); refocus('[data-ctype="' + d.ctype + '"]'); return; }
   if (d.aask) { var ds = cur(); askClaude(ds, runAnalysis(ds)); return; }
-  if (d.apaste) { var txt = (document.getElementById("apaste") || {}).value || "", rows = splitCSV(txt); if (rows.length < 2) { A.msg = "Paste a header row and at least one data row."; render(); return; } var ns = makeSet("Pasted data " + new Date().toISOString().slice(0, 10), rows[0], rows.slice(1)); A.sets.unshift(ns); pickSet(ns.id); render(); saveSet(ns); return; }
+  if (d.apaste) { try { var txt = (document.getElementById("apaste") || {}).value || "", rows = splitCSV(txt); if (rows.length < 2) { A.msg = "Paste a header row and at least one data row."; render(); return; } var ns = makeSet("Pasted data " + new Date().toISOString().slice(0, 10), rows[0], rows.slice(1)); A.sets.unshift(ns); pickSet(ns.id); render(); saveSet(ns); } catch (err) { A.msg = err.message || "Could not read the pasted table. Check its headers and quotes."; render(); } return; }
   if (d.adel) { A.del = cur().id; render(); refocus("[data-adelno]"); return; }
   if (d.adelno) { A.del = null; render(); refocus("[data-adel]"); return; }
   if (d.adelyes) { deleteSet(cur()); A.del = null; render(); return; }

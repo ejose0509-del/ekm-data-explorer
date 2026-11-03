@@ -4,7 +4,7 @@ A statistical analyzer that runs entirely in the browser. Add a CSV, Excel or JS
 
 ## Use it
 
-Open `dist/index.html` in a browser. Everything except the Claude-only extras works offline from disk: private storage between visits, Claude explanations, downloads and team sharing need the page to be opened as a Claude artifact.
+Open `dist/index.html` in a browser. CSV, TSV, JSON, pasted tables, statistics and charts work offline from disk. Excel imports load the spreadsheet reader from cdnjs on demand and need network access unless that script is cached. Private storage between visits, Claude explanations, downloads and team sharing need the page to be opened as a Claude artifact.
 
 ## Change it
 
@@ -14,6 +14,18 @@ python3 tests/check_stats.py      # checks every statistic against SciPy
 ```
 
 Edit the files in `src/` and rebuild. `AGENTS.md` explains the structure for coding agents such as Codex; `DESIGN.md` describes the chalkboard design system; `PRODUCT.md` the users and purpose.
+
+## Import checks
+
+With Playwright and a Chromium browser available:
+
+```bash
+node tests/check_imports.js
+```
+
+Set `PLAYWRIGHT_MODULE` to an existing Playwright module path if it is not installed locally. Set `BROWSER_CHANNEL=chrome` to use installed Google Chrome instead of Playwright's Chromium. The suite opens the built page from disk at 1440px and 400px, tests file upload, paste and drag-drop, and checks recovery after malformed files or a failed spreadsheet-reader download. Excel success cases require access to cdnjs. The small XLSX and XLS fixtures contain only synthetic measurements; the XLSX fixture includes a second sheet to verify first-sheet selection.
+
+JSON imports accept arrays of row objects (also under `data`, `rows`, or another array-valued property). Missing keys become empty cells and nested values are kept as JSON text. CSV imports support comma, semicolon, tab and pipe delimiters, escaped quotes and multiline cells. Short rows receive empty cells; extra values without column headers are rejected rather than discarded. Blank and duplicate headers receive unique names.
 
 ## What is inside
 
