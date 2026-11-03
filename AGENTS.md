@@ -28,20 +28,21 @@ Open `dist/index.html` in a browser to use it. Run the stats check after any cha
 | `src/export.js` | Downloads (SVG/PNG/report/CSV/steps) and results shared with the team |
 | `src/deep.js` | Go deeper panel: worked steps, Q-Q/residual plots, null simulation, sampling lab, distribution fits, prediction, correlation map |
 | `src/space.js` | 3D view (canvas renderer) and the 3D chart type |
-| `src/writeup.js` | Write-up tab, limitations, self-check, Reviewer 2 |
+| `src/writeup.js` | Write-up tab, limitations, saved result evidence |
+| `src/assistant.js` | Offline question routing, grounded explanations, self-check and write-up review |
 
 **Module order matters.** `build.py` concatenates modules in a fixed order into one `<script>`. Later modules extend earlier ones by wrapping globals: `runAnalysis`, `render`, `formula`, `caption`, `toolsBar`, `chartsView` and `VIEWS.*`. To add behaviour, wrap the existing function in a new or later module instead of editing every caller. Keep the plain ES5 style (`var`, `function`), with no modules or bundler.
 
 ## How an analysis renders
 
-`analyzeView()` calls `runAnalysis(ds)`, which returns `R = {controls, head, chart, extra, reading[], caveats[], summary, apa, next[]}`. The poster panel shows `1 Method` (help text plus `formula(R)` MathML), `2 Result` (`R.head`, chart, `R.extra`) and `3 Conclusion` (reading, caveats, APA, next steps). Below it are `deepPanel()`, `toolsBar()`, Ask Claude, and the shared results. To add an analysis kind:
+`analyzeView()` calls `runAnalysis(ds)`, which returns `R = {controls, head, chart, extra, reading[], caveats[], summary, apa, next[]}`. The poster panel shows `1 Method` (help text plus `formula(R)` MathML), `2 Result` (`R.head`, chart, `R.extra`) and `3 Conclusion` (reading, caveats, APA, next steps). Below it are `explanationPanel()`, `deepPanel()`, `toolsBar()`, and the shared results. The offline assistant runs last and uses the existing statistics; explanation and review hooks are defined in `assistant.js`. To add an analysis kind:
 1. Push to `KINDS` and `KIND_HELP`.
 2. Handle it in a `runAnalysis` wrapper.
 3. Optionally extend `formula`, `caption` and `deepTabs`.
 
 ## Platform constraints (Claude artifact)
 
-- **Runtime capabilities are optional.** Private storage, Claude explanations, downloads and team sharing use `window.claude.use("db" | "user" | "sample" | "downloads")`. Every call must handle `null` (unavailable) and errors, because the page has to work fully without them, as it does when opened from disk.
+- **Runtime capabilities are optional.** Private storage, downloads and team sharing use `window.claude.use("db" | "user" | "downloads")`. Every call must handle `null` (unavailable) and errors, because the page has to work fully without them, as it does when opened from disk.
 - **External resources:** scripts only from cdnjs, jsDelivr or unpkg (SheetJS loads on demand); styles and fonts only from Google Fonts. No other network requests.
 - **Untrusted data:** never `innerHTML` text from data other people can write (shared results). Escape with `esc()`.
 

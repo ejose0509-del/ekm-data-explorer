@@ -21,7 +21,8 @@ MODULES = [
     "export.js",     # downloads (SVG/PNG/report/CSV/steps) and team sharing
     "deep.js",       # Go deeper: worked steps, plots, simulation, sampling, fits, predict, correlation map
     "space.js",      # 3D view and 3D chart type
-    "writeup.js",    # Write-up tab and Reviewer 2
+    "writeup.js",    # Write-up tab
+    "assistant.js",  # Offline questions, explanations, and write-up review
 ]
 
 

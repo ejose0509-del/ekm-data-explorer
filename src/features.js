@@ -159,37 +159,7 @@ function suggest(R, ds) {
   R.next = out.slice(0, 3);
 }
 
-// Plain-English question → analysis (on device), with Claude as an optional fallback
-function mentioned(ds, q) { q = q.toLowerCase(); return ds.cols.map(function (c) { var n = c.name.toLowerCase(), alt = n.replace(/[_\-.]+/g, " "); var i = Math.max(q.indexOf(n), q.indexOf(alt)); return [c, i]; }).filter(function (x) { return x[1] >= 0; }).sort(function (a, b) { return a[1] - b[1]; }).map(function (x) { return x[0]; }); }
-function routeQuestion(ds, q) {
-  var cols = mentioned(ds, q), nm = cols.filter(isNum), ct = cols.filter(function (c) { return c.type === "category"; }), tm = cols.filter(function (c) { return c.type === "year" || c.type === "date"; }), w = q.toLowerCase();
-  if (/before|after|pre|post|change between/.test(w) && nm.length >= 2) return {kind: "paired", sel: {x: nm[0].name, y: nm[1].name}};
-  if (/predict|odds|chance|likely|probability/.test(w) && binaryCols(ds).some(function (b) { return cols.indexOf(b) >= 0; })) return {kind: "logistic", sel: {o: binaryCols(ds).filter(function (b) { return cols.indexOf(b) >= 0; })[0].name}};
-  if (/over time|trend|per year|each year|changed|growth/.test(w) && nm.length) return {kind: "trend", sel: {y: nm[0].name, t: (tm[0] || {}).name, g: (ct[0] || {}).name}};
-  if (nm.length && ct.length && /differ|compare|between|higher|lower|by |across|vs|versus/.test(w)) return {kind: "compare", sel: {y: nm[0].name, g: ct[0].name}};
-  if (nm.length >= 3 || (/predict|explain|model|drivers?/.test(w) && nm.length >= 2)) return {kind: "regress", sel: {y: nm[0].name, preds: nm.slice(1).map(function (c) { return c.name; })}};
-  if (nm.length >= 2) return {kind: "relate", sel: {x: nm[1].name, y: nm[0].name}};
-  if (ct.length >= 2) return {kind: /table|pivot|count/.test(w) ? "pivot" : "cross", sel: {g: ct[0].name, g2: ct[1].name}};
-  if (nm.length === 1 && ct.length === 1) return {kind: "compare", sel: {y: nm[0].name, g: ct[0].name}};
-  if (cols.length === 1) return {kind: "describe", sel: {y: cols[0].name}};
-  return null;
-}
-function askAnswer(ds) {
-  var q = ((document.getElementById("askq") || {}).value || "").trim(); if (!q) return;
-  A.askq = q; var r = routeQuestion(ds, q);
-  if (r) { A.kind = r.kind; A.sel = r.sel; A.ai = {}; A.askmsg = "Answering with: " + KIND_HELP[r.kind]; render(); return; }
-  A.askmsg = "Thinking about which analysis fits…"; render();
-  if (!window.claude || !window.claude.use) { A.askmsg = "Name one or two columns in the question, for example “Does body_mass_g differ by species?”"; render(); return; }
-  window.claude.use("sample").then(function (sample) {
-    if (!sample) throw {code: "off"};
-    return sample.json("Pick the statistical analysis that answers the question. Reply with JSON only: {\"kind\": one of describe, compare, relate, cross, trend, regress, paired, logistic, pivot, \"x\": column or null, \"y\": column or null, \"g\": column or null, \"g2\": column or null, \"t\": column or null, \"o\": column or null}. Use only these exact column names: " +
-      ds.cols.map(function (c) { return c.name + " [" + c.type + "]"; }).join(", ") + ". Question: " + q, {modelTier: "quick"});
-  }).then(function (v) {
-    if (!v || KINDS.map(function (k) { return k[0]; }).indexOf(v.kind) < 0) throw {code: "bad"};
-    var sel = {}; ["x", "y", "g", "g2", "t", "o"].forEach(function (k) { if (v[k] && idxOf(ds, v[k]) >= 0) sel[k] = v[k]; });
-    A.kind = v.kind; A.sel = sel; A.ai = {}; A.askmsg = "Claude chose: " + KIND_HELP[v.kind]; render();
-  }).catch(function () { A.askmsg = "Could not pick an analysis from that. Name one or two columns, for example “Does body_mass_g differ by species?”"; render(); });
-}
+// Offline question routing is supplied by assistant.js after all analysis kinds are registered.
 
 // Formula, caption and view hooks for the new kinds
 var _formula = formula;

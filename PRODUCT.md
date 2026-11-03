@@ -15,7 +15,7 @@ Researchers, scientists, and analysts who want to understand their data better; 
 Turn a raw table into trustworthy findings: health check and cleaning first, then analysis, charts and interpretation, all computed on the person's own device.
 
 ## Positioning
-Statistical rigor (results match SciPy) plus explanation in plain language. Cleaning methods follow OpenRefine, ydata-profiling, Palantir Foundry and scikit-learn. Data never leaves the device except an optional summary sent to Claude for an explanation.
+Statistical rigor (results match SciPy) plus explanation in plain language. Cleaning methods follow OpenRefine, ydata-profiling, Palantir Foundry and scikit-learn. The offline assistant explains computed results with fixed rules; it does not use a language model or send data. Optional storage and sharing integrations remain separate.
 
 ## Capabilities and Constraints
 Tabs: Your data, Clean & enhance, Analyze, Charts. Private per-person storage; change history with undo. No example dataset: people start from their own data.

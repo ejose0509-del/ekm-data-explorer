@@ -17,7 +17,7 @@ var STEPS = [["table", "Add your table", "CSV, Excel or JSON. Column types are r
   ["scatter", "Read the result", "Each result comes with a chart and a plain-language reading of what it does and does not show."]];
 function emptyData(add) {
   return '<div class="first"><div class="first-main"><h1 class="vt">Your data</h1><p class="lede">Add a dataset to begin. EKM checks every column, helps you clean it, then runs the statistics and explains what they show.</p>' + add +
-    '<p class="count first-note">Calculations run on your device; results match SciPy. Nothing leaves this page unless you ask Claude to explain a result.</p></div>' +
+    '<p class="count first-note">Calculations run on your device; results match SciPy. The offline assistant explains results on your device.</p></div>' +
     '<ol class="board-steps" aria-label="How EKM works">' + STEPS.map(function (s, i) {
       return '<li><span class="sn">' + (i + 1) + "</span>" + sketch(s[0]) + "<div><h2>" + s[1] + '</h2><p class="count">' + s[2] + "</p></div></li>";
     }).join("") + "</ol></div>";

@@ -1,4 +1,4 @@
-// ---------- Write-up: results collected into a draft paper, with a plain summary, limits and a Reviewer 2 ----------
+// ---------- Write-up: results collected into a draft paper, with a plain summary, limits and an offline reporting review ----------
 var WP = {title: "Results", items: [], loaded: false, review: null, msg: ""};
 function wpSave() {
   if (!ST.on || !ST.db || !ST.uid) return;
@@ -12,8 +12,8 @@ function wpLoad() {
 }
 function addToPaper(ds, R) {
   var svg = firstChart();
-  WP.items.push({id: Date.now().toString(36), at: new Date().toISOString(), dataset: ds.name, rows: ds.rows ? ds.rows.length : ds.nRows, source: ds.source || "", kind: A.kind, test: R.summary.test || KIND_HELP[A.kind].split(" (")[0], title: caption(ds), apa: R.apa || "", reading: R.reading.slice(0, 8), caveats: R.caveats.slice(0, 8), p: R.summary.p != null ? R.summary.p : R.summary.p_model, n: R.summary.n || null, fig: svg ? svgText(svg, true) : ""});
-  wpSave(); XP.msg = "Added to the write-up (" + WP.items.length + " result" + (WP.items.length === 1 ? "" : "s") + ")."; render();
+  WP.items.push({id: Date.now().toString(36), at: new Date().toISOString(), dataset: ds.name, rows: ds.rows ? ds.rows.length : ds.nRows, source: ds.source || "", kind: A.kind, test: R.summary.test || KIND_HELP[A.kind].split(" (")[0], title: caption(ds), apa: R.apa || "", reading: R.reading.slice(0, 8), caveats: R.caveats.slice(0, 8), evidence: localEvidence(ds, R), p: R.summary.p != null ? R.summary.p : R.summary.p_model, n: R.summary.n || null, fig: svg ? svgText(svg, true) : ""});
+  WP.review = null; wpSave(); XP.msg = "Added to the write-up (" + WP.items.length + " result" + (WP.items.length === 1 ? "" : "s") + ")."; render();
 }
 function firstSentence(h) { var t = plain(h); var m = /^(.+?[.!?])(\s|$)/.exec(t); return m ? m[1] : t; }
 function limitations() {
@@ -36,39 +36,18 @@ function paperHTML(forFile) {
   var lim = limitations();
   return "<h1 class=\"ptitle\">" + esc(WP.title) + '</h1><p class="pmeta">Draft prepared with EKM · ' + today() + "</p>" +
     "<h2>Summary in plain language</h2><p>" + WP.items.map(function (it) { return esc(firstSentence(it.reading[0] || "")); }).join(" ") + "</p>" +
-    "<h2>Methods</h2><p>Data: " + data.map(esc).join("; ") + ". Analyses: " + methods.map(esc).join("; ") + ". Tests were two-sided with α = .05. Calculations ran in EKM using the standard definitions of each test, checked against SciPy; Bayes factors use the BIC approximation (Wagenmakers, 2007).</p>" +
+    "<h2>Methods</h2><p>Data: " + data.map(esc).join("; ") + ". Analyses: " + methods.map(esc).join("; ") + ". Calculations ran in EKM; its statistical implementations are checked against SciPy. Only the analyses listed above are included; see each result for its available statistics.</p>" +
     "<h2>Results</h2>" + res + (lim.length ? "<h2>Limitations</h2><ul>" + lim.map(function (t) { return "<li>" + esc(t) + "</li>"; }).join("") + "</ul>" : "");
 }
-function reviewer2() {
-  WP.review = {state: "wait", text: ""}; render();
-  if (!window.claude || !window.claude.use) { WP.review = {state: "off"}; render(); return; }
-  var d = document.createElement("div"); d.innerHTML = paperHTML(true); var text = d.textContent.replace(/\s+/g, " ").slice(0, 12000);
-  window.claude.use("sample").then(function (sample) {
-    if (!sample) throw {code: "off"};
-    return sample("You are Reviewer 2: a rigorous, fair statistical peer reviewer. Review this draft results section. List up to 6 concrete concerns, most serious first, each with a suggested fix: misuse of tests, causal language, multiple comparisons, assumption problems, missing effect sizes or uncertainty, overreach in conclusions. Use only the numbers in the draft; do not invent data. Then one sentence on what is done well. Plain text, numbered list.\n\nDRAFT:\n" + text,
-      {cache: false, modelTier: "default", onText: function (o) { WP.review = {state: "stream", text: o.text}; var el = document.getElementById("r2out"); if (el) el.textContent = o.text; else render(); }});
-  }).then(function (r) { WP.review = {state: "done", text: r.text}; render(); })
-    .catch(function (e) { WP.review = {state: "error", text: e && e.code === "not_granted" ? "Claude reviews are turned off for this page; the self-check list below still applies." : "Could not reach Claude. The self-check list below still applies."}; render(); });
-}
-function selfCheck() {
-  var it = WP.items, c = [];
-  var lack = it.filter(function (x) { return x.p != null && !/(d =|η²|V =|r\(|R²|OR =|ε²)/.test(plain(x.apa)); }); c.push([!lack.length, "Every test reports an effect size, not only a p-value"]);
-  c.push([it.every(function (x) { return !x.p || /95%|CI|range/.test(plain(x.apa) + x.reading.join(" ")); }) || it.some(function (x) { return /CI/.test(x.apa); }), "Uncertainty (a 95% range) is given for the main results"]);
-  var tests = it.filter(function (x) { return x.p != null; }).length; c.push([tests < 3, tests < 3 ? "Few tests, so multiple comparisons are not a concern" : "Multiple comparisons are acknowledged in the limitations"]);
-  c.push([!it.some(function (x) { return x.reading.concat(x.caveats).some(function (t) { return /not normal/i.test(plain(t)); }) && !x.reading.some(function (t) { return /rank-based|Spearman|Kruskal|Mann|Wilcoxon/.test(plain(t)); }); }), "Where normality fails, a rank-based result is reported"]);
-  c.push([it.every(function (x) { return x.fig; }), "Each result has a figure"]);
-  return '<ul class="plain checklist">' + c.map(function (x) { return '<li><span class="chip ' + (x[0] ? "q-verified" : "q-estimated") + '">' + (x[0] ? "Done" : "Check") + "</span> " + esc(x[1]) + "</li>"; }).join("") + "</ul>";
-}
+// Offline review and self-check rules are supplied by assistant.js.
 function writeupView() {
   wpLoad();
-  if (!WP.items.length) return '<h1 class="vt">Write-up</h1><p class="lede">Collect results into a draft results section. Run an analysis, then press Add to write-up under it. EKM writes the plain-language summary, methods and limitations, numbers the figures and can ask Reviewer 2 for a critique.</p>' +
+  if (!WP.items.length) return '<h1 class="vt">Write-up</h1><p class="lede">Collect results into a draft results section. Run an analysis, then press Add to write-up under it. EKM writes the plain-language summary, methods and limitations, numbers the figures and offers an offline review of reporting gaps.</p>' +
     '<p class="slot"><a class="btn btn-primary" href="#analyze" data-go="analyze">Go to Analyze</a></p><div class="paper ghost" aria-hidden="true"><p class="ghost-line w60"></p><p class="ghost-line w90"></p><p class="ghost-line w85"></p><p class="ghost-line w75"></p><div class="ghost-fig">Figure 1</div><p class="ghost-line w90"></p><p class="ghost-line w60"></p></div>';
-  var rv = WP.review || {};
   return '<h1 class="vt">Write-up</h1><div class="toolbar"><label class="field" for="wptitle">Title<input id="wptitle" maxlength="120" value="' + esc(WP.title) + '"></label></div>' +
     '<div class="agrid"><div class="amain"><article class="paper">' + paperHTML(false) + "</article>" +
     '<div class="tools" role="group" aria-label="Save the write-up"><span class="label">Save the draft</span><button type="button" class="btn" data-wpexp="doc">For Word (.doc)</button><button type="button" class="btn" data-wpexp="html">Web page (.html)</button><button type="button" class="btn" data-wpcopy="1">Copy text</button>' + (XP.msg ? '<span class="count" role="status">' + esc(XP.msg) + "</span>" : "") + "</div></div>" +
-    '<div class="aside"><section class="card"><h2>Self-check</h2>' + selfCheck() + '</section><section class="card ai"><h2>Reviewer 2</h2><p class="count">Claude reads the draft text (not your data) and critiques it like a peer reviewer.</p><button type="button" class="btn btn-primary" data-wpr2="1"' + (rv.state === "wait" || rv.state === "stream" ? " disabled" : "") + ">Ask Reviewer 2</button>" +
-    (rv.state === "wait" ? '<p class="count" role="status">Reading the draft…</p>' : "") + (rv.text ? '<p id="r2out" class="ai-out" aria-live="polite">' + esc(rv.text) + "</p>" : "") + (rv.state === "off" ? '<p class="count">Claude is not available in this view.</p>' : "") + "</section></div></div>";
+    '<div class="aside"><section class="card"><h2>Self-check</h2>' + selfCheck() + '</section>' + reviewPanel() + "</div></div>";
 }
 GROUPS.writeup = ["writeup"]; VIEWS.writeup = writeupView;
 var _toolsBar = toolsBar;
@@ -78,11 +57,11 @@ view.addEventListener("click", function (e) {
   var b = e.target.closest("button"); if (!b) return; var d = b.dataset;
   if (d.paper && LAST_R) { addToPaper(cur(), LAST_R); return; }
   if (st.tab !== "writeup") return;
-  if (d.wpup != null) { var i = +d.wpup, t = WP.items[i]; WP.items[i] = WP.items[i - 1]; WP.items[i - 1] = t; wpSave(); render(); return; }
-  if (d.wpdown != null) { var j = +d.wpdown, u = WP.items[j]; WP.items[j] = WP.items[j + 1]; WP.items[j + 1] = u; wpSave(); render(); return; }
-  if (d.wprm != null) { WP.items.splice(+d.wprm, 1); wpSave(); render(); return; }
+  if (d.wpup != null) { var i = +d.wpup, t = WP.items[i]; WP.items[i] = WP.items[i - 1]; WP.items[i - 1] = t; WP.review = null; wpSave(); render(); return; }
+  if (d.wpdown != null) { var j = +d.wpdown, u = WP.items[j]; WP.items[j] = WP.items[j + 1]; WP.items[j + 1] = u; WP.review = null; wpSave(); render(); return; }
+  if (d.wprm != null) { WP.items.splice(+d.wprm, 1); WP.review = null; wpSave(); render(); return; }
   if (d.wpexp) return saveFile(slug(WP.title) + (d.wpexp === "doc" ? ".doc" : ".html"), paperFile());
   if (d.wpcopy) { var x = document.createElement("div"); x.innerHTML = paperHTML(true); var txt = x.innerText || x.textContent; try { navigator.clipboard.writeText(txt).then(function () { b.textContent = "Copied"; }, function () { b.textContent = "Select and copy the text"; }); } catch (err) { b.textContent = "Select and copy the text"; } return; }
-  if (d.wpr2) { reviewer2(); return; }
+  if (d.wpr2) { reviewWriteup(); return; }
 });
 view.addEventListener("change", function (e) { if (e.target.id === "wptitle") { WP.title = e.target.value.trim() || "Results"; wpSave(); render(); } });

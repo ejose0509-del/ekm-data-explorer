@@ -246,6 +246,15 @@ input[type=range] { accent-color: var(--yellow); width: min(320px, 70vw) }
 .paper.ghost { background: var(--board-2); border: 1.5px dashed var(--rule-2) } .paper.ghost .ghost-fig { margin: var(--s3) 0 }
 .checklist li { display: flex; gap: var(--s2); align-items: baseline }
 
+/* Offline assistant uses the same ruled board components. */
+.ask { align-items: end }
+.assistant-question { flex: 1 1 320px }
+.ask .assistant-question input { flex: initial; width: 100% }
+.assistant-answer { display: grid; gap: var(--s3); font-size: var(--t3); overflow-wrap: anywhere }
+.assistant-answer li { padding-left: var(--s3); border-left: 1px solid var(--rule-2) }
+.assistant .pills { align-items: start }
+.checklist .chip { white-space: normal }
+
 </style>
 </head>
 <body>
@@ -885,33 +894,10 @@ function coefChart(coefs) {
   return g + '<text x="' + ((W + L) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="ax">Effect per 1-unit rise, with 95% range (grey = not clearly different from zero)</text></svg>';
 }
 
-// --- Ask Claude (sends the summary only, never the rows) ---
-function askClaude(ds, R) {
-  var key = A.kind + JSON.stringify(A.sel);
-  A.ai[key] = {text: "", state: "wait"}; render();
-  if (!window.claude || !window.claude.use) { A.ai[key] = {state: "off"}; render(); return; }
-  window.claude.use("sample").then(function (sample) {
-    if (!sample) { A.ai[key] = {state: "off"}; render(); return; }
-    var q = (document.getElementById("aiq") || {}).value || "";
-    var prompt = "You are a careful statistician explaining results to someone without statistics training.\n" +
-      "Dataset: " + ds.name + " (" + (ds.rows ? ds.rows.length : ds.nRows) + " rows). Columns: " + ds.cols.map(function (c) { return c.name + " [" + c.type + "]"; }).join(", ") + ".\n" +
-      (ds.source ? "Source given by the user: " + ds.source + "\n" : "") +
-      "Analysis: " + KIND_HELP[A.kind] + "\nResults (JSON): " + JSON.stringify(R.summary) + "\nAutomatic notes already shown: " + R.reading.concat(R.caveats).join(" ").replace(/<[^>]+>/g, "") + "\n" +
-      (q ? "The user asks: " + q + "\n" : "") +
-      "Write 120-200 words in plain language: what the result means, how sure we can be, what it does not show, and one sensible next step. Use only these numbers; do not invent data. No headings.";
-    var ctl = new AbortController(); A.ai[key].ctl = ctl;
-    return sample(prompt, {cache: false, signal: ctl.signal, onText: function (o) { A.ai[key] = {text: o.text, state: "stream", ctl: ctl}; var el = document.getElementById("aiout"); if (el) el.textContent = o.text; else render(); }})
-      .then(function (res) { A.ai[key] = {text: res.text, state: "done"}; render(); });
-  }).catch(function (e) {
-    A.ai[key] = {state: "error", text: e && e.code === "not_granted" ? "Claude explanations are turned off for this page. The built-in reading above still applies." : e && e.code === "rate_limited" ? "Claude is busy. Try again in a minute." : "Could not reach Claude. The built-in reading above still applies."};
-    render();
-  });
-}
-
 // --- views ---
 function noData(title, text) { return '<h1 class="vt">' + title + '</h1><p class="lede">' + text + "</p><p>" + go2("data", "Add a dataset") + "</p>"; }
 function dataView() {
-  var ds = cur(), store = ST.on ? "Your files are kept privately for you: nobody else, the page owner included, can read them." : "Sign in to Claude to keep your files between visits. For now they stay in this browser tab.";
+  var ds = cur(), store = ST.on ? "Your files are kept privately for you: nobody else, the page owner included, can read them." : "Your files stay in this tab until you close or reload it. Keep a copy of your original file.";
   var add = '<section class="card drop" id="drop" aria-labelledby="add-h"><h2 id="add-h">Add your data</h2><p class="count">CSV, TSV, Excel (.xlsx) or JSON, up to 25 MB. The first row should name the columns. ' + store + "</p>" +
     '<div class="slot"><label class="btn btn-primary" for="afile">Choose a file</label><input type="file" id="afile" accept=".csv,.tsv,.txt,.json,.xlsx,.xls" class="sr-file"><span class="count">or drop it here</span></div>' +
     '<details class="paste"><summary>Paste from a spreadsheet instead</summary><textarea id="apaste" rows="5" placeholder="Paste cells with a header row"></textarea><button type="button" class="btn" data-apaste="1">Use pasted data</button></details>' +
@@ -947,15 +933,12 @@ function dataView() {
 function analyzeView() {
   var ds = cur(); if (!ds) return noData("Analyze", "Add a dataset under Your data, then choose an analysis here.");
   if (!ds.rows) { loadRows(ds).then(render); return '<p class="count" role="status">Loading…</p>'; }
-  var R = runAnalysis(ds), key = A.kind + JSON.stringify(A.sel), ai = A.ai[key] || {};
+  var R = runAnalysis(ds);
   var cats = ds.cols.filter(function (c) { return c.type === "category"; }), fcol = A.sel.f ? ds.cols[idxOf(ds, A.sel.f)] : null, fvals = [];
   if (fcol) { var u = {}; colVals(ds, idxOf(ds, A.sel.f)).forEach(function (v) { if (v != null) u[v] = 1; }); fvals = Object.keys(u).sort(); }
   var filter = cats.length ? '<details class="subset"' + (A.sel.f ? " open" : "") + '><summary>Use only some rows</summary><div class="toolbar">' + pick("f", "Where", cats, A.sel.f, true) +
     (fcol ? '<label class="field" for="fv">is<select id="fv" data-asel="fv"><option value="">Choose…</option>' + fvals.map(function (v) { return "<option" + (v === A.sel.fv ? " selected" : "") + ">" + esc(v) + "</option>"; }).join("") + "</select></label>" : "") + "</div></details>" : "";
-  var aiBox = '<section class="card ai"><h2>Ask Claude to explain</h2><p class="count">Sends the numbers above and your column names, never your rows. Claude may ask permission the first time.</p>' +
-    '<div class="slot"><input id="aiq" maxlength="300" placeholder="Optional: what do you want to know?" aria-label="Question for Claude"><button type="button" class="btn btn-primary" data-aask="1"' + (ai.state === "wait" || ai.state === "stream" ? " disabled" : "") + ">Explain</button></div>" +
-    (ai.state === "wait" ? '<p class="count" role="status">Thinking…</p>' : "") + (ai.text ? '<p id="aiout" class="ai-out" aria-live="polite">' + esc(ai.text) + "</p>" : "") +
-    (ai.state === "off" ? '<p class="count">Claude explanations are not available in this view. The built-in reading still applies.</p>' : "") + "</section>";
+  var aiBox = explanationPanel(ds, R);
   return '<h1 class="vt">' + esc(ds.name) + "</h1>" + askBox() +
     '<div class="pills" role="group" aria-label="Analysis">' + KINDS.map(function (k) { return '<button type="button" class="pill' + (A.kind === k[0] ? " on" : "") + '" aria-pressed="' + (A.kind === k[0]) + '" data-akind="' + k[0] + '">' + k[1] + "</button>"; }).join("") + "</div>" +
     '<div class="toolbar">' + R.controls + "</div>" + filter +
@@ -965,7 +948,7 @@ function analyzeView() {
     '<section aria-labelledby="pc"><h3 class="step" id="pc"><i>3</i> Conclusion</h3>' +
     (R.reading.length ? '<div class="reading"><ul class="plain">' + R.reading.map(function (t) { return "<li>" + t + "</li>"; }).join("") + "</ul></div>" : '<p class="nd">The conclusion appears once the analysis has the columns it needs.</p>') +
     (R.caveats.length ? '<div class="caveats"><h3>Keep in mind</h3><ul class="plain">' + R.caveats.map(function (t) { return "<li>" + t + "</li>"; }).join("") + "</ul></div>" : "") + conclusionExtras(R) + "</section></div>" +
-    (R.reading.length ? deepPanel(ds, R) + toolsBar(ds, R) + aiBox : "") + sharedPanel();
+    (R.reading.length ? aiBox + deepPanel(ds, R) + toolsBar(ds, R) : "") + sharedPanel();
 }
 // The formula behind each analysis, typeset in MathML as on a lecture board.
 function mi(v) { return "<mi>" + v + "</mi>"; } function mo(v) { return "<mo>" + v + "</mo>"; } function mn(v) { return "<mn>" + v + "</mn>"; }
@@ -1043,7 +1026,7 @@ view.addEventListener("click", function (e) {
   if (d.ads) { pickSet(d.ads); render(); refocus('[data-ads="' + d.ads + '"]'); return; }
   if (d.akind) { A.kind = d.akind; render(); refocus('[data-akind="' + d.akind + '"]'); return; }
   if (d.ctype) { A.chart.type = d.ctype; render(); refocus('[data-ctype="' + d.ctype + '"]'); return; }
-  if (d.aask) { var ds = cur(); askClaude(ds, runAnalysis(ds)); return; }
+  if (d.aask) { var ds = cur(); explainResult(ds, runAnalysis(ds)); return; }
   if (d.apaste) { try { var txt = (document.getElementById("apaste") || {}).value || "", rows = splitCSV(txt); if (rows.length < 2) { A.msg = "Paste a header row and at least one data row."; render(); return; } var ns = makeSet("Pasted data " + new Date().toISOString().slice(0, 10), rows[0], rows.slice(1)); A.sets.unshift(ns); pickSet(ns.id); render(); saveSet(ns); } catch (err) { A.msg = err.message || "Could not read the pasted table. Check its headers and quotes."; render(); } return; }
   if (d.adel) { A.del = cur().id; render(); refocus("[data-adelno]"); return; }
   if (d.adelno) { A.del = null; render(); refocus("[data-adel]"); return; }
@@ -1362,7 +1345,7 @@ var STEPS = [["table", "Add your table", "CSV, Excel or JSON. Column types are r
   ["scatter", "Read the result", "Each result comes with a chart and a plain-language reading of what it does and does not show."]];
 function emptyData(add) {
   return '<div class="first"><div class="first-main"><h1 class="vt">Your data</h1><p class="lede">Add a dataset to begin. EKM checks every column, helps you clean it, then runs the statistics and explains what they show.</p>' + add +
-    '<p class="count first-note">Calculations run on your device; results match SciPy. Nothing leaves this page unless you ask Claude to explain a result.</p></div>' +
+    '<p class="count first-note">Calculations run on your device; results match SciPy. The offline assistant explains results on your device.</p></div>' +
     '<ol class="board-steps" aria-label="How EKM works">' + STEPS.map(function (s, i) {
       return '<li><span class="sn">' + (i + 1) + "</span>" + sketch(s[0]) + "<div><h2>" + s[1] + '</h2><p class="count">' + s[2] + "</p></div></li>";
     }).join("") + "</ol></div>";
@@ -1541,37 +1524,7 @@ function suggest(R, ds) {
   R.next = out.slice(0, 3);
 }
 
-// Plain-English question → analysis (on device), with Claude as an optional fallback
-function mentioned(ds, q) { q = q.toLowerCase(); return ds.cols.map(function (c) { var n = c.name.toLowerCase(), alt = n.replace(/[_\-.]+/g, " "); var i = Math.max(q.indexOf(n), q.indexOf(alt)); return [c, i]; }).filter(function (x) { return x[1] >= 0; }).sort(function (a, b) { return a[1] - b[1]; }).map(function (x) { return x[0]; }); }
-function routeQuestion(ds, q) {
-  var cols = mentioned(ds, q), nm = cols.filter(isNum), ct = cols.filter(function (c) { return c.type === "category"; }), tm = cols.filter(function (c) { return c.type === "year" || c.type === "date"; }), w = q.toLowerCase();
-  if (/before|after|pre|post|change between/.test(w) && nm.length >= 2) return {kind: "paired", sel: {x: nm[0].name, y: nm[1].name}};
-  if (/predict|odds|chance|likely|probability/.test(w) && binaryCols(ds).some(function (b) { return cols.indexOf(b) >= 0; })) return {kind: "logistic", sel: {o: binaryCols(ds).filter(function (b) { return cols.indexOf(b) >= 0; })[0].name}};
-  if (/over time|trend|per year|each year|changed|growth/.test(w) && nm.length) return {kind: "trend", sel: {y: nm[0].name, t: (tm[0] || {}).name, g: (ct[0] || {}).name}};
-  if (nm.length && ct.length && /differ|compare|between|higher|lower|by |across|vs|versus/.test(w)) return {kind: "compare", sel: {y: nm[0].name, g: ct[0].name}};
-  if (nm.length >= 3 || (/predict|explain|model|drivers?/.test(w) && nm.length >= 2)) return {kind: "regress", sel: {y: nm[0].name, preds: nm.slice(1).map(function (c) { return c.name; })}};
-  if (nm.length >= 2) return {kind: "relate", sel: {x: nm[1].name, y: nm[0].name}};
-  if (ct.length >= 2) return {kind: /table|pivot|count/.test(w) ? "pivot" : "cross", sel: {g: ct[0].name, g2: ct[1].name}};
-  if (nm.length === 1 && ct.length === 1) return {kind: "compare", sel: {y: nm[0].name, g: ct[0].name}};
-  if (cols.length === 1) return {kind: "describe", sel: {y: cols[0].name}};
-  return null;
-}
-function askAnswer(ds) {
-  var q = ((document.getElementById("askq") || {}).value || "").trim(); if (!q) return;
-  A.askq = q; var r = routeQuestion(ds, q);
-  if (r) { A.kind = r.kind; A.sel = r.sel; A.ai = {}; A.askmsg = "Answering with: " + KIND_HELP[r.kind]; render(); return; }
-  A.askmsg = "Thinking about which analysis fits…"; render();
-  if (!window.claude || !window.claude.use) { A.askmsg = "Name one or two columns in the question, for example “Does body_mass_g differ by species?”"; render(); return; }
-  window.claude.use("sample").then(function (sample) {
-    if (!sample) throw {code: "off"};
-    return sample.json("Pick the statistical analysis that answers the question. Reply with JSON only: {\"kind\": one of describe, compare, relate, cross, trend, regress, paired, logistic, pivot, \"x\": column or null, \"y\": column or null, \"g\": column or null, \"g2\": column or null, \"t\": column or null, \"o\": column or null}. Use only these exact column names: " +
-      ds.cols.map(function (c) { return c.name + " [" + c.type + "]"; }).join(", ") + ". Question: " + q, {modelTier: "quick"});
-  }).then(function (v) {
-    if (!v || KINDS.map(function (k) { return k[0]; }).indexOf(v.kind) < 0) throw {code: "bad"};
-    var sel = {}; ["x", "y", "g", "g2", "t", "o"].forEach(function (k) { if (v[k] && idxOf(ds, v[k]) >= 0) sel[k] = v[k]; });
-    A.kind = v.kind; A.sel = sel; A.ai = {}; A.askmsg = "Claude chose: " + KIND_HELP[v.kind]; render();
-  }).catch(function () { A.askmsg = "Could not pick an analysis from that. Name one or two columns, for example “Does body_mass_g differ by species?”"; render(); });
-}
+// Offline question routing is supplied by assistant.js after all analysis kinds are registered.
 
 // Formula, caption and view hooks for the new kinds
 var _formula = formula;
@@ -2210,7 +2163,7 @@ var _render3 = render; render = function () { _render3(); var cv = view.querySel
 })();
 
 // ===== writeup.js =====
-// ---------- Write-up: results collected into a draft paper, with a plain summary, limits and a Reviewer 2 ----------
+// ---------- Write-up: results collected into a draft paper, with a plain summary, limits and an offline reporting review ----------
 var WP = {title: "Results", items: [], loaded: false, review: null, msg: ""};
 function wpSave() {
   if (!ST.on || !ST.db || !ST.uid) return;
@@ -2224,8 +2177,8 @@ function wpLoad() {
 }
 function addToPaper(ds, R) {
   var svg = firstChart();
-  WP.items.push({id: Date.now().toString(36), at: new Date().toISOString(), dataset: ds.name, rows: ds.rows ? ds.rows.length : ds.nRows, source: ds.source || "", kind: A.kind, test: R.summary.test || KIND_HELP[A.kind].split(" (")[0], title: caption(ds), apa: R.apa || "", reading: R.reading.slice(0, 8), caveats: R.caveats.slice(0, 8), p: R.summary.p != null ? R.summary.p : R.summary.p_model, n: R.summary.n || null, fig: svg ? svgText(svg, true) : ""});
-  wpSave(); XP.msg = "Added to the write-up (" + WP.items.length + " result" + (WP.items.length === 1 ? "" : "s") + ")."; render();
+  WP.items.push({id: Date.now().toString(36), at: new Date().toISOString(), dataset: ds.name, rows: ds.rows ? ds.rows.length : ds.nRows, source: ds.source || "", kind: A.kind, test: R.summary.test || KIND_HELP[A.kind].split(" (")[0], title: caption(ds), apa: R.apa || "", reading: R.reading.slice(0, 8), caveats: R.caveats.slice(0, 8), evidence: localEvidence(ds, R), p: R.summary.p != null ? R.summary.p : R.summary.p_model, n: R.summary.n || null, fig: svg ? svgText(svg, true) : ""});
+  WP.review = null; wpSave(); XP.msg = "Added to the write-up (" + WP.items.length + " result" + (WP.items.length === 1 ? "" : "s") + ")."; render();
 }
 function firstSentence(h) { var t = plain(h); var m = /^(.+?[.!?])(\s|$)/.exec(t); return m ? m[1] : t; }
 function limitations() {
@@ -2248,39 +2201,18 @@ function paperHTML(forFile) {
   var lim = limitations();
   return "<h1 class=\"ptitle\">" + esc(WP.title) + '</h1><p class="pmeta">Draft prepared with EKM · ' + today() + "</p>" +
     "<h2>Summary in plain language</h2><p>" + WP.items.map(function (it) { return esc(firstSentence(it.reading[0] || "")); }).join(" ") + "</p>" +
-    "<h2>Methods</h2><p>Data: " + data.map(esc).join("; ") + ". Analyses: " + methods.map(esc).join("; ") + ". Tests were two-sided with α = .05. Calculations ran in EKM using the standard definitions of each test, checked against SciPy; Bayes factors use the BIC approximation (Wagenmakers, 2007).</p>" +
+    "<h2>Methods</h2><p>Data: " + data.map(esc).join("; ") + ". Analyses: " + methods.map(esc).join("; ") + ". Calculations ran in EKM; its statistical implementations are checked against SciPy. Only the analyses listed above are included; see each result for its available statistics.</p>" +
     "<h2>Results</h2>" + res + (lim.length ? "<h2>Limitations</h2><ul>" + lim.map(function (t) { return "<li>" + esc(t) + "</li>"; }).join("") + "</ul>" : "");
 }
-function reviewer2() {
-  WP.review = {state: "wait", text: ""}; render();
-  if (!window.claude || !window.claude.use) { WP.review = {state: "off"}; render(); return; }
-  var d = document.createElement("div"); d.innerHTML = paperHTML(true); var text = d.textContent.replace(/\s+/g, " ").slice(0, 12000);
-  window.claude.use("sample").then(function (sample) {
-    if (!sample) throw {code: "off"};
-    return sample("You are Reviewer 2: a rigorous, fair statistical peer reviewer. Review this draft results section. List up to 6 concrete concerns, most serious first, each with a suggested fix: misuse of tests, causal language, multiple comparisons, assumption problems, missing effect sizes or uncertainty, overreach in conclusions. Use only the numbers in the draft; do not invent data. Then one sentence on what is done well. Plain text, numbered list.\n\nDRAFT:\n" + text,
-      {cache: false, modelTier: "default", onText: function (o) { WP.review = {state: "stream", text: o.text}; var el = document.getElementById("r2out"); if (el) el.textContent = o.text; else render(); }});
-  }).then(function (r) { WP.review = {state: "done", text: r.text}; render(); })
-    .catch(function (e) { WP.review = {state: "error", text: e && e.code === "not_granted" ? "Claude reviews are turned off for this page; the self-check list below still applies." : "Could not reach Claude. The self-check list below still applies."}; render(); });
-}
-function selfCheck() {
-  var it = WP.items, c = [];
-  var lack = it.filter(function (x) { return x.p != null && !/(d =|η²|V =|r\(|R²|OR =|ε²)/.test(plain(x.apa)); }); c.push([!lack.length, "Every test reports an effect size, not only a p-value"]);
-  c.push([it.every(function (x) { return !x.p || /95%|CI|range/.test(plain(x.apa) + x.reading.join(" ")); }) || it.some(function (x) { return /CI/.test(x.apa); }), "Uncertainty (a 95% range) is given for the main results"]);
-  var tests = it.filter(function (x) { return x.p != null; }).length; c.push([tests < 3, tests < 3 ? "Few tests, so multiple comparisons are not a concern" : "Multiple comparisons are acknowledged in the limitations"]);
-  c.push([!it.some(function (x) { return x.reading.concat(x.caveats).some(function (t) { return /not normal/i.test(plain(t)); }) && !x.reading.some(function (t) { return /rank-based|Spearman|Kruskal|Mann|Wilcoxon/.test(plain(t)); }); }), "Where normality fails, a rank-based result is reported"]);
-  c.push([it.every(function (x) { return x.fig; }), "Each result has a figure"]);
-  return '<ul class="plain checklist">' + c.map(function (x) { return '<li><span class="chip ' + (x[0] ? "q-verified" : "q-estimated") + '">' + (x[0] ? "Done" : "Check") + "</span> " + esc(x[1]) + "</li>"; }).join("") + "</ul>";
-}
+// Offline review and self-check rules are supplied by assistant.js.
 function writeupView() {
   wpLoad();
-  if (!WP.items.length) return '<h1 class="vt">Write-up</h1><p class="lede">Collect results into a draft results section. Run an analysis, then press Add to write-up under it. EKM writes the plain-language summary, methods and limitations, numbers the figures and can ask Reviewer 2 for a critique.</p>' +
+  if (!WP.items.length) return '<h1 class="vt">Write-up</h1><p class="lede">Collect results into a draft results section. Run an analysis, then press Add to write-up under it. EKM writes the plain-language summary, methods and limitations, numbers the figures and offers an offline review of reporting gaps.</p>' +
     '<p class="slot"><a class="btn btn-primary" href="#analyze" data-go="analyze">Go to Analyze</a></p><div class="paper ghost" aria-hidden="true"><p class="ghost-line w60"></p><p class="ghost-line w90"></p><p class="ghost-line w85"></p><p class="ghost-line w75"></p><div class="ghost-fig">Figure 1</div><p class="ghost-line w90"></p><p class="ghost-line w60"></p></div>';
-  var rv = WP.review || {};
   return '<h1 class="vt">Write-up</h1><div class="toolbar"><label class="field" for="wptitle">Title<input id="wptitle" maxlength="120" value="' + esc(WP.title) + '"></label></div>' +
     '<div class="agrid"><div class="amain"><article class="paper">' + paperHTML(false) + "</article>" +
     '<div class="tools" role="group" aria-label="Save the write-up"><span class="label">Save the draft</span><button type="button" class="btn" data-wpexp="doc">For Word (.doc)</button><button type="button" class="btn" data-wpexp="html">Web page (.html)</button><button type="button" class="btn" data-wpcopy="1">Copy text</button>' + (XP.msg ? '<span class="count" role="status">' + esc(XP.msg) + "</span>" : "") + "</div></div>" +
-    '<div class="aside"><section class="card"><h2>Self-check</h2>' + selfCheck() + '</section><section class="card ai"><h2>Reviewer 2</h2><p class="count">Claude reads the draft text (not your data) and critiques it like a peer reviewer.</p><button type="button" class="btn btn-primary" data-wpr2="1"' + (rv.state === "wait" || rv.state === "stream" ? " disabled" : "") + ">Ask Reviewer 2</button>" +
-    (rv.state === "wait" ? '<p class="count" role="status">Reading the draft…</p>' : "") + (rv.text ? '<p id="r2out" class="ai-out" aria-live="polite">' + esc(rv.text) + "</p>" : "") + (rv.state === "off" ? '<p class="count">Claude is not available in this view.</p>' : "") + "</section></div></div>";
+    '<div class="aside"><section class="card"><h2>Self-check</h2>' + selfCheck() + '</section>' + reviewPanel() + "</div></div>";
 }
 GROUPS.writeup = ["writeup"]; VIEWS.writeup = writeupView;
 var _toolsBar = toolsBar;
@@ -2290,14 +2222,245 @@ view.addEventListener("click", function (e) {
   var b = e.target.closest("button"); if (!b) return; var d = b.dataset;
   if (d.paper && LAST_R) { addToPaper(cur(), LAST_R); return; }
   if (st.tab !== "writeup") return;
-  if (d.wpup != null) { var i = +d.wpup, t = WP.items[i]; WP.items[i] = WP.items[i - 1]; WP.items[i - 1] = t; wpSave(); render(); return; }
-  if (d.wpdown != null) { var j = +d.wpdown, u = WP.items[j]; WP.items[j] = WP.items[j + 1]; WP.items[j + 1] = u; wpSave(); render(); return; }
-  if (d.wprm != null) { WP.items.splice(+d.wprm, 1); wpSave(); render(); return; }
+  if (d.wpup != null) { var i = +d.wpup, t = WP.items[i]; WP.items[i] = WP.items[i - 1]; WP.items[i - 1] = t; WP.review = null; wpSave(); render(); return; }
+  if (d.wpdown != null) { var j = +d.wpdown, u = WP.items[j]; WP.items[j] = WP.items[j + 1]; WP.items[j + 1] = u; WP.review = null; wpSave(); render(); return; }
+  if (d.wprm != null) { WP.items.splice(+d.wprm, 1); WP.review = null; wpSave(); render(); return; }
   if (d.wpexp) return saveFile(slug(WP.title) + (d.wpexp === "doc" ? ".doc" : ".html"), paperFile());
   if (d.wpcopy) { var x = document.createElement("div"); x.innerHTML = paperHTML(true); var txt = x.innerText || x.textContent; try { navigator.clipboard.writeText(txt).then(function () { b.textContent = "Copied"; }, function () { b.textContent = "Select and copy the text"; }); } catch (err) { b.textContent = "Select and copy the text"; } return; }
-  if (d.wpr2) { reviewer2(); return; }
+  if (d.wpr2) { reviewWriteup(); return; }
 });
 view.addEventListener("change", function (e) { if (e.target.id === "wptitle") { WP.title = e.target.value.trim() || "Results"; wpSave(); render(); } });
+
+// ===== assistant.js =====
+// ---------- Offline assistant: explicit rules over computed evidence; no model or network ----------
+var _runLocal = runAnalysis;
+runAnalysis = function (ds) { var R = _runLocal(ds); LAST_R = R; return R; };
+function localNumber(v) { return typeof v === "number" && isFinite(v); }
+function localCI(v) { return Array.isArray(v) && v.length === 2 && v.every(localNumber) && v[0] <= v[1]; }
+function localText(h) {
+  var entities = {amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", "#39": "'"};
+  return String(h || "").replace(/<\/?[A-Za-z][^>]*>/g, "").replace(/&(amp|lt|gt|quot|apos|nbsp|#39);/g, function (_, key) { return entities[key]; });
+}
+function localList(items) { return '<ul class="plain">' + items.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join("") + '</ul>'; }
+function localExamples(ds) {
+  var nums = ds.cols.filter(function (c) { return c.type === "number"; }), cats = ds.cols.filter(function (c) { return c.type === "category"; });
+  var out = ds.cols.length ? ["Summarize " + ds.cols[0].name] : [];
+  if (nums[0] && cats[0]) out.push("Compare " + nums[0].name + " by " + cats[0].name);
+  if (nums.length > 1) out.push("Relate " + nums[0].name + " and " + nums[1].name);
+  return out;
+}
+// Match complete column names, preferring a longer name over a name contained in it.
+function mentioned(ds, q) {
+  var text = q.toLowerCase(), spans = [], occupied = [], ambiguous = false;
+  var word = function (c) { return c && /[a-z0-9_\u00c0-\uffff]/i.test(c); };
+  ds.cols.slice().sort(function (a, b) { return b.name.length - a.name.length; }).forEach(function (c) {
+    var names = [c.name.toLowerCase(), c.name.toLowerCase().replace(/[_\-.]+/g, " ")];
+    names.filter(function (n, i) { return n && names.indexOf(n) === i; }).forEach(function (n) {
+      var start = 0, at;
+      while ((at = text.indexOf(n, start)) >= 0) {
+        var end = at + n.length; start = at + 1;
+        if (word(text[at - 1]) || word(text[end])) continue;
+        var overlap = occupied.filter(function (s) { return at < s.end && end > s.at; });
+        if (overlap.length) { if (overlap.some(function (s) { return s.at === at && s.end === end && s.col !== c; })) ambiguous = true; continue; }
+        occupied.push({at: at, end: end, col: c}); spans.push({at: at, col: c});
+      }
+    });
+  });
+  if (ambiguous) return [];
+  return spans.sort(function (a, b) { return a.at - b.at; }).map(function (s) { return s.col; }).filter(function (c, i, all) { return all.indexOf(c) === i; });
+}
+function routeQuestion(ds, q) {
+  var cols = mentioned(ds, q), nums = cols.filter(isNum), cats = cols.filter(function (c) { return c.type === "category"; }), times = cols.filter(function (c) { return c.type === "year" || c.type === "date"; });
+  var measures = nums.filter(function (c) { return c.type === "number"; }), w = q.toLowerCase();
+  if (/\b(caus\w*|prove|guarantee|why|diagnos\w*|recommend treatment)\b/.test(w)) return null;
+  if (/\b(paired|before|after|pre|post)\b/.test(w) && measures.length === 2 && cols.length === 2) return {kind: "paired", sel: {x: measures[0].name, y: measures[1].name}};
+  if (/\b(trend|over time|per year|each year|growth)\b/.test(w) && measures.length === 1 && times.length === 1 && cats.length <= 1)
+    return {kind: "trend", sel: {y: measures[0].name, t: times[0].name, g: (cats[0] || {}).name}};
+  if (/\b(predict|model|regress\w*)\b/.test(w)) {
+    var split = /\b(?:from|using)\b/.exec(w);
+    if (!split) return null; // Never guess the direction of a prediction.
+    var targets = mentioned(ds, q.slice(0, split.index)), predictors = mentioned(ds, q.slice(split.index + split[0].length));
+    if (targets.length !== 1 || !predictors.length || predictors.some(function (c) { return c.type !== "number" || c === targets[0]; })) return null;
+    var target = targets[0], binary = binaryCols(ds).indexOf(target) >= 0;
+    if (binary && /\b(logistic|yes\/no|odds|probability)\b/.test(w)) return {kind: "logistic", sel: {o: target.name, lp: predictors.map(function (c) { return c.name; })}};
+    if (target.type === "number") return {kind: "regress", sel: {y: target.name, preds: predictors.map(function (c) { return c.name; })}};
+    return null;
+  }
+  if (/\b(pivot|table|count by)\b/.test(w) && cats.length >= 1 && cats.length <= 2 && measures.length <= 1)
+    return {kind: "pivot", sel: {g: cats[0].name, g2: (cats[1] || {}).name, y: (measures[0] || {}).name, agg: measures.length ? "mean" : "count"}};
+  if (/\b(compare|differ\w*|higher|lower|across|versus|vs|by)\b/.test(w) && measures.length === 1 && cats.length === 1 && cols.length === 2)
+    return {kind: "compare", sel: {y: measures[0].name, g: cats[0].name}};
+  if (/\b(relat\w*|correlat\w*|associat\w*|link\w*|move together)\b/.test(w) && cols.length === 2) {
+    if (nums.length === 2) return {kind: "relate", sel: {x: nums[0].name, y: nums[1].name}};
+    if (cats.length === 2) return {kind: "cross", sel: {g: cats[0].name, g2: cats[1].name}};
+  }
+  if (cols.length === 1) {
+    var rest = w.replace(cols[0].name.toLowerCase(), "").replace(cols[0].name.toLowerCase().replace(/[_\-.]+/g, " "), "");
+    rest = rest.replace(/\b(summarize|summarise|summary|describe|average|mean|median|distribution|spread|what|is|the|of|for|column|please)\b/g, "").replace(/[?.,\s]/g, "");
+    if (!rest) return {kind: "describe", sel: {y: cols[0].name}};
+  }
+  return null;
+}
+askBox = function () {
+  var ds = cur(), examples = ds ? localExamples(ds) : [];
+  return '<form class="ask" id="askform"><label class="field assistant-question" for="askq">Offline assistant<input id="askq" maxlength="300" value="' + esc(A.askq || "") + '" placeholder="e.g. Compare Score by Group" autocomplete="off"></label><button type="submit" class="btn btn-primary">Answer</button></form>' +
+    '<p class="count">Ask about named columns, or ask “Check data quality”. Answers use local calculations and fixed rules; no data is sent.</p>' +
+    '<div class="slot" role="group" aria-label="Example questions">' + examples.map(function (q, i) { return '<button type="button" class="btn" data-local-question="' + i + '">' + esc(q) + '</button>'; }).join("") + '</div>' +
+    (A.askmsg ? '<p class="how" id="ask-answer" role="status" tabindex="-1">' + esc(A.askmsg) + '</p>' : "");
+};
+function askAnswer(ds) {
+  var q = ((document.getElementById("askq") || {}).value || "").trim(); if (!q) return;
+  A.askq = q;
+  if (/\b(caus\w*|prove|guarantee|why|diagnos\w*)\b/i.test(q)) A.askmsg = "This assistant cannot establish causes, diagnose conditions, or explain why a pattern exists from this table. Ask about an association or comparison instead.";
+  else if (/^(check data quality|check (my |the )?data|missing (data|values)|data quality)[?.!]?$/i.test(q)) {
+    var rows = filterRows(ds), missing = 0;
+    rows.forEach(function (r) { r.forEach(function (v) { if (v == null) missing++; }); });
+    A.askmsg = "In the current selection: " + rows.length + " rows, " + ds.cols.length + " columns and " + missing + " missing cells. Open Clean & enhance for the health check and fixes you can undo.";
+  } else {
+    var r = routeQuestion(ds, q);
+    if (r) { A.kind = r.kind; A.sel = r.sel; A.ai = {}; A.askmsg = "Selected: " + KIND_HELP[r.kind] + (r.kind === "paired" ? " Check that both columns measure the same thing on the same rows; the first named column is Before and the second is After." : " Check the selected columns below."); }
+    else A.askmsg = "I could not match that to a supported analysis without guessing. Use complete column names and a task such as Summarize, Compare, Relate, or Predict [outcome] from [predictors]. For a trend, name a measure and a year/date column. Try an example above.";
+  }
+  render(); refocus("#ask-answer");
+}
+function localDiagnostics(ds, R) {
+  var rows = filterRows(ds), s = A.sel, vectors = [], notes = [], failed = false, checked = 0;
+  var values = function (n) { return getCol(ds, rows, n); };
+  if (A.kind === "describe" && localNumber(R.summary.mean)) vectors = [[s.y, values(s.y)]];
+  if (A.kind === "relate") {
+    var pairedRows = rows.filter(function (r) { return localNumber(r[idxOf(ds, s.x)]) && localNumber(r[idxOf(ds, s.y)]); });
+    vectors = [[s.x, getCol(ds, pairedRows, s.x)], [s.y, getCol(ds, pairedRows, s.y)]];
+  }
+  if (A.kind === "compare") {
+    var groups = groupsOf(ds, rows, s.y, s.g);
+    vectors = Object.keys(groups).filter(function (k) { return groups[k].length >= 2; }).slice(0, 12).map(function (k) { return [k, groups[k]]; });
+  }
+  if (A.kind === "paired") vectors = [["Paired changes", rows.filter(function (r) { return localNumber(r[idxOf(ds, s.x)]) && localNumber(r[idxOf(ds, s.y)]); }).map(function (r) { return r[idxOf(ds, s.y)] - r[idxOf(ds, s.x)]; })]];
+  vectors.forEach(function (v) {
+    var w = S2.shapiro(v[1]); if (!w || !localNumber(w.p)) return;
+    checked++; if (w.p < 0.05) { failed = true; notes.push("Shapiro–Wilk flags non-normality for “" + v[0] + "” (p " + (w.p < 0.001 ? "< 0.001" : "= " + fp(w.p)) + ")."); }
+  });
+  if (failed && A.kind === "compare") {
+    var gs = Object.keys(groups).filter(function (k) { return groups[k].length >= 2; }).map(function (k) { return groups[k]; });
+    var rank = gs.length === 2 ? S2.mannWhitney(gs[0], gs[1]) : gs.length > 2 ? S2.kruskal(gs) : null;
+    if (rank && localNumber(rank.p)) notes.push(gs.length === 2 ? "Rank-based check: Mann–Whitney U = " + f3(rank.U) + ", p " + (rank.p < 0.001 ? "< 0.001" : "= " + fp(rank.p)) + ", rank effect r = " + f3(rank.r) + "." : "Rank-based check: Kruskal–Wallis H = " + f3(rank.H) + ", p " + (rank.p < 0.001 ? "< 0.001" : "= " + fp(rank.p)) + ", epsilon squared = " + f3(rank.eps2) + ".");
+  }
+  if (failed && A.kind === "relate") {
+    var rho = S.correlate(vectors[0][1], vectors[1][1]);
+    if (localNumber(rho.rho) && localNumber(rho.prho)) notes.push("Rank-based check: Spearman rho = " + f3(rho.rho) + ", p " + (rho.prho < 0.001 ? "< 0.001" : "= " + fp(rho.prho)) + ".");
+  }
+  if (checked && !failed) notes.push("Shapiro–Wilk did not detect non-normality in the checked values. This does not prove normality or independence.");
+  if (failed) notes.push("Consider the rank-based alternative: " + ({describe: "Mann–Whitney or Kruskal–Wallis for independent groups; Spearman for two numbers", compare: Array.isArray(R.summary.groups) ? "Mann–Whitney for two independent groups" : "Kruskal–Wallis for several independent groups", relate: "Spearman correlation", paired: "Wilcoxon signed-rank for paired changes"}[A.kind] || "check the assumptions of the selected method") + ". See the rank-based result in the poster when available; its assumptions also matter.");
+  return {failed: failed, checked: checked, notes: notes};
+}
+function localFacts(R) {
+  var s = R.summary || {}, facts = [], intervals = [], effects = [], effectFacts = [];
+  var add = function (label, v) { if (localNumber(v)) facts.push(label + ": " + f3(v) + "."); };
+  var ci = function (label, v) { if (localCI(v)) intervals.push(label + ": " + f3(v[0]) + " to " + f3(v[1]) + "."); };
+  var effect = function (label, v) { if (localNumber(v)) { add(label, v); effects.push(label); effectFacts.push(label + ": " + f3(v) + "."); } };
+  add(R.kind === "matrix" ? "Rows in selected table" : "Rows used", s.n);
+  if (R.kind === "describe") {
+    add("Mean", s.mean); add("Median", s.median); add("Standard deviation", s.sd); add("Missing values", s.missing);
+    if (localNumber(s.min) && localNumber(s.max)) facts.push("Observed values: " + f3(s.min) + " to " + f3(s.max) + ". This is the data range, not a confidence interval.");
+    add("Distinct values", s.distinct);
+    if (s.top && s.top.length) facts.push("Most common value: “" + s.top[0][0] + "” (" + s.top[0][1] + " rows).");
+  }
+  if (R.kind === "compare") { if (Array.isArray(s.groups)) facts.push("Mean difference is “" + s.groups[0] + "” minus “" + s.groups[1] + "”."); add("Difference in means", s.diff); effect("Cohen’s d", s.cohen_d); add("ANOVA F", s.F); effect("Eta squared", s.eta2); ci("95% confidence interval for the mean difference", s.ci95); }
+  if (R.kind === "relate") { if (s.x && s.y) facts.push("Columns: “" + s.x + "” and “" + s.y + "”."); effect("Pearson r", s.r); effect("Spearman rho (rank-based)", s.spearman); ci("95% confidence interval for Pearson r", s.ci95); }
+  if (R.kind === "cross") { add("Chi-square", s.x2); effect("Cramér’s V", s.cramers_v); }
+  if (R.kind === "paired") { if (s.before && s.after) facts.push("Before: “" + s.before + "”; After: “" + s.after + "”."); add("Mean change (After minus Before)", s.mean_change); effect("Paired effect size dz", s.dz); ci("95% confidence interval for the mean change", s.ci95); if (localNumber(s.wilcoxon_p)) facts.push("Wilcoxon signed-rank p " + (s.wilcoxon_p < 0.001 ? "< 0.001" : "= " + fp(s.wilcoxon_p)) + "."); }
+  if (R.kind === "regress") { effect("R squared (in-sample fit)", s.r2); add("Adjusted R squared", s.adj_r2); (s.coefficients || []).forEach(function (c) { add("Coefficient for “" + c.name + "”", c.b); ci("95% confidence interval for “" + c.name + "”", c.ci95); }); }
+  if (R.kind === "logistic") { effect("McFadden pseudo R squared", s.mcfadden_r2); (s.odds_ratios || []).forEach(function (c) { effect("Odds ratio for “" + c.name + "”", c.or); ci("95% confidence interval for that odds ratio", c.ci95); }); }
+  if (R.kind === "trend") (s.series || []).forEach(function (x) { effect("Slope per year for “" + x.name + "”", x.slope_per_year); });
+  if (R.kind === "matrix") (s.strongest || []).forEach(function (x) { effect("Pearson r for “" + x.pair + "”", x.r); });
+  if (R.kind === "pivot" && s.highest) facts.push("Highest displayed cell: “" + s.highest[1] + "”, " + f3(s.highest[0]) + ". A pivot table describes the data; it does not test an association.");
+  return {facts: facts, intervals: intervals, effects: effects, effectFacts: effectFacts};
+}
+function localExplanation(ds, R, topic) {
+  var f = localFacts(R), sm = R.summary || {}, diag = localDiagnostics(ds, R), out = [];
+  var p = localNumber(sm.p) ? sm.p : sm.p_model, tested = localNumber(p), descriptive = ["describe", "pivot", "matrix"].indexOf(R.kind) >= 0;
+  if (!R.reading.length || !f.facts.length) return ["There is no supported explanation for the current result yet. Check the selected columns and the requirements in the poster. No findings have been inferred."];
+  if (topic === "result") {
+    out.push("For “" + ds.name + "”: " + (sm.test || KIND_HELP[R.kind] || "Selected analysis"));
+    out = out.concat(f.facts);
+    if (tested) out.push("Test p " + (p < 0.001 ? "< 0.001" : "= " + fp(p)) + ". " + (p < 0.05 ? "This is below the conventional .05 threshold under the test’s assumptions." : "This does not cross the conventional .05 threshold; it does not establish that there is no association or difference."));
+    if (R.kind === "matrix") out.push("This map screens multiple pairs. Pairwise missing values may reduce the rows available for each correlation. Open an individual pair for its row count, assumptions and confidence interval, and account for multiple comparisons.");
+    if (R.kind === "regress" || R.kind === "logistic") out.push("Model fit describes these data. It does not establish predictive performance on new data; check held-out performance before using predictions.");
+  }
+  if (topic === "uncertainty" || topic === "result") {
+    if (topic === "uncertainty") out = out.concat(f.effectFacts);
+    out = out.concat(f.intervals);
+    if (topic === "uncertainty" && !f.effects.length) out.push("No test effect size is stored for this result. Descriptive summaries report location, spread or counts instead.");
+    if (!f.intervals.length) out.push("A confidence interval is not available in this result’s stored summary. No interval has been estimated by the assistant.");
+    if (tested && !descriptive && !f.effects.length) out.push("An effect size is not available in this summary. Report one before drawing a substantive conclusion.");
+    if (localNumber(sm.n) && sm.n < 30) out.push("Only " + sm.n + " rows were used. Inspect uncertainty and unusual values carefully; a small sample can give unstable estimates.");
+  }
+  if (topic === "pvalue") out.push(tested ? "The displayed p-value is " + (p < 0.001 ? "less than 0.001" : fp(p)) + ". Under the null hypothesis and the test’s assumptions, it describes how often a statistic at least this extreme would occur. It is not the probability that the null hypothesis is true, and it does not measure effect size or causation." : "There is no single test p-value in this summary. A descriptive table does not establish statistical significance; inspect any individual tests separately.");
+  if (topic === "assumptions" || topic === "result") {
+    out = out.concat(diag.notes);
+    if (!diag.checked) out.push("No normality check is available here. Check the assumptions of this method before interpreting its tests.");
+    out.push("Independence, representative sampling, study design and possible confounding cannot be verified from column values alone.");
+    if (R.kind === "paired") out.push("Each row must identify the same unit measured twice on a comparable scale. Verify this in the source data.");
+  }
+  if (topic === "next") {
+    out.push("Inspect missing values, duplicates and unusual values in Clean & enhance before interpreting the result. Do not remove valid observations just to obtain a smaller p-value.");
+    out = out.concat(diag.notes);
+    (R.next || []).forEach(function (n) { out.push("An exploratory option: " + n.label + "."); });
+    out.push("Choose follow-up analyses for the research question, and account for multiple comparisons when testing several hypotheses.");
+  }
+  out.push("These calculations alone do not establish causation or explain why a pattern exists. Domain knowledge and study design are still needed.");
+  return out;
+}
+function explanationPanel(ds, R) {
+  // Recomputed on every render: changing dataset, filter or columns cannot leave a stale explanation.
+  var topics = [["result", "Explain this result"], ["uncertainty", "Effect & uncertainty"], ["assumptions", "Assumptions"], ["pvalue", "What does p mean?"], ["next", "Next steps"]], topic = A.localTopic || "result";
+  return '<section class="card assistant" aria-labelledby="offline-title"><h2 id="offline-title">Offline result assistant</h2><p class="count">Built from the current analysis using fixed rules. No model, account or internet connection is needed. This is not an open-ended chatbot.</p>' +
+    '<div class="pills" role="group" aria-label="Explanation topic">' + topics.map(function (t) { return '<button type="button" class="pill' + (topic === t[0] ? ' on' : '') + '" aria-pressed="' + (topic === t[0]) + '" data-local-topic="' + t[0] + '">' + t[1] + '</button>'; }).join("") + '</div>' +
+    '<div id="offline-answer" class="assistant-answer" role="status">' + localList(localExplanation(ds, R, topic)) + '</div></section>';
+}
+function explainResult(ds, R) { A.localTopic = "result"; render(); }
+// Capture which reporting checks can actually be supported by a saved result.
+function localEvidence(ds, R) {
+  var text = localText((R.reading || []).join(" ") + " " + (R.apa || "")), diag = localDiagnostics(ds, R), f = localFacts(R);
+  var sm = R.summary || {}, p = localNumber(sm.p) ? sm.p : sm.p_model;
+  return {tested: R.kind === "matrix" || localNumber(p) || (sm.series || []).some(function (x) { return localNumber(x.p); }),
+    multiple: R.kind === "matrix", effect: f.effects.length > 0 && /\br\s*=|\bd\s*=|dz\s*=|η²|Cramér|Pearson|Spearman|R²|OR\s*=|odds|per year|r\(/i.test(text),
+    interval: f.intervals.length > 0 && /95%|confidence|CI\s*\[|most plausibly lies between/i.test(text),
+    normalityFailed: diag.failed, rankReported: /(?:Mann|Kruskal|Wilcoxon|Spearman)[\s\S]*(?:p\s*[=<]|ρ\s*=|rho\s*=)/i.test(text)};
+}
+function localReviewChecks() {
+  var items = WP.items, tested = items.filter(function (it) { return it.evidence ? it.evidence.tested : localNumber(it.p); });
+  var failed = tested.filter(function (it) { return it.evidence ? it.evidence.normalityFailed : /not normal/i.test(localText((it.reading || []).join(" "))); });
+  var check = function (label, applicable, ok, fix) { return {label: label, status: !applicable ? "Not applicable" : ok ? "Reported" : "Check", fix: fix}; };
+  return [
+    check("Effect sizes for tested results", tested.length, tested.every(function (it) { return it.evidence && it.evidence.effect; }), "Include an effect size for every tested result; a p-value alone does not show the size of an association."),
+    check("Confidence intervals for tested results", tested.length, tested.every(function (it) { return it.evidence && it.evidence.interval; }), "Include a confidence interval for each main effect. A data range or standard deviation is not a confidence interval."),
+    check("Multiple comparisons", tested.length > 1 || items.some(function (it) { return it.evidence && it.evidence.multiple; }), false, "Several tested results are collected. Decide which form a family of hypotheses and report an appropriate correction or an explicit exploratory interpretation."),
+    check("Rank-based results when normality is flagged", failed.length, failed.every(function (it) { return it.evidence && it.evidence.rankReported; }), "Normality was flagged. Report and interpret the relevant rank-based alternative, checking its assumptions too."),
+    check("Figures", items.length, items.every(function (it) { return !!it.fig; }), "Add a figure where it helps readers evaluate the result.")
+  ];
+}
+function selfCheck() {
+  return '<ul class="plain checklist">' + localReviewChecks().map(function (c) { return '<li><span class="chip ' + (c.status === "Reported" ? "q-verified" : c.status === "Check" ? "q-estimated" : "") + '">' + c.status + '</span><span>' + esc(c.label) + '</span></li>'; }).join("") + '</ul>';
+}
+function localReviewKey() { return JSON.stringify([WP.title, WP.items]); }
+function reviewWriteup() {
+  var notes = localReviewChecks().filter(function (c) { return c.status === "Check"; }).map(function (c) { return c.fix; });
+  if (WP.items.some(function (it) { return localNumber(it.n) && it.n < 30; })) notes.push("Some results use fewer than 30 rows. Describe the sample size and uncertainty, and avoid broad generalizations.");
+  notes.push("Check study design, independence, sampling and confounders against the source study. These cannot be certified from this draft.");
+  notes.push("Describe associations or differences; these analyses alone do not establish causation. This rules-based review cannot certify that the methods or wording are correct.");
+  WP.review = {key: localReviewKey(), text: notes}; render(); refocus("#offline-review");
+}
+function reviewPanel() {
+  var review = WP.review && WP.review.key === localReviewKey() ? WP.review : null;
+  return '<section class="card assistant"><h2>Offline write-up review</h2><p class="count">Checks saved results for reporting gaps using fixed rules. It cannot verify the study design or replace a statistical reviewer.</p><button type="button" class="btn btn-primary" data-wpr2="1">Review write-up</button>' +
+    (review ? '<div id="offline-review" class="assistant-answer" role="status" tabindex="-1">' + localList(review.text) + '</div>' : '') + '</section>';
+}
+view.addEventListener("click", function (e) {
+  var b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.localTopic) { A.localTopic = b.dataset.localTopic; render(); refocus('[data-local-topic="' + A.localTopic + '"]'); }
+  if (b.dataset.localQuestion != null) { var ds = cur(), q = ds && localExamples(ds)[+b.dataset.localQuestion]; if (q) { document.getElementById("askq").value = q; askAnswer(ds); } }
+});
 
 nav((location.hash || "").slice(1) || "data");
 </script>

@@ -235,3 +235,12 @@ input[type=range] { accent-color: var(--yellow); width: min(320px, 70vw) }
 .paper .pctl { display: flex; gap: var(--s2); flex-wrap: wrap } .paper .pctl .btn { color: #1d2722; border-color: #8a958f; font-size: 12px; padding: 4px 10px } .paper .pctl .btn:hover { background: rgba(0,0,0,.05) }
 .paper.ghost { background: var(--board-2); border: 1.5px dashed var(--rule-2) } .paper.ghost .ghost-fig { margin: var(--s3) 0 }
 .checklist li { display: flex; gap: var(--s2); align-items: baseline }
+
+/* Offline assistant uses the same ruled board components. */
+.ask { align-items: end }
+.assistant-question { flex: 1 1 320px }
+.ask .assistant-question input { flex: initial; width: 100% }
+.assistant-answer { display: grid; gap: var(--s3); font-size: var(--t3); overflow-wrap: anywhere }
+.assistant-answer li { padding-left: var(--s3); border-left: 1px solid var(--rule-2) }
+.assistant .pills { align-items: start }
+.checklist .chip { white-space: normal }

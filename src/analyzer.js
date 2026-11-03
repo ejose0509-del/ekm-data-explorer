@@ -373,33 +373,10 @@ function coefChart(coefs) {
   return g + '<text x="' + ((W + L) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="ax">Effect per 1-unit rise, with 95% range (grey = not clearly different from zero)</text></svg>';
 }
 
-// --- Ask Claude (sends the summary only, never the rows) ---
-function askClaude(ds, R) {
-  var key = A.kind + JSON.stringify(A.sel);
-  A.ai[key] = {text: "", state: "wait"}; render();
-  if (!window.claude || !window.claude.use) { A.ai[key] = {state: "off"}; render(); return; }
-  window.claude.use("sample").then(function (sample) {
-    if (!sample) { A.ai[key] = {state: "off"}; render(); return; }
-    var q = (document.getElementById("aiq") || {}).value || "";
-    var prompt = "You are a careful statistician explaining results to someone without statistics training.\n" +
-      "Dataset: " + ds.name + " (" + (ds.rows ? ds.rows.length : ds.nRows) + " rows). Columns: " + ds.cols.map(function (c) { return c.name + " [" + c.type + "]"; }).join(", ") + ".\n" +
-      (ds.source ? "Source given by the user: " + ds.source + "\n" : "") +
-      "Analysis: " + KIND_HELP[A.kind] + "\nResults (JSON): " + JSON.stringify(R.summary) + "\nAutomatic notes already shown: " + R.reading.concat(R.caveats).join(" ").replace(/<[^>]+>/g, "") + "\n" +
-      (q ? "The user asks: " + q + "\n" : "") +
-      "Write 120-200 words in plain language: what the result means, how sure we can be, what it does not show, and one sensible next step. Use only these numbers; do not invent data. No headings.";
-    var ctl = new AbortController(); A.ai[key].ctl = ctl;
-    return sample(prompt, {cache: false, signal: ctl.signal, onText: function (o) { A.ai[key] = {text: o.text, state: "stream", ctl: ctl}; var el = document.getElementById("aiout"); if (el) el.textContent = o.text; else render(); }})
-      .then(function (res) { A.ai[key] = {text: res.text, state: "done"}; render(); });
-  }).catch(function (e) {
-    A.ai[key] = {state: "error", text: e && e.code === "not_granted" ? "Claude explanations are turned off for this page. The built-in reading above still applies." : e && e.code === "rate_limited" ? "Claude is busy. Try again in a minute." : "Could not reach Claude. The built-in reading above still applies."};
-    render();
-  });
-}
-
 // --- views ---
 function noData(title, text) { return '<h1 class="vt">' + title + '</h1><p class="lede">' + text + "</p><p>" + go2("data", "Add a dataset") + "</p>"; }
 function dataView() {
-  var ds = cur(), store = ST.on ? "Your files are kept privately for you: nobody else, the page owner included, can read them." : "Sign in to Claude to keep your files between visits. For now they stay in this browser tab.";
+  var ds = cur(), store = ST.on ? "Your files are kept privately for you: nobody else, the page owner included, can read them." : "Your files stay in this tab until you close or reload it. Keep a copy of your original file.";
   var add = '<section class="card drop" id="drop" aria-labelledby="add-h"><h2 id="add-h">Add your data</h2><p class="count">CSV, TSV, Excel (.xlsx) or JSON, up to 25 MB. The first row should name the columns. ' + store + "</p>" +
     '<div class="slot"><label class="btn btn-primary" for="afile">Choose a file</label><input type="file" id="afile" accept=".csv,.tsv,.txt,.json,.xlsx,.xls" class="sr-file"><span class="count">or drop it here</span></div>' +
     '<details class="paste"><summary>Paste from a spreadsheet instead</summary><textarea id="apaste" rows="5" placeholder="Paste cells with a header row"></textarea><button type="button" class="btn" data-apaste="1">Use pasted data</button></details>' +
@@ -435,15 +412,12 @@ function dataView() {
 function analyzeView() {
   var ds = cur(); if (!ds) return noData("Analyze", "Add a dataset under Your data, then choose an analysis here.");
   if (!ds.rows) { loadRows(ds).then(render); return '<p class="count" role="status">Loading…</p>'; }
-  var R = runAnalysis(ds), key = A.kind + JSON.stringify(A.sel), ai = A.ai[key] || {};
+  var R = runAnalysis(ds);
   var cats = ds.cols.filter(function (c) { return c.type === "category"; }), fcol = A.sel.f ? ds.cols[idxOf(ds, A.sel.f)] : null, fvals = [];
   if (fcol) { var u = {}; colVals(ds, idxOf(ds, A.sel.f)).forEach(function (v) { if (v != null) u[v] = 1; }); fvals = Object.keys(u).sort(); }
   var filter = cats.length ? '<details class="subset"' + (A.sel.f ? " open" : "") + '><summary>Use only some rows</summary><div class="toolbar">' + pick("f", "Where", cats, A.sel.f, true) +
     (fcol ? '<label class="field" for="fv">is<select id="fv" data-asel="fv"><option value="">Choose…</option>' + fvals.map(function (v) { return "<option" + (v === A.sel.fv ? " selected" : "") + ">" + esc(v) + "</option>"; }).join("") + "</select></label>" : "") + "</div></details>" : "";
-  var aiBox = '<section class="card ai"><h2>Ask Claude to explain</h2><p class="count">Sends the numbers above and your column names, never your rows. Claude may ask permission the first time.</p>' +
-    '<div class="slot"><input id="aiq" maxlength="300" placeholder="Optional: what do you want to know?" aria-label="Question for Claude"><button type="button" class="btn btn-primary" data-aask="1"' + (ai.state === "wait" || ai.state === "stream" ? " disabled" : "") + ">Explain</button></div>" +
-    (ai.state === "wait" ? '<p class="count" role="status">Thinking…</p>' : "") + (ai.text ? '<p id="aiout" class="ai-out" aria-live="polite">' + esc(ai.text) + "</p>" : "") +
-    (ai.state === "off" ? '<p class="count">Claude explanations are not available in this view. The built-in reading still applies.</p>' : "") + "</section>";
+  var aiBox = explanationPanel(ds, R);
   return '<h1 class="vt">' + esc(ds.name) + "</h1>" + askBox() +
     '<div class="pills" role="group" aria-label="Analysis">' + KINDS.map(function (k) { return '<button type="button" class="pill' + (A.kind === k[0] ? " on" : "") + '" aria-pressed="' + (A.kind === k[0]) + '" data-akind="' + k[0] + '">' + k[1] + "</button>"; }).join("") + "</div>" +
     '<div class="toolbar">' + R.controls + "</div>" + filter +
@@ -453,7 +427,7 @@ function analyzeView() {
     '<section aria-labelledby="pc"><h3 class="step" id="pc"><i>3</i> Conclusion</h3>' +
     (R.reading.length ? '<div class="reading"><ul class="plain">' + R.reading.map(function (t) { return "<li>" + t + "</li>"; }).join("") + "</ul></div>" : '<p class="nd">The conclusion appears once the analysis has the columns it needs.</p>') +
     (R.caveats.length ? '<div class="caveats"><h3>Keep in mind</h3><ul class="plain">' + R.caveats.map(function (t) { return "<li>" + t + "</li>"; }).join("") + "</ul></div>" : "") + conclusionExtras(R) + "</section></div>" +
-    (R.reading.length ? deepPanel(ds, R) + toolsBar(ds, R) + aiBox : "") + sharedPanel();
+    (R.reading.length ? aiBox + deepPanel(ds, R) + toolsBar(ds, R) : "") + sharedPanel();
 }
 // The formula behind each analysis, typeset in MathML as on a lecture board.
 function mi(v) { return "<mi>" + v + "</mi>"; } function mo(v) { return "<mo>" + v + "</mo>"; } function mn(v) { return "<mn>" + v + "</mn>"; }
@@ -531,7 +505,7 @@ view.addEventListener("click", function (e) {
   if (d.ads) { pickSet(d.ads); render(); refocus('[data-ads="' + d.ads + '"]'); return; }
   if (d.akind) { A.kind = d.akind; render(); refocus('[data-akind="' + d.akind + '"]'); return; }
   if (d.ctype) { A.chart.type = d.ctype; render(); refocus('[data-ctype="' + d.ctype + '"]'); return; }
-  if (d.aask) { var ds = cur(); askClaude(ds, runAnalysis(ds)); return; }
+  if (d.aask) { var ds = cur(); explainResult(ds, runAnalysis(ds)); return; }
   if (d.apaste) { try { var txt = (document.getElementById("apaste") || {}).value || "", rows = splitCSV(txt); if (rows.length < 2) { A.msg = "Paste a header row and at least one data row."; render(); return; } var ns = makeSet("Pasted data " + new Date().toISOString().slice(0, 10), rows[0], rows.slice(1)); A.sets.unshift(ns); pickSet(ns.id); render(); saveSet(ns); } catch (err) { A.msg = err.message || "Could not read the pasted table. Check its headers and quotes."; render(); } return; }
   if (d.adel) { A.del = cur().id; render(); refocus("[data-adelno]"); return; }
   if (d.adelno) { A.del = null; render(); refocus("[data-adel]"); return; }
