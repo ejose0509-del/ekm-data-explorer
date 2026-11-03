@@ -29,6 +29,7 @@ Open `dist/index.html` in a browser to use it. Run the stats check after any cha
 | `src/deep.js` | Go deeper panel: worked steps, Q-Q/residual plots, null simulation, sampling lab, distribution fits, prediction, correlation map |
 | `src/space.js` | 3D view (canvas renderer) and the 3D chart type |
 | `src/writeup.js` | Write-up tab, limitations, saved result evidence |
+| `src/local-model.js` | Optional same-origin local model bridge |
 | `src/assistant.js` | Offline question routing, grounded explanations, self-check and write-up review |
 
 **Module order matters.** `build.py` concatenates modules in a fixed order into one `<script>`. Later modules extend earlier ones by wrapping globals: `runAnalysis`, `render`, `formula`, `caption`, `toolsBar`, `chartsView` and `VIEWS.*`. To add behaviour, wrap the existing function in a new or later module instead of editing every caller. Keep the plain ES5 style (`var`, `function`), with no modules or bundler.
@@ -43,7 +44,7 @@ Open `dist/index.html` in a browser to use it. Run the stats check after any cha
 ## Platform constraints (Claude artifact)
 
 - **Runtime capabilities are optional.** Private storage, downloads and team sharing use `window.claude.use("db" | "user" | "downloads")`. Every call must handle `null` (unavailable) and errors, because the page has to work fully without them, as it does when opened from disk.
-- **External resources:** scripts only from cdnjs, jsDelivr or unpkg (SheetJS loads on demand); styles and fonts only from Google Fonts. No other network requests.
+- **External resources:** scripts only from cdnjs, jsDelivr or unpkg (SheetJS loads on demand); styles and fonts only from Google Fonts. No other network requests in standalone mode. The user-authorized optional local mode, served by `local_ai/server.py`, may POST computed evidence to its same-origin loopback endpoint; Python may call only local Ollama.
 - **Untrusted data:** never `innerHTML` text from data other people can write (shared results). Escape with `esc()`.
 
 ## Design rules

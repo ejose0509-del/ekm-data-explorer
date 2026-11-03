@@ -53,3 +53,28 @@ It blocks external requests and verifies routing, numerical grounding, refusals,
   - Go deeper: worked steps, Q-Q and residual plots, null simulation, sampling lab, distribution fits, prediction with held-out checks, and a 3D view.
 - **Charts:** histogram, bar, box, scatter, line, 3D, with SVG and PNG export.
 - **Write-up:** plain summary, methods, results with numbered figures, limitations, self-check, offline reporting review.
+
+## Optional local language model
+
+The standalone HTML remains fully usable with the offline assistant. To enable the Python bridge, install [Ollama](https://ollama.com), start it, and download a local model once:
+
+```bash
+ollama pull qwen2.5:1.5b
+python3 build.py
+python3 local_ai/server.py
+```
+
+Open **http://127.0.0.1:8766/**, import your table, open Analyze, then use **Local language model** below the offline result assistant. Ask questions such as “How uncertain is this result?” or “Which assumptions should I check?” Python uses only its standard library. Use `--model NAME` to select another installed local GGUF model, or `--port NUMBER` to change the port. Stop the service with Ctrl-C. Model downloads need internet; inference uses loopback only. The Python service does not train a model or upload data.
+
+This is deliberately a constrained language-model assistant: Ollama returns a topic and evidence references using [structured outputs](https://docs.ollama.com/capabilities/structured-outputs). Python rejects unknown fields, invented references, duplicates and arbitrary prose. The browser validates every returned sentence against the current evidence again. All evidence within the selected topic is retained so the model cannot suppress its caveats. EKM's calculations and rules supply the displayed numbers and wording; the model chooses topic and emphasis. It may still choose an irrelevant topic; this is not a guarantee of sound study design or statistical validity. It cannot provide unrestricted conversational answers. Unsupported causal requests are refused; missing models, timeouts, invalid responses and network failures fall back to the offline explanation.
+
+The bridge accepts only same-origin requests from its loopback-served page with an ephemeral session token. It has no permissive CORS, binds only to 127.0.0.1, ignores HTTP proxy settings, and writes no dataset/question logs. Only the question and computed evidence sentences reach local Ollama; rows are not included. Those sentences can include column names, categories and individual values, so local inference is still processing potentially sensitive information. Ollama's memory/session retention is separate from EKM; consult its settings if needed.
+
+Validation:
+
+```bash
+python3 tests/check_local_ai.py
+node tests/check_local_model.js
+```
+
+The browser test uses the same `PLAYWRIGHT_MODULE` / `BROWSER_CHANNEL` settings as the existing suites. It starts a temporary real Python service and simulates model responses for repeatable validation, fallback and stale-state checks. A live model must also be smoke-tested separately.

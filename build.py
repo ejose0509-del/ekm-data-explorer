@@ -23,6 +23,7 @@ MODULES = [
     "space.js",      # 3D view and 3D chart type
     "writeup.js",    # Write-up tab
     "assistant.js",  # Offline questions, explanations, and write-up review
+    "local-model.js", # Opt-in loopback Python/Ollama evidence selection
 ]
 
 
