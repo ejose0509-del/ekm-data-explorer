@@ -138,3 +138,28 @@ This exercises all ten analysis kinds and their deeper tools, six chart types, c
 Deep-tool simulations and subset results are invalidated when the dataset or table changes. Delayed runs are discarded if their original selection is no longer active. Subset sizes stay within available complete observations, and the lab reports empirical subset stability rather than prospective study power. Randomization and formula p-values are compared explicitly without automatically preferring either method. Repeated derived/indicator columns have unique names, and rerunning Isolation Forest preserves source columns and the prior undo state.
 
 Two-sided normal-approximation power includes both rejection tails, with reference checks at zero, small, positive and negative effects. Fisher-based correlation power is unavailable with three or fewer complete pairs.
+
+## Tags, plain-language takeaways and Discover
+
+```bash
+node tests/check_tags_patterns.js   # 42 browser checks at 1440px and 400px (Playwright, as above)
+```
+
+- **Column tags** (Your data → Variable details): role (identifier, outcome, predictor, group, time, rater, questionnaire item, weight), measurement level (nominal, binary, ordinal, interval, ratio), sensitivity (personal, health/sensitive) and topics. EKM suggests tags from names and values; suggestions are marked until confirmed. Tags set analysis defaults, give ordinal columns rank-based guidance, skip identifiers in scans, and keep sensitive columns out of CSV exports and team sharing unless *Include sensitive columns* is ticked.
+- **Row tags:** select rows in the grid, or tag every row matching a filter, with a tag (Check, Exclude, Verified, Entry error or your own) and an optional note. Tags live in a real *Row tag* column, so they are undoable steps, replay on refresh and appear in the Python/R scripts. Rows tagged **Exclude** leave every analysis and chart, and each result says how many.
+- **Dataset tags:** status, project, wave and topics, shown as chips and searchable in the dataset list.
+- **Takeaway:** every result opens with a one-line plain answer, everyday translations (for example “the Science student scores higher about 64% of the time”), a **How sure** badge (Strong, Moderate, Weak or Describes these rows) with its reasons, and example rows. A **New to statistics / Researcher** switch folds formulas and detailed tables away for new readers. Statistical terms are explained in place with this result’s own numbers. Every sentence is generated from computed values by fixed rules.
+- **What’s in this data:** a short overview on Your data with suggested questions that open the right analysis.
+- **Discover** tab: tests every pair of columns (rank correlations, curved links, group differences, linked categories, trends), reversals within groups (Simpson’s paradox), subgroups for the outcome, natural groupings (k-means with silhouette) and unusual rows. Candidates from a random half of the rows must pass a Benjamini–Hochberg false-discovery rate of 10%, then repeat on the other half to be marked **Confirmed**. Expected links among questionnaire items or raters are folded into one note. Each card opens the matching analysis, can be pinned, and can tag the rows it describes.
+
+## Web context (local mode)
+
+Pages opened as a Claude artifact cannot reach the web. In local mode, Discover cards can look up external context:
+
+```bash
+EKM_SEARCH_KEY=your-brave-key python3 local_ai/server.py --search-provider brave
+EKM_SEARCH_KEY=your-tavily-key python3 local_ai/server.py --search-provider tavily
+python3 local_ai/server.py --search-provider searxng --searx-url http://localhost:8888
+```
+
+The key is read from the environment so it stays out of shell history and the page. Only the words in the search box are sent, after you press Search; rows never leave the computer, and sensitive column names are left out of the suggested query. *Search and read the top pages* fetches up to four result pages through the same private-network protection as link import and shows the sentences that best match the query. Results are labelled “External context, not checked by EKM”, link to their sources, are recorded in the audit trail, and never change a computed result. Page text is shown as text and is never followed as instructions.

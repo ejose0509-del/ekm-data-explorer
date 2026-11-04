@@ -83,3 +83,14 @@ The look is a lecture-hall chalkboard. Read `DESIGN.md` before UI work. Key rule
 ## Statistics rules
 
 Every new test follows its published definition and gets a case in `tests/stats_harness.js` and `tests/check_stats.py` against SciPy. Interpretations must never overstate: say "associated with", not "causes"; report effect sizes and uncertainty; give the rank-based alternative when normality fails.
+
+## Tags, takeaways, Discover and web context
+
+| File | What it owns |
+|---|---|
+| `src/tags.js` | `TAGS`; column tags on `col.tags` (`role`, `level`, `sens`, `topics`, `suggested`), row tags as a `Row tag` / `Row note` column (role `rowtag`, op `rowtag`), dataset tags on `ds.tags`; defaults from roles, Exclude filtering, sensitive-column export rules, project persistence (`p.tags`) |
+| `src/explain.js` | `takeaway(ds, R)` headline and everyday translations per kind, `howSure(ds, R)`, example rows, reading level (`XL.level`), glossary (`GLOSSARY`, `linkTerms`), data overview with suggested questions |
+| `src/discover.js` | `runDiscover` (chunked, cancellable), candidate tests in `testFor`, BH correction, held-out confirmation, clusters, unusual rows, pattern cards |
+| `src/websearch.js` | Query building (sensitive names excluded), the web panel, `/api/search` calls |
+
+When adding an analysis kind, add a case to `takeaway` (headline and everyday lines) and, if it has a special precision measure, to `howSure`. Data-derived names in takeaway HTML must go through `nm()` / `esc()`. New pattern types need a `testFor` case, a `patternText` case and an `openSpec` entry. Web results are untrusted text: render with `esc()` only, never as HTML, and never let them alter a result. `local_ai/server.py` `/api/search` uses `EKM_SEARCH_KEY`, `--search-provider` (brave, tavily, searxng) and the test provider `EKM_SEARCH_MOCK=1`.

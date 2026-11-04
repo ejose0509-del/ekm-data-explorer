@@ -279,6 +279,28 @@ input[type=number] { font: inherit; color: var(--chalk); background: var(--board
 .field .count { font-weight: 400 }
 .wflist .linkbtn { margin-left: var(--s3) }
 
+/* Takeaway: the plain answer before the statistics */
+.takeaway { display: grid; gap: var(--s3); padding: var(--s4) var(--s5); border: 1px solid var(--rule-2); border-left: 3px solid var(--yellow); border-radius: 4px; background: var(--board-2); margin-bottom: var(--s4) }
+.tk-top { display: flex; flex-wrap: wrap; gap: var(--s3); align-items: start; justify-content: space-between }
+.tk-head { font: 600 var(--t4)/1.35 var(--display); max-width: 62ch; flex: 1 1 320px }
+.tk-every { display: grid; gap: var(--s2); max-width: 75ch } .tk-every li { padding-left: var(--s3); border-left: 1px solid var(--rule-2) }
+.tk-level { display: inline-flex; gap: var(--s2); margin-left: auto } .chip.sure { font-size: var(--t2) }
+.mathfold > summary, .extrafold > summary { font-size: var(--t1) }
+.term { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: help; text-decoration: underline dotted var(--yellow); text-underline-offset: 3px }
+.termdef { display: block; margin: var(--s2) 0; padding: var(--s2) var(--s3); background: var(--board-3); border-left: 2px solid var(--yellow); font-size: var(--t2); color: var(--chalk) }
+.overview p { max-width: 75ch } .overview .slot .btn { text-align: left; white-space: normal }
+/* Tags */
+.tagbar { padding: var(--s2) 0 } tr.picked td { background: rgba(242, 213, 107, .08) }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap }
+.vartable select { min-width: 12ch }
+/* Discover */
+.pcards { display: grid; gap: var(--s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); margin: var(--s4) 0 }
+.pcard { display: grid; gap: var(--s2); align-content: start; padding: var(--s4); border: 1px solid var(--rule-2); border-radius: 4px; background: var(--board-2) } .pcard.weak { opacity: .78 }
+.pc-top { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center } .pc-top .label { font: 600 var(--t1) var(--ui); letter-spacing: .06em; text-transform: uppercase; color: var(--chalk-3); margin-right: auto }
+.pc-head { font: 400 var(--t3)/1.45 var(--display) } .pc-head b { font-weight: 600; color: var(--chalk) }
+.webctx { display: grid; gap: var(--s2); border-top: 1px dashed var(--rule-2); padding-top: var(--s3) } .webres { margin: 0; padding-left: 1.3em; display: grid; gap: var(--s3) } .webres p { font-size: var(--t2); color: var(--chalk-2) }
+.excerpts li { font: italic var(--t2)/1.5 var(--display); color: var(--chalk-2); padding-left: var(--s2); border-left: 1px solid var(--rule-2); margin-top: var(--s1) }
+
 </style>
 </head>
 <body>
@@ -288,6 +310,7 @@ input[type=number] { font: inherit; color: var(--chalk); background: var(--board
     <a href="#plan">Plan</a>
     <a href="#data">Your data</a>
     <a href="#enhance">Clean &amp; enhance</a>
+    <a href="#discover">Discover</a>
     <a href="#analyze">Analyze</a>
     <a href="#charts">Charts</a>
     <a href="#writeup">Write-up</a>
@@ -6496,6 +6519,598 @@ function kindMenu() {
 }
 var _analyzeViewL = VIEWS.analyze;
 VIEWS.analyze = function () { return _analyzeViewL().replace(/<div class="pills" role="group" aria-label="Analysis">[\s\S]*?<\/div>/, kindMenu()); };
+
+// ===== tags.js =====
+// ---------- Tags: what each column is, notes on rows, and labels for whole datasets ----------
+var TAGS = {
+  roles: [["", "Not set"], ["id", "Identifier"], ["outcome", "Outcome"], ["predictor", "Predictor"], ["group", "Group or cluster"], ["time", "Time"], ["rater", "Rater"], ["item", "Questionnaire item"], ["weight", "Survey weight"], ["rowtag", "Row tag"], ["ignore", "Ignore"]],
+  levels: [["", "Not set"], ["nominal", "Nominal (named groups)"], ["binary", "Binary (two values)"], ["ordinal", "Ordinal (ordered steps)"], ["interval", "Interval"], ["ratio", "Ratio (true zero)"]],
+  sens: [["", "None"], ["personal", "Personal or identifying"], ["health", "Health or other sensitive"]],
+  rowTags: ["Check", "Exclude", "Verified", "Entry error"],
+  status: [["", "Not set"], ["raw", "Raw"], ["cleaning", "Being cleaned"], ["clean", "Clean"], ["final", "Final (analysis copy)"]],
+  q: "", msg: "", picked: Object.create(null), rowTag: "Check", rowNote: "", dsq: ""
+};
+function tagOf(c) { return c && c.tags || {}; }
+function roleOf(ds, name) { var j = idxOf(ds, name); return j >= 0 ? tagOf(ds.cols[j]).role || "" : ""; }
+function sensitive(c) { return !!tagOf(c).sens; }
+// ---- Suggestions from names and values ----
+function suggestColumn(ds, c) {
+  var t = {}, n = c.name, j = idxOf(ds, n), vals = ds.rows.map(function (r) { return r[j]; }).filter(function (v) { return v != null; });
+  var uniq = Object.create(null); vals.forEach(function (v) { uniq[v] = 1; }); var k = Object.keys(uniq).length;
+  var ints = isNum(c) && vals.every(function (v) { return v === Math.round(v); }), lo = isNum(c) ? amin(vals) : 0, hi = isNum(c) ? amax(vals) : 0;
+  if (/^row tag$|^row note$/i.test(n)) t.role = "rowtag";
+  else if (typeof likelyId === "function" && likelyId(ds, c)) t.role = "id";
+  else if (c.type === "date" || c.type === "year" || /(^|\b|_)(date|time|year|wave|visit|week|month|day|period)(\b|_|$)/i.test(n)) t.role = "time";
+  else if (/rater|judge|coder|observer|assessor|reader/i.test(n)) t.role = "rater";
+  else if (/^(item|q)\s*_?\d+|item\s*\d|question/i.test(n)) t.role = "item";
+  else if (/^(sample_?|survey_?|design_?)?(weight|wt|wgt)$/i.test(n)) t.role = "weight";
+  else if (!isNum(c) && k >= 2 && k < vals.length / 2 && /school|site|class|clinic|hospital|group|team|cluster|region|district|ward|centre|center|country|state|city|household|family/i.test(n)) t.role = "group";
+  else if (/outcome|result|target|passed|status|response|^y$|died|death|success|recovered|score$/i.test(n)) t.role = "outcome";
+  if (c.type === "category" || c.type === "text") t.level = k === 2 ? "binary" : /likert|rating|agree|grade|stage|level|severity|rank|education/i.test(n) ? "ordinal" : "nominal";
+  else if (isNum(c)) t.level = k === 2 ? "binary" : ints && lo >= 0 && hi <= 10 && k <= 11 && k >= 3 ? "ordinal" : lo < 0 || /temp|year|date|iq|z$|standardi[sz]ed/i.test(n) ? "interval" : "ratio";
+  if (/(^|\b|_)(name|first|last|surname|email|e-mail|phone|mobile|address|street|ssn|social security|nhs|passport|licen[cs]e|dob|birth|zip|postcode|postal|ip)(\b|_|$)/i.test(n)) t.sens = "personal";
+  else if (/diagnos|disease|hiv|medication|prescription|pregnan|mental|psychiatr|disabilit|religio|ethnic|sexual|criminal/i.test(n)) t.sens = "health";
+  if (t.role === "id" || t.role === "rowtag") t.level = "nominal";
+  t.suggested = true;
+  return t;
+}
+function suggestAll(ds) { ds.cols = ds.cols.map(function (c) { return c.tags ? c : Object.assign({}, c, {tags: suggestColumn(ds, c)}); }); return ds; }
+var _makeSetT = makeSet;
+makeSet = function (name, header, body, origin, extra) { return suggestAll(_makeSetT(name, header, body, origin, extra)); };
+var _addDerivedT = addDerived;
+addDerived = function (name, cols, rows, note) { var ds = _addDerivedT(name, cols, rows, note); suggestAll(ds); return ds; };
+// Steps that add columns: give new columns suggestions without touching confirmed ones
+var _applyStepT = applyStep;
+applyStep = function (ds, step, fn) { _applyStepT(ds, step, fn); if (ds.rows && ds.cols.some(function (c) { return !c.tags; })) suggestAll(ds); };
+
+// ---- Tags steer analyses ----
+var _likelyIdT = typeof likelyId === "function" ? likelyId : null;
+if (_likelyIdT) likelyId = function (ds, c) { var r = tagOf(c).role; if (r === "id" || r === "rowtag" || r === "ignore") return true; if (r && !tagOf(c).suggested) return false; return _likelyIdT(ds, c); };
+var _defaultsT = defaults;
+defaults = function (ds) {   // tags fill only choices that are not made yet; explicit selections always win
+  var s = A.sel, has = function (n) { return n && idxOf(ds, n) >= 0; }, by = function (role, ok) { return ds.cols.filter(function (c) { return tagOf(c).role === role && (!ok || ok(c)); }); };
+  var outc = by("outcome", function (c) { return c.type === "number"; })[0], grp = by("group", function (c) { return c.type === "category"; })[0], tm = by("time", function (c) { return c.type === "year" || c.type === "date"; })[0];
+  if (outc && !has(s.y)) { s.y = outc.name; if (!Array.isArray(s.preds)) s.preds = ds.cols.filter(function (c) { return c.type === "number" && c.name !== outc.name && ["id", "rowtag", "ignore", "weight", "outcome"].indexOf(tagOf(c).role) < 0; }).slice(0, 3).map(function (c) { return c.name; }); }
+  if (grp && !has(s.g)) s.g = grp.name;
+  if (tm && !has(s.t)) s.t = tm.name;
+  if (grp && !has(s.mg)) s.mg = grp.name;
+  var hadX = has(s.x), out = _defaultsT(ds);
+  if (!hadX && s.x === s.y) { var other = out.nums.filter(function (c) { return c.name !== s.y; })[0]; if (other) s.x = other.name; }   // two-number analyses need two different columns
+  return out;
+};
+// Rows tagged Exclude leave every analysis and chart, and each result says so
+function excludeIndex(ds) { var j = -1; ds.cols.forEach(function (c, i) { if (tagOf(c).role === "rowtag" && /tag/i.test(c.name)) j = i; }); return j; }
+var _filterRowsT = filterRows;
+filterRows = function (ds) { var rows = _filterRowsT(ds), j = excludeIndex(ds); if (j < 0 || A.sel.keepExcluded) return rows; return rows.filter(function (r) { return r[j] !== "Exclude"; }); };
+var _runAnalysisT = runAnalysis;
+runAnalysis = function (ds) {
+  var R = _runAnalysisT(ds), j = excludeIndex(ds);
+  if (j >= 0 && !A.sel.keepExcluded && R.valid !== false) { var n = ds.rows.filter(function (r) { return r[j] === "Exclude"; }).length; if (n) R.caveats.unshift(n + " row" + (n > 1 ? "s" : "") + " tagged Exclude " + (n > 1 ? "were" : "was") + " left out. See the Row tag column under Your data."); }
+  var lv = function (name) { var c = colMeta(ds, name); return c ? tagOf(c).level : ""; };
+  if (R.valid !== false && ["compare", "relate", "regress", "paired"].indexOf(R.kind) >= 0 && (lv(A.sel.y) === "ordinal" || (R.kind === "relate" && lv(A.sel.x) === "ordinal")))
+    R.caveats.unshift("This column is tagged ordinal: its steps are ordered but not necessarily equal, so the rank-based result (Spearman, Mann–Whitney, Kruskal–Wallis, Wilcoxon) is the primary one to report.");
+  LAST_R = R; return R;
+};
+// Sensitive columns stay out of exports and sharing unless included on purpose
+function withoutSensitive(ds) { var keep = ds.cols.map(function (c, j) { return sensitive(c) ? -1 : j; }).filter(function (j) { return j >= 0; }); if (keep.length === ds.cols.length) return ds; return {cols: keep.map(function (j) { return ds.cols[j]; }), rows: ds.rows.map(function (r) { return keep.map(function (j) { return r[j]; }); }), dropped: ds.cols.length - keep.length}; }
+var _csvTextT = csvText;
+csvText = function (ds) { if (ds && ds.cols && !A.includeSensitive) { var w = withoutSensitive(ds); if (w.dropped) { XP.msg = w.dropped + " column" + (w.dropped > 1 ? "s" : "") + " tagged personal or sensitive " + (w.dropped > 1 ? "were" : "was") + " left out of the file. Tick “Include sensitive columns” under Variable details to export them."; } return _csvTextT(w); } return _csvTextT(ds); };
+if (typeof wsShare === "function") { var _wsShareT = wsShare; wsShare = function () { var keep = A.sets; A.sets = A.sets.map(function (ds) { if (!ds.rows || A.includeSensitive) return ds; var w = withoutSensitive(ds); return w.dropped ? Object.assign({}, ds, {cols: w.cols, rows: w.rows}) : ds; }); try { _wsShareT(); } finally { A.sets = keep; } }; }
+
+// ---- Row tags (a real column, so they survive steps, refreshes, exports and scripts) ----
+function opRowTag(ds, rows, tag, note) {
+  var cols = ds.cols.slice(), names = cols.map(function (c) { return c.name; }), ti = excludeIndex(ds), ni = -1;
+  cols.forEach(function (c, i) { if (tagOf(c).role === "rowtag" && /note/i.test(c.name)) ni = i; });
+  var data = ds.rows;
+  if (ti < 0) { cols.push({name: uniqueColumnName("Row tag", names), type: "category", tags: {role: "rowtag", level: "nominal"}}); ti = cols.length - 1; data = data.map(function (r) { return r.concat([null]); }); names.push(cols[ti].name); }
+  if (note && ni < 0) { cols.push({name: uniqueColumnName("Row note", names), type: "text", tags: {role: "rowtag"}}); ni = cols.length - 1; data = data.map(function (r) { return r.concat([null]); }); }
+  var set = Object.create(null), n = 0; rows.forEach(function (i) { set[i] = 1; });
+  data = data.map(function (r, i) { if (!set[i]) return r; var r2 = r.slice(); r2[ti] = tag || null; if (ni >= 0 && note != null) r2[ni] = note || null; n++; return r2; });
+  return {rows: data, cols: cols, changed: n};
+}
+function tagRows(ds, idx, tag, note, how) {
+  if (!idx.length) { TAGS.msg = "No rows to tag."; render(); return; }
+  applyStep(ds, {op: "rowtag", rows: idx.slice(0, 50000), tag: tag, note: note || "", text: (tag ? "Tagged " + idx.length + " row" + (idx.length > 1 ? "s" : "") + " “" + tag + "”" : "Cleared the tag on " + idx.length + " rows") + (how ? " (" + how + ")" : "") + (note ? ": " + note : ""), unit: "rows"}, function () { return opRowTag(ds, idx, tag, note); });
+  TAGS.picked = Object.create(null);
+}
+var _replayStepT = replayStep;
+replayStep = function (ds, s2) { if (s2.op === "rowtag") return opRowTag(ds, s2.rows || [], s2.tag, s2.note); return _replayStepT(ds, s2); };
+if (typeof pyStep === "function") {
+  var _pyStepT = pyStep; pyStep = function (s2, ds) { if (s2.op !== "rowtag") return _pyStepT(s2, ds); return "if \"Row tag\" not in df: df[\"Row tag\"] = None\ndf.loc[df.index[" + JSON.stringify(s2.rows || []) + "], \"Row tag\"] = " + (s2.tag ? JSON.stringify(s2.tag) : "None") + (s2.tag === "Exclude" ? "\ndf = df[df[\"Row tag\"] != \"Exclude\"]  # EKM leaves Exclude rows out of analyses" : ""); };
+  var _rStepT = rStep; rStep = function (s2, ds) { if (s2.op !== "rowtag") return _rStepT(s2, ds); return "if (!\"Row tag\" %in% names(df)) df[[\"Row tag\"]] <- NA\ndf[c(" + (s2.rows || []).map(function (i) { return i + 1; }).join(", ") + "), \"Row tag\"] <- " + (s2.tag ? JSON.stringify(s2.tag) : "NA") + (s2.tag === "Exclude" ? "\ndf <- df[is.na(df[[\"Row tag\"]]) | df[[\"Row tag\"]] != \"Exclude\", , drop = FALSE]" : ""); };
+}
+function rowTagBar(ds, where) {
+  var picked = Object.keys(TAGS.picked).length;
+  return '<div class="tagbar toolbar"><label class="field" for="rt_tag">Row tag<input id="rt_tag" data-rt="tag" list="rt_list" value="' + esc(TAGS.rowTag) + '" maxlength="40"><datalist id="rt_list">' + TAGS.rowTags.map(function (t) { return '<option value="' + t + '">'; }).join("") + '</datalist></label><label class="field" for="rt_note">Note (optional)<input id="rt_note" data-rt="note" value="' + esc(TAGS.rowNote) + '" maxlength="200"></label>' +
+    (where === "grid" ? '<button type="button" class="btn" data-rtgo="picked"' + (picked ? "" : " disabled") + ">Tag " + picked + " selected row" + (picked === 1 ? "" : "s") + '</button><button type="button" class="btn" data-rtclear="picked"' + (picked ? "" : " disabled") + ">Clear their tags</button>" : '<button type="button" class="btn" data-rtgo="filter">Tag the matching rows</button>') + "</div>";
+}
+
+// ---- Variable details card (replaces the labels card): labels, units, value labels and tags ----
+function sel(attr, j, opts, val, label) { return '<select data-ctag="' + attr + '" data-vcol="' + j + '" aria-label="' + label + '">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === (val || "") ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select>"; }
+function variableCard(ds) {
+  var q = TAGS.q.toLowerCase(), sugg = ds.cols.filter(function (c) { return tagOf(c).suggested; }).length, sens = ds.cols.filter(sensitive).length;
+  var list = ds.cols.map(function (c, j) { return [c, j]; }).filter(function (p) { var c = p[0], t = tagOf(c); return !q || (c.name + " " + (c.label || "") + " " + (t.role || "") + " " + (t.topics || []).join(" ")).toLowerCase().indexOf(q) >= 0; });
+  return '<section class="card" aria-labelledby="vd-h"><h2 id="vd-h">Variable details</h2><p class="count">Tags tell EKM what each column is: the outcome and groups set analysis defaults, ordinal columns get rank-based results, and personal or sensitive columns stay out of exports and sharing. Suggested tags are marked; check them.</p>' +
+    '<div class="toolbar"><label class="field" for="vd_q">Find a column<input id="vd_q" type="search" value="' + esc(TAGS.q) + '" placeholder="name, label, role or topic"></label>' + (sugg ? '<button type="button" class="btn" data-ctconfirm="1">Confirm ' + sugg + " suggested</button>" : "") + '<label class="chk"><input type="checkbox" data-incsens="1"' + (A.includeSensitive ? " checked" : "") + "> Include sensitive columns in exports" + (sens ? " (" + sens + ")" : "") + "</label></div>" +
+    '<div class="tablewrap"><table class="nosort vartable"><thead><tr><th>Column</th><th>Role</th><th>Level</th><th>Sensitivity</th><th>Label</th><th>Unit</th><th>Value labels</th><th>Topics</th></tr></thead><tbody>' + list.map(function (p) {
+      var c = p[0], j = p[1], t = tagOf(c), vl = c.values ? Object.keys(c.values).map(function (k) { return k + " = " + c.values[k]; }).join("; ") : "";
+      return "<tr><td><b>" + esc(c.name) + "</b>" + (t.suggested ? ' <span class="chip q-reported">Suggested</span>' : "") + (t.sens ? ' <span class="chip q-excluded">' + (t.sens === "health" ? "Sensitive" : "Personal") + "</span>" : "") + "</td><td>" + sel("role", j, TAGS.roles, t.role, "Role of " + esc(c.name)) + "</td><td>" + sel("level", j, TAGS.levels, t.level, "Level of " + esc(c.name)) + "</td><td>" + sel("sens", j, TAGS.sens, t.sens, "Sensitivity of " + esc(c.name)) +
+        '</td><td><input data-vmeta="label" data-vcol="' + j + '" value="' + esc(c.label || "") + '" maxlength="80" aria-label="Label for ' + esc(c.name) + '"></td><td><input data-vmeta="unit" data-vcol="' + j + '" value="' + esc(c.unit || "") + '" maxlength="24" aria-label="Unit for ' + esc(c.name) + '" class="short"></td><td><input data-vmeta="values" data-vcol="' + j + '" value="' + esc(vl) + '" maxlength="600" aria-label="Value labels for ' + esc(c.name) + '">' + (c.values ? ' <button type="button" class="linkbtn" data-vapply="' + j + '">Apply</button>' : "") +
+        '</td><td><input data-ctag="topics" data-vcol="' + j + '" value="' + esc((t.topics || []).join(", ")) + '" maxlength="120" placeholder="e.g. baseline" aria-label="Topics for ' + esc(c.name) + '"></td></tr>';
+    }).join("") + "</tbody></table></div>" + (TAGS.msg ? '<p class="how" role="status">' + esc(TAGS.msg) + "</p>" : "") + "</section>";
+}
+labelsCard = variableCard;
+// Grid: a selection column and the row-tag bar
+var _gridCardT = gridCard;
+gridCard = function (ds) {
+  var h = _gridCardT(ds);
+  h = h.replace("<tr><th>#</th>", '<tr><th><span class="sr-only">Select</span></th><th>#</th>').replace(/<tr><td class="num count">(\d+)<\/td>/g, function (m, n) { var i = +n - 1; return '<tr' + (TAGS.picked[i] ? ' class="picked"' : "") + '><td><input type="checkbox" data-rtpick="' + i + '"' + (TAGS.picked[i] ? " checked" : "") + ' aria-label="Select row ' + n + '"></td><td class="num count">' + n + "</td>"; });
+  return h.replace(/(<div class="tablewrap gridwrap">)/, rowTagBar(ds, "grid") + "$1");
+};
+// Filter card: tag every row that matches
+var _filterCardT = filterCard;
+filterCard = function (ds) { var h = _filterCardT(ds), w = A.sel.where; if (!(w && w.conds && w.conds.length) && !(A.sel.f && A.sel.fv)) return h; return h.replace(/(<\/details>)$/, rowTagBar(ds, "filter") + "$1"); };
+
+// ---- Dataset tags ----
+function dsTags(ds) { return ds.tags || {}; }
+var _dataViewT = VIEWS.data;
+VIEWS.data = function () {
+  var h = _dataViewT(), ds = cur(); if (!ds || !ds.rows) return h;
+  var t = dsTags(ds), card = '<section class="card" aria-labelledby="dt-h"><h2 id="dt-h">Dataset tags</h2><div class="toolbar">' +
+    '<label class="field" for="dt_status">Status<select id="dt_status" data-dtag="status">' + TAGS.status.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === (t.status || "") ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></label>" +
+    '<label class="field" for="dt_project">Project<input id="dt_project" data-dtag="project" value="' + esc(t.project || "") + '" maxlength="60"></label><label class="field" for="dt_wave">Wave or version<input id="dt_wave" data-dtag="wave" value="' + esc(t.wave || "") + '" maxlength="30"></label></div>' +
+    '<label class="field" for="dt_topics">Topics (comma separated)<input id="dt_topics" data-dtag="topics" value="' + esc((t.topics || []).join(", ")) + '" maxlength="160"></label></section>';
+  h = h.replace(/(<section class="card"><h2>About this dataset<\/h2>)/, card + "$1");
+  // Chips and a search box in the dataset list
+  h = h.replace(/(<button type="button" class="linkbtn" data-ads="([^"]+)"[^>]*>[\s\S]*?<\/button>)/g, function (m, btn, id) { var s = A.sets.filter(function (x) { return x.id === id; })[0], tt = s ? dsTags(s) : {}; var chips = (tt.status ? '<span class="chip q-reported">' + esc((TAGS.status.filter(function (o) { return o[0] === tt.status; })[0] || [0, tt.status])[1]) + "</span>" : "") + (tt.project ? ' <span class="chip">' + esc(tt.project) + "</span>" : "") + (tt.wave ? ' <span class="chip">' + esc(tt.wave) + "</span>" : ""); return btn + (chips ? " " + chips : ""); });
+  if (A.sets.length > 4) h = h.replace(/(<section class="card"><h2>Datasets<\/h2>)/, '$1<label class="field" for="ds_q">Find a dataset<input id="ds_q" type="search" value="' + esc(TAGS.dsq) + '" placeholder="name, project, wave or topic"></label>');
+  if (TAGS.dsq) { var qq = TAGS.dsq.toLowerCase(); h = h.replace(/<li class="(on)?">([\s\S]*?)<\/li>/g, function (m, on, inner) { var id = (/data-ads="([^"]+)"/.exec(inner) || [])[1], s = A.sets.filter(function (x) { return x.id === id; })[0], tt = s ? dsTags(s) : {}; var hay = s ? (s.name + " " + (tt.project || "") + " " + (tt.wave || "") + " " + (tt.status || "") + " " + (tt.topics || []).join(" ")).toLowerCase() : ""; return hay.indexOf(qq) >= 0 ? m : ""; }); }
+  return h;
+};
+var _saveMetaT = saveMeta;
+saveMeta = function (ds) { _saveMetaT(ds); if (ST.on && ds.saved) col().doc(ds.id).update({tags: ds.tags || {}}).catch(function () {}); };
+
+// ---- Projects keep every tag ----
+var COLMETA = ["label", "unit", "values", "tags"];
+function cleanTags(t) { if (!t || typeof t !== "object") return null; var ok = function (list, v) { return list.some(function (o) { return o[0] === v; }) ? v : ""; }; var o = {role: ok(TAGS.roles, t.role), level: ok(TAGS.levels, t.level), sens: ok(TAGS.sens, t.sens)}; if (Array.isArray(t.topics)) o.topics = t.topics.filter(function (x) { return typeof x === "string"; }).slice(0, 12).map(function (x) { return x.slice(0, 40); }); if (t.suggested) o.suggested = true; return o; }
+var _snapT = projectSnapshot;
+projectSnapshot = function () { var p = _snapT(); p.tags = A.sets.map(function (ds) { return {id: ds.id, ds: ds.tags || null, cols: ds.cols.map(function (c) { return {name: c.name, tags: c.tags || null}; })}; }); return p; };
+var _validT = validateProject;
+validateProject = function (p) {
+  var out = _validT(p), by = Object.create(null); (Array.isArray(p && p.tags) ? p.tags : []).forEach(function (t) { if (t && typeof t.id === "string") by[t.id] = t; });
+  out.datasets.forEach(function (ds) {
+    var t = by[ds.id]; if (!t) { suggestAll(ds); return; }
+    if (t.ds && typeof t.ds === "object") ds.tags = {status: TAGS.status.some(function (o) { return o[0] === t.ds.status; }) ? t.ds.status : "", project: String(t.ds.project || "").slice(0, 60), wave: String(t.ds.wave || "").slice(0, 30), topics: Array.isArray(t.ds.topics) ? t.ds.topics.filter(function (x) { return typeof x === "string"; }).slice(0, 12) : []};
+    var cm = Object.create(null); (Array.isArray(t.cols) ? t.cols : []).forEach(function (c) { if (c && typeof c.name === "string") cm[c.name] = cleanTags(c.tags); });
+    ds.cols = ds.cols.map(function (c) { return cm[c.name] ? Object.assign({}, c, {tags: cm[c.name]}) : c; }); suggestAll(ds);
+  });
+  return out;
+};
+
+// ---- Events ----
+view.addEventListener("change", function (e) {
+  var t = e.target, d = t.dataset || {}, ds = cur(); if (!ds) return;
+  if (d.ctag) {
+    var j = +d.vcol, c = ds.cols[j]; if (!c) return; var tg = Object.assign({}, tagOf(c)); delete tg.suggested;
+    if (d.ctag === "topics") tg.topics = t.value.split(",").map(function (x) { return x.trim(); }).filter(Boolean).slice(0, 12); else tg[d.ctag] = t.value;
+    var cols = ds.cols.slice(); cols[j] = Object.assign({}, c, {tags: tg}); ds.cols = cols; saveMeta(ds);
+    auditLog("Tagged column", ds, c.name + ": " + d.ctag + " = " + (d.ctag === "topics" ? tg.topics.join(", ") : t.value || "not set")); render(); refocus('[data-ctag="' + d.ctag + '"][data-vcol="' + j + '"]'); return;
+  }
+  if (t.id === "vd_q") { TAGS.q = t.value; render(); refocus("#vd_q"); return; }
+  if (t.id === "ds_q") { TAGS.dsq = t.value; render(); refocus("#ds_q"); return; }
+  if (d.incsens) { A.includeSensitive = t.checked; auditLog("Sensitive columns " + (t.checked ? "included in" : "excluded from") + " exports", ds, ""); render(); return; }
+  if (d.dtag) { var tags = Object.assign({}, dsTags(ds)); tags[d.dtag] = d.dtag === "topics" ? t.value.split(",").map(function (x) { return x.trim(); }).filter(Boolean).slice(0, 12) : t.value.trim(); ds.tags = tags; saveMeta(ds); auditLog("Tagged dataset", ds, d.dtag + " = " + (Array.isArray(tags[d.dtag]) ? tags[d.dtag].join(", ") : tags[d.dtag])); render(); refocus('[data-dtag="' + d.dtag + '"]'); return; }
+  if (d.rt) { TAGS[d.rt === "tag" ? "rowTag" : "rowNote"] = t.value; return; }
+  if (d.rtpick != null) { if (t.checked) TAGS.picked[+d.rtpick] = 1; else delete TAGS.picked[+d.rtpick]; render(); refocus('[data-rtpick="' + d.rtpick + '"]'); return; }
+});
+view.addEventListener("click", function (e) {
+  var b = e.target.closest("button"); if (!b) return; var d = b.dataset, ds = cur(); if (!ds) return;
+  if (d.ctconfirm) { ds.cols = ds.cols.map(function (c) { if (!tagOf(c).suggested) return c; var tg = Object.assign({}, c.tags); delete tg.suggested; return Object.assign({}, c, {tags: tg}); }); saveMeta(ds); auditLog("Confirmed suggested tags", ds, ""); TAGS.msg = "Tags confirmed."; render(); return; }
+  var tag = ((document.getElementById("rt_tag") || {}).value || TAGS.rowTag).trim(), note = ((document.getElementById("rt_note") || {}).value || "").trim();
+  if (d.rtgo === "picked" || d.rtclear === "picked") { tagRows(ds, Object.keys(TAGS.picked).map(Number).sort(function (a, b) { return a - b; }), d.rtclear ? "" : tag, d.rtclear ? "" : note, "chosen in the grid"); return; }
+  if (d.rtgo === "filter") { var keep = A.sel.keepExcluded; A.sel.keepExcluded = true; var rows = filterRows(ds), at = new Map(); A.sel.keepExcluded = keep; ds.rows.forEach(function (r, i) { at.set(r, i); }); tagRows(ds, rows.map(function (r) { return at.get(r); }), tag, note, "rows where " + (A.sel.where ? whereText(A.sel.where) : A.sel.f + " is " + A.sel.fv)); return; }
+});
+
+// ===== explain.js =====
+// ---------- Making results intelligible: plain headline, everyday effect sizes, how sure, reading level, glossary ----------
+// Every sentence is built from computed numbers by fixed rules; nothing here guesses or invents.
+var XL = {level: "new", examples: false, term: null};
+try { XL.level = localStorage.getItem("ekm-level") || "new"; } catch (e) {}
+function nameOf(n) { var c = colMeta(cur(), n); return c && c.label ? c.label : n; }
+function unitOf(n) { var c = colMeta(cur(), n); return c && c.unit ? " " + c.unit : ""; }
+function amt(v, n) { return f3(Math.abs(v)) + un(n); }
+function nm(n) { return esc(nameOf(n)); }
+function un(n) { return esc(unitOf(n)); }
+function pct(x) { return Math.round(x * 100) + "%"; }
+function phi(z) { return S2.pnorm(z); }
+function entity(ds) { var id = ds.cols.filter(function (c) { return tagOf(c).role === "id"; })[0]; if (!id) return "rows"; var w = id.name.replace(/[_\s-]*(id|code|number|no|#)$/i, "").trim(); return w && !/^(id|row|record)$/i.test(w) ? w.toLowerCase().replace(/([^s])$/, "$1s") : "rows"; }
+function sizeWord(kind, v) { var a = Math.abs(v); return kind === "d" ? (a < 0.2 ? "negligible" : a < 0.5 ? "small" : a < 0.8 ? "moderate" : "large") : kind === "r" ? (a < 0.1 ? "almost no" : a < 0.3 ? "a weak" : a < 0.5 ? "a moderate" : "a strong") : kind === "v" ? (a < 0.1 ? "almost no" : a < 0.3 ? "a weak" : a < 0.5 ? "a moderate" : "a strong") : kind === "eta" ? (a < 0.01 ? "negligible" : a < 0.06 ? "small" : a < 0.14 ? "moderate" : "large") : ""; }
+
+// ---- 1. Headline and everyday translation for each analysis ----
+function takeaway(ds, R) {
+  var s = R.summary || {}, sel = A.sel, ent = esc(entity(ds)), h = "", ev = [];
+  switch (R.kind) {
+    case "describe":
+      if (s.mean != null) { var qv = S.nums(getCol(ds, filterRows(ds), A.sel.y)).sort(function (a, b) { return a - b; }), q1 = S.quantile(qv, 0.25), q3 = S.quantile(qv, 0.75); h = "A typical value of " + nm(s.column) + " is about " + amt(s.median, s.column) + "; half of " + ent + " fall between " + f3(q1) + " and " + f3(q3) + un(s.column) + "."; if (Math.abs(s.skew) > 1) ev.push("The values lean " + (s.skew > 0 ? "high: a few large values pull the average (" + f3(s.mean) + ") above the typical value" : "low: a few small values pull the average (" + f3(s.mean) + ") below the typical value") + "."); if (s.missing) ev.push(s.missing + " of " + (s.n + s.missing) + " " + ent + " have no value here."); }
+      else if (s.top && s.top[0]) { h = "The most common " + nm(s.column) + " is “" + esc(s.top[0][0]) + "”: " + s.top[0][1] + " of " + s.n + " " + ent + " (" + pct(s.top[0][1] / s.n) + ")."; ev.push("There are " + s.distinct + " different values in all."); }
+      break;
+    case "compare":
+      if (Array.isArray(s.groups)) { var hi = s.diff >= 0 ? 0 : 1, lo = 1 - hi, ps = phi(Math.abs(s.cohen_d) / Math.SQRT2);
+        h = "“" + esc(s.groups[hi]) + "” tends to have higher " + nm(s.measure) + " than “" + esc(s.groups[lo]) + "”: about " + amt(s.diff, s.measure) + " more on average.";
+        ev.push("Pick one from each group at random: the “" + esc(s.groups[hi]) + "” one has the higher value about " + pct(ps) + " of the time (50% would mean no difference).");
+        ev.push("The real gap is plausibly anywhere from " + f3(Math.min(Math.abs(s.ci95[0]), Math.abs(s.ci95[1]))) + " to " + f3(Math.max(Math.abs(s.ci95[0]), Math.abs(s.ci95[1]))) + un(s.measure) + (s.ci95[0] < 0 && s.ci95[1] > 0 ? ", which includes no difference at all" : "") + ".");
+      } else if (s.highest) { h = nm(s.measure) + " differs across the " + s.groups + " groups of " + nm(sel.g) + ": highest in “" + esc(s.highest) + "”, lowest in “" + esc(s.lowest) + "”."; ev.push("Group membership accounts for about " + pct(s.eta2) + " of the differences between " + ent + " (" + sizeWord("eta", s.eta2) + ")."); }
+      break;
+    case "relate":
+      h = (Math.abs(s.r) < 0.1 ? nm(s.x) + " and " + nm(s.y) + " barely move together." : "When " + nm(s.x) + " is higher, " + nm(s.y) + " tends to be " + (s.r > 0 ? "higher" : "lower") + ": about " + amt(s.slope, s.y) + " " + (s.r > 0 ? "more" : "less") + " for each extra" + (un(s.x) || " unit") + " of " + nm(s.x) + ".");
+      ev.push("This is " + sizeWord("r", s.r) + " link: " + nm(s.x) + " accounts for about " + pct(s.r * s.r) + " of the ups and downs in " + nm(s.y) + "; the other " + pct(1 - s.r * s.r) + " comes from other things.");
+      ev.push("It describes a tendency across " + ent + ", not a rule for each one, and it does not show that one causes the other.");
+      break;
+    case "cross": h = nm(s.rows) + " and " + nm(s.columns) + " are " + (s.p < 0.05 ? "linked" : "not clearly linked") + ": " + sizeWord("v", s.cramers_v) + " association (Cramér's V = " + fz(s.cramers_v) + ")."; ev.push("Compare the percentages across rows of the table: if " + nm(s.rows) + " did not matter, every row would show the same mix of " + nm(s.columns) + "."); break;
+    case "trend": var ser = (s.series || [])[0]; if (ser && ser.slope_per_year != null) { h = nm(s.measure) + " has been " + (Math.abs(ser.slope_per_year) < 1e-9 ? "flat" : ser.slope_per_year > 0 ? "rising" : "falling") + ": about " + amt(ser.slope_per_year, s.measure) + " per year" + (s.series.length > 1 ? " for “" + esc(ser.name) + "”" : "") + "."; ev.push("Over ten years at that pace, that is about " + amt(10 * ser.slope_per_year, s.measure) + "."); } break;
+    case "regress": var cs = (s.coefficients || []).filter(function (c) { return c.name !== "Intercept"; }).sort(function (a, b) { return a.p - b.p; }); if (cs[0]) { h = "Together these columns explain about " + pct(s.r2) + " of the differences in " + nm(s.outcome) + "; the clearest single factor is " + nm(cs[0].name) + "."; cs.slice(0, 3).forEach(function (c) { ev.push("With the others held fixed, one more" + (un(c.name) || " unit") + " of " + nm(c.name) + " goes with " + amt(c.b, s.outcome) + " " + (c.b >= 0 ? "more" : "less") + " " + nm(s.outcome) + "."); }); } break;
+    case "paired": h = "From “" + esc(s.before) + "” to “" + esc(s.after) + "”, " + ent + " changed by about " + amt(s.mean_change, s.after) + " on average (" + (s.mean_change >= 0 ? "up" : "down") + ")."; ev.push("A typical " + ent.replace(/s$/, "") + " moved " + sizeWord("d", s.dz) + " amount relative to how much the changes vary (d<sub>z</sub> = " + fz(s.dz) + ")."); break;
+    case "logistic": var or = (s.odds_ratios || []).slice().sort(function (a, b) { return a.p - b.p; })[0]; if (or) { h = "The chance that " + esc(s.outcome) + " " + (or.or >= 1 ? "rises" : "falls") + " with " + nm(or.name) + ": each extra unit multiplies the odds by " + f3(or.or) + "."; ev.push("Put simply: odds of " + f3(or.or) + "× mean that where 10 in 100 had the outcome, about " + Math.round(100 * (or.or * 0.1 / (1 - 0.1)) / (1 + or.or * 0.1 / (1 - 0.1))) + " in 100 would after a one-unit increase (for a group starting at 10%)."); } break;
+    case "pivot": if (s.highest) h = "The highest value is “" + esc(s.highest[1]) + "” (" + f3(s.highest[0]) + "), the lowest “" + esc((s.lowest || [])[1]) + "” (" + f3((s.lowest || [])[0]) + ")."; break;
+    case "matrix": var st = (s.strongest || [])[0]; if (st) h = "The strongest link is " + esc(st.pair) + " (r = " + fz(st.r) + "); check it with its own analysis before relying on it."; break;
+    case "rmanova": h = "The same " + ent + " scored differently across conditions" + (s.p < 0.05 ? "" : ", but not clearly so") + ": condition explains about " + pct(s.partial_eta2) + " of the change within each " + ent.replace(/s$/, "") + "."; break;
+    case "mixed": var mc = (s.coefficients || [])[0]; h = (s.icc != null ? pct(s.icc) + " of the differences in " + nm(A.sel.y) + " lie between groups of " + nm(A.sel.mg) + ", so " + ent + " in the same group are alike." : "Effects are estimated while allowing each group of " + nm(A.sel.mg) + " to differ.") + (mc ? " One more" + (un(mc.name) || " unit") + " of " + nm(mc.name) + " goes with " + amt(mc.b, A.sel.y) + " " + (mc.b >= 0 ? "more" : "less") + " " + nm(A.sel.y) + "." : ""); break;
+    case "reliability": h = "These " + s.items + " items " + (s.alpha >= 0.8 ? "hang together well" : s.alpha >= 0.7 ? "hang together acceptably" : "do not hang together well") + " as one scale (α = " + fz(s.alpha) + ")."; ev.push("Roughly " + pct(Math.max(0, s.alpha)) + " of the differences in the total score reflect consistent differences between " + ent + "; the rest is item-to-item noise."); break;
+    case "factor": h = "The " + s.items + " items group into " + s.factors + " underlying dimension" + (s.factors > 1 ? "s" : "") + ", which together capture " + pct(s.variance_explained.reduce(function (a, b) { return a + b; }, 0)) + " of their variation."; break;
+    case "agree": h = s.icc2 != null ? "Raters agree " + (s.icc2 >= 0.9 ? "excellently" : s.icc2 >= 0.75 ? "well" : s.icc2 >= 0.5 ? "moderately" : "poorly") + ": " + pct(s.icc2) + " of the variation in ratings reflects real differences between what was rated." : "Raters agree on " + pct(s.observed_agreement) + " of cases, against " + pct(s.chance_agreement) + " expected by chance (κ = " + fz(s.kappa) + ")."; break;
+    case "missing": h = s.missing_cells ? s.complete_rows + " of " + s.n + " " + ent + " are complete; the gaps fall into " + s.patterns + " patterns." : "Nothing is missing in the selected columns."; break;
+    case "model": h = s.task === "regression" ? "On " + ent + " it had not seen, the model explains about " + pct(Math.max(0, s.cv_mean)) + " of the differences in " + nm(A.sel.mt) + "." : "On " + ent + " it had not seen, the model tells the two outcomes apart " + pct(s.cv_mean) + " of the time (AUC; 50% is guessing)."; break;
+  }
+  return {headline: h, everyday: ev};
+}
+
+// ---- 2. How sure can I be? ----
+function howSure(ds, R) {
+  var s = R.summary || {}, n = s.n || 0, reasons = [], score = 0, kind = R.kind;
+  if (["describe", "pivot", "missing"].indexOf(kind) >= 0) return {level: "Descriptive", cls: "q-reported", reasons: ["This describes these " + (n || "") + " rows; it makes no claim beyond them."]};
+  var p = s.p != null ? s.p : s.p_model, ci = s.ci95;
+  if (n >= 200) { score += 2; reasons.push(n + " rows is a solid sample."); } else if (n >= 50) { score += 1; reasons.push(n + " rows is a moderate sample."); } else if (n) { score -= 1; reasons.push("Only " + n + " rows: one or two changed values could change the picture."); }
+  if (typeof p === "number" && isFinite(p)) { if (p < 0.001) { score += 2; reasons.push("A pattern this strong would be very unusual by chance alone."); } else if (p < 0.05) { score += 1; reasons.push("Unlikely to be chance alone, but not overwhelmingly so (p " + (p < 0.01 ? "< .01" : "= " + fz(p, 3)) + ")."); } else { score -= 2; reasons.push("Could easily be chance (p = " + fz(p, 3) + ")."); } }
+  if (Array.isArray(ci) && ci.length === 2 && isFinite(ci[0]) && isFinite(ci[1]) && kind !== "reliability" && kind !== "agree") { if (ci[0] < 0 && ci[1] > 0) { score -= 1; reasons.push("The plausible range includes zero (no effect)."); } }
+  if (kind === "reliability" || kind === "agree") { var w = ci ? ci[1] - ci[0] : 0.5; if (w < 0.1) { score += 2; reasons.push("The estimate is precise (interval width " + fz(w) + ")."); } else if (w < 0.25) { score += 1; reasons.push("The estimate is reasonably precise."); } else { score -= 1; reasons.push("The estimate is imprecise (interval " + fz(ci ? ci[0] : 0) + " to " + fz(ci ? ci[1] : 1) + ")."); } }
+  if (kind === "model") { var rel = s.cv_sd != null ? s.cv_sd / Math.max(0.05, Math.abs(s.cv_mean)) : 1; if (rel < 0.1) { score += 1; reasons.push("Performance is steady across validation folds."); } else if (rel > 0.3) { score -= 1; reasons.push("Performance varies a lot between validation folds."); } if (s.task === "classification" && s.cv_mean < 0.6) score -= 1; }
+  try { var diag = localDiagnostics(ds, R); if (diag.failed) { score -= 1; reasons.push("The data break a normality assumption; check that the rank-based result agrees."); } } catch (e) {}
+  var cav = (R.caveats || []).join(" ");
+  if (/few groups|Only \d+ groups|Heywood|singular|unstable/i.test(cav)) { score -= 1; reasons.push("A warning below limits how far to trust this."); }
+  var level = score >= 3 ? "Strong" : score >= 1 ? "Moderate" : "Weak";
+  return {level: level, cls: level === "Strong" ? "q-verified" : level === "Moderate" ? "q-estimated" : "q-excluded", reasons: reasons.slice(0, 4)};
+}
+
+// ---- 3. Example rows behind the result ----
+function exampleRows(ds, R) {
+  var s = A.sel, rows = filterRows(ds), cols = [], pick = [];
+  var idc = ds.cols.filter(function (c) { return tagOf(c).role === "id"; })[0];
+  var add = function (n) { if (n && idxOf(ds, n) >= 0 && cols.indexOf(n) < 0) cols.push(n); };
+  if (idc) add(idc.name);
+  var key = {describe: s.y, compare: s.y, relate: s.y, regress: s.y, paired: s.y, mixed: s.y, trend: s.y, logistic: s.o, rmanova: null}[R.kind];
+  if (R.kind === "relate") add(s.x); if (R.kind === "compare" || R.kind === "trend") add(s.g); if (R.kind === "trend") add(s.t); if (R.kind === "paired") add(s.x); if (R.kind === "mixed") add(s.mg); add(key);
+  (R.kind === "regress" ? (s.preds || []) : R.kind === "mixed" ? (s.mx || []) : []).slice(0, 3).forEach(add);
+  if (!key || idxOf(ds, key) < 0) return "";
+  var kj = idxOf(ds, key), withVal = rows.filter(function (r) { return r[kj] != null; });
+  if (isNum(ds.cols[kj])) { var sorted = withVal.slice().sort(function (a, b) { return a[kj] - b[kj]; }); pick = sorted.slice(-3).reverse().concat(sorted.length > 6 ? [sorted[Math.floor(sorted.length / 2)]] : [], sorted.slice(0, 3)); }
+  else pick = withVal.slice(0, 6);
+  var idx = cols.map(function (n) { return idxOf(ds, n); });
+  return '<div class="tablewrap"><table class="nosort"><thead><tr>' + cols.map(function (n) { return "<th>" + esc(nameOf(n)) + "</th>"; }).join("") + "</tr></thead><tbody>" + pick.map(function (r) { return "<tr>" + idx.map(function (j) { var v = r[j]; return "<td" + (typeof v === "number" ? ' class="num"' : "") + ">" + (v == null ? "—" : esc(typeof v === "number" ? f3(v) : String(v))) + "</td>"; }).join("") + "</tr>"; }).join("") + "</tbody></table></div>" + (isNum(ds.cols[kj]) ? '<p class="count">The three highest, a middle one and the three lowest by ' + esc(nameOf(key)) + ".</p>" : "");
+}
+
+// ---- 4. The takeaway panel, reading level and glossary ----
+function takeawayPanel(ds, R) {
+  if (!R || R.valid === false || !R.reading || !R.reading.length) return "";
+  var t = takeaway(ds, R), sure = howSure(ds, R); if (!t.headline) return "";
+  return '<section class="takeaway" aria-labelledby="tk-h"><div class="tk-top"><h2 id="tk-h" class="tk-head">' + t.headline + '</h2><span class="chip ' + sure.cls + ' sure">' + (sure.level === "Descriptive" ? "Describes these rows" : "How sure: " + sure.level) + "</span></div>" +
+    (t.everyday.length ? '<ul class="plain tk-every">' + t.everyday.map(function (x) { return "<li>" + x + "</li>"; }).join("") + "</ul>" : "") +
+    '<details class="tk-why"><summary>Why “' + sure.level.toLowerCase() + "”?</summary><ul class=\"plain\">" + sure.reasons.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul></details>" +
+    '<div class="slot"><button type="button" class="linkbtn" data-xlex="1" aria-expanded="' + XL.examples + '">' + (XL.examples ? "Hide example rows" : "Show example rows") + '</button><span class="tk-level" role="group" aria-label="Reading level"><button type="button" class="pill' + (XL.level === "new" ? " on" : "") + '" aria-pressed="' + (XL.level === "new") + '" data-xlvl="new">New to statistics</button><button type="button" class="pill' + (XL.level === "researcher" ? " on" : "") + '" aria-pressed="' + (XL.level === "researcher") + '" data-xlvl="researcher">Researcher</button></span></div>' +
+    (XL.examples ? exampleRows(ds, R) : "") + "</section>";
+}
+var GLOSSARY = {
+  "p-value": function (s) { return "How often a pattern at least this strong would appear if nothing were going on" + (s.p != null ? "; here p = " + fz(s.p, 3) : "") + ". It is not the chance that the finding is true."; },
+  "confidence interval": function (s) { return "The range of values that fit the data well" + (Array.isArray(s.ci95) ? "; here " + f3(s.ci95[0]) + " to " + f3(s.ci95[1]) : "") + ". Repeated studies would capture the true value in 95% of such ranges."; },
+  "effect size": function () { return "How big a difference or link is, in a form that does not depend on sample size. A tiny effect can be ‘significant’ in a huge sample."; },
+  "Cohen's d": function (s) { return "The difference between groups in units of their spread" + (s.cohen_d != null ? "; here d = " + fz(s.cohen_d) : "") + ". About 0.2 is small, 0.5 moderate, 0.8 large."; },
+  "correlation": function (s) { return "How closely two numbers move together, from −1 (opposite) through 0 (unrelated) to +1 (together)" + (s.r != null ? "; here r = " + fz(s.r) : "") + "."; },
+  "standard deviation": function (s) { return "The typical distance of values from their average" + (s.sd != null ? "; here " + f3(s.sd) : "") + "."; },
+  "median": function (s) { return "The middle value when all values are sorted" + (s.median != null ? "; here " + f3(s.median) : "") + ". Unlike the average, extreme values barely move it."; },
+  "sphericity": function () { return "An assumption of repeated-measures ANOVA: the changes between every pair of conditions vary by similar amounts. When it fails, EKM applies a correction."; },
+  "ICC": function (s) { return "Intraclass correlation: the share of variation that lies between groups or targets rather than within them" + (s.icc != null ? "; here " + fz(s.icc) : s.icc2 != null ? "; here " + fz(s.icc2) : "") + "."; },
+  "AUC": function (s) { return "Area under the ROC curve: the chance the model ranks a random positive case above a random negative one" + (s.cv_mean != null && s.metric === "AUC" ? "; here " + fz(s.cv_mean) : "") + ". 0.5 is guessing, 1 is perfect."; },
+  "kappa": function (s) { return "Agreement between raters beyond what chance would produce" + (s.kappa != null ? "; here κ = " + fz(s.kappa) : "") + ". 0 means chance-level, 1 perfect."; },
+  "Cronbach's α": function (s) { return "How consistently a set of items measures one thing" + (s.alpha != null ? "; here α = " + fz(s.alpha) : "") + ". Around .70 is usually acceptable; above .95 can mean redundant items."; },
+  "cross-validation": function () { return "Testing a model on rows it did not learn from, several times over, so the score reflects new data rather than memorisation."; },
+  "odds ratio": function () { return "How the odds of an outcome multiply when a predictor rises by one unit. 1 means no change; 2 means the odds double."; },
+  "R²": function (s) { var v = s.r2 != null ? s.r2 : s.cv_mean; return "The share of the differences in the outcome that the model accounts for" + (v != null ? "; here " + pct(Math.max(0, v)) : "") + "."; },
+  "multiple imputation": function () { return "Filling each gap several times with plausible values, analysing every completed copy and combining the results, so the uncertainty from missing data is kept."; }
+};
+var TERM_RE = /\b(p-value|p\s?[=<]|confidence interval|95% CI|effect size|Cohen's d|correlation|standard deviation|SD\b|median|sphericity|ICC|AUC|kappa|κ|Cronbach's α|cross-validation|cross-validated|odds ratio|R²|multiple imputation)/i;
+function termKey(m) { var k = m.toLowerCase(); if (/^p\s?[=<]/.test(k) || k === "p-value") return "p-value"; if (k === "95% ci") return "confidence interval"; if (k === "sd") return "standard deviation"; if (k === "κ") return "kappa"; if (k === "cross-validated") return "cross-validation"; for (var g in GLOSSARY) if (g.toLowerCase() === k) return g; return null; }
+function linkTerms(root) {   // wrap the first mention of each term in reading and caveat text
+  var seen = Object.create(null);
+  [].forEach.call(root.querySelectorAll(".reading li, .caveats li, .tk-every li"), function (li) {
+    var walker = document.createTreeWalker(li, NodeFilter.SHOW_TEXT), nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach(function (node) {
+      var m = TERM_RE.exec(node.nodeValue); if (!m) return; var key = termKey(m[1]); if (!key || seen[key]) return; seen[key] = 1;
+      var after = node.splitText(m.index), rest = after.splitText(m[1].length), b = document.createElement("button");
+      b.type = "button"; b.className = "term"; b.dataset.term = key; b.setAttribute("aria-expanded", XL.term === key ? "true" : "false"); b.textContent = after.nodeValue; after.parentNode.replaceChild(b, after);
+      if (XL.term === key) { var d = document.createElement("span"); d.className = "termdef"; d.setAttribute("role", "note"); d.textContent = GLOSSARY[key](LAST_R && LAST_R.summary || {}); rest.parentNode.insertBefore(d, rest); }
+    });
+  });
+}
+var _analyzeViewX = VIEWS.analyze;
+VIEWS.analyze = function () {
+  var h = _analyzeViewX(), ds = cur(); if (!ds || !ds.rows || !LAST_R) return h;
+  var R = LAST_R;   // never mutate R: other modules key their caches on its contents
+  h = h.replace('<div class="poster">', takeawayPanel(ds, R) + '<div class="poster">');
+  if (XL.level === "new") {
+    h = h.replace(/(<section aria-labelledby="pm">[\s\S]*?)<div class="math">[\s\S]*?<\/math><\/div>/, '$1<details class="mathfold"><summary>Show the formula</summary>' + formula(R) + "</details>");
+    var ex = R.extra || ""; if (ex && !/<(button|select|input|textarea)\b/.test(ex) && h.indexOf(ex) >= 0) h = h.replace(ex, '<details class="extrafold"><summary>Show the detailed tables and checks</summary>' + ex + "</details>");
+  }
+  return h;
+};
+var _renderX = render;
+render = function () { _renderX(); if (st.tab === "analyze") try { linkTerms(view); } catch (e) {} };
+
+// ---- 5. What's in this data: a short overview with suggested questions ----
+function overview(ds) {
+  var ent = entity(ds), n = ds.rows.length, by = function (r) { return ds.cols.filter(function (c) { return tagOf(c).role === r; }); };
+  var nums = ds.cols.filter(function (c) { return isNum(c) && ["id", "rowtag", "ignore"].indexOf(tagOf(c).role) < 0; }), cats = ds.cols.filter(function (c) { return c.type === "category" && ["id", "rowtag"].indexOf(tagOf(c).role) < 0; });
+  var parts = [n + " " + ent + ", " + ds.cols.length + " columns (" + nums.length + " numbers, " + cats.length + " categories)."];
+  var g = by("group")[0]; if (g) { var u = Object.create(null); colVals(ds, idxOf(ds, g.name)).forEach(function (v) { if (v != null) u[v] = 1; }); parts.push(ent.charAt(0).toUpperCase() + ent.slice(1) + " come from " + Object.keys(u).length + " groups of " + nameOf(g.name) + ".") ; }
+  var tm = by("time")[0]; if (tm) { var tv = colVals(ds, idxOf(ds, tm.name)).filter(function (v) { return v != null; }).map(String).sort(); if (tv.length) parts.push(nameOf(tm.name) + " runs from " + tv[0] + " to " + tv[tv.length - 1] + "."); }
+  var o = by("outcome")[0]; if (o && isNum(o)) { var d = S.describe(colVals(ds, idxOf(ds, o.name))); parts.push("The outcome, " + nameOf(o.name) + ", ranges from " + f3(d.min) + " to " + f3(d.max) + unitOf(o.name) + " (typically " + f3(d.median) + ")."); }
+  var miss = ds.cols.map(function (c, j) { return [c.name, colVals(ds, j).filter(function (v) { return v == null; }).length]; }).filter(function (m) { return m[1]; }).sort(function (a, b) { return b[1] - a[1]; });
+  parts.push(miss.length ? miss.length + " column" + (miss.length > 1 ? "s have" : " has") + " gaps; most in " + nameOf(miss[0][0]) + " (" + miss[0][1] + " missing)." : "No values are missing.");
+  var items = by("item"), raters = by("rater"); if (items.length >= 3) parts.push(items.length + " columns look like questionnaire items from one scale."); if (raters.length >= 2) parts.push(raters.length + " columns look like ratings of the same thing by different raters.");
+  var sens = ds.cols.filter(sensitive); if (sens.length) parts.push(sens.length + " column" + (sens.length > 1 ? "s are" : " is") + " tagged personal or sensitive and stay out of exports.");
+  // Suggested questions
+  var q = [], y = o && isNum(o) ? o : nums[0];
+  if (y && g) q.push(["Does " + nameOf(y.name) + " differ between groups of " + nameOf(g.name) + "?", nums.length > 1 ? "mixed" : "compare", {y: y.name, mg: g.name, g: g.name, mx: nums.filter(function (c) { return c !== y; }).slice(0, 2).map(function (c) { return c.name; })}]);
+  else if (y && cats[0]) q.push(["Does " + nameOf(y.name) + " differ by " + nameOf(cats[0].name) + "?", "compare", {y: y.name, g: cats[0].name}]);
+  if (y && nums.length > 1) q.push(["What goes along with higher " + nameOf(y.name) + "?", "regress", {y: y.name, preds: nums.filter(function (c) { return c !== y; }).slice(0, 4).map(function (c) { return c.name; })}]);
+  if (items.length >= 3) q.push(["Do the questionnaire items form one reliable scale?", "reliability", {items: items.map(function (c) { return c.name; })}]);
+  if (raters.length >= 2) q.push(["Do the raters agree?", "agree", {raters: raters.map(function (c) { return c.name; })}]);
+  if (tm && y) q.push(["How has " + nameOf(y.name) + " changed over " + nameOf(tm.name) + "?", "trend", {y: y.name, t: tm.name}]);
+  q.push(["Which patterns stand out across all columns?", null, null]);
+  XL.questions = q.slice(0, 4);
+  return '<section class="card overview" aria-labelledby="ov-h"><h2 id="ov-h">What’s in this data</h2><p>' + parts.map(esc).join(" ") + '</p><div class="slot">' + XL.questions.map(function (x, i) { return '<button type="button" class="btn" data-xlq="' + i + '">' + esc(x[0]) + "</button>"; }).join("") + "</div></section>";
+}
+var _dataViewX = VIEWS.data;
+VIEWS.data = function () { var h = _dataViewX(), ds = cur(); if (!ds || !ds.rows) return h; return h.replace(/(<div class="agrid"><div class="amain">)/, "$1" + overview(ds)); };
+
+view.addEventListener("click", function (e) {
+  var b = e.target.closest("button"); if (!b) return; var d = b.dataset;
+  if (d.xlvl) { XL.level = d.xlvl; try { localStorage.setItem("ekm-level", XL.level); } catch (err) {} render(); refocus('[data-xlvl="' + d.xlvl + '"]'); return; }
+  if (d.xlex) { XL.examples = !XL.examples; render(); refocus("[data-xlex]"); return; }
+  if (d.term) { XL.term = XL.term === d.term ? null : d.term; render(); refocus('[data-term="' + d.term + '"]'); return; }
+  if (d.xlq != null) { var q = (XL.questions || [])[+d.xlq]; if (!q) return; if (!q[1]) { nav("discover"); return; } A.kind = q[1]; Object.keys(q[2]).forEach(function (k) { A.sel[k] = q[2][k]; }); nav("analyze"); return; }
+});
+
+// ===== discover.js =====
+// ---------- Discover: scan every column combination, then confirm each pattern on held-out rows ----------
+// Half the rows (chosen at random, seeded) are used to find candidates; candidates that survive a false-discovery-rate
+// correction are re-tested on the other half. Only patterns that hold up in both halves are marked Confirmed.
+var DSC = {job: null, res: null, key: "", type: "all", q: "", showFailed: false, pins: [], web: Object.create(null), outcome: ""};
+var DSC_TYPES = [["all", "All"], ["link", "Links between numbers"], ["curve", "Curved links"], ["group", "Group differences"], ["assoc", "Linked categories"], ["trend", "Over time"], ["reversal", "Reversals"], ["subgroup", "Subgroups"], ["cluster", "Natural groups"], ["unusual", "Unusual rows"]];
+function bh(ps) { var m = ps.length, o = ps.map(function (p, i) { return [p, i]; }).sort(function (a, b) { return a[0] - b[0]; }), q = new Array(m), run = 1; for (var r = m - 1; r >= 0; r--) { run = Math.min(run, o[r][0] * m / (r + 1)); q[o[r][1]] = run; } return q; }
+function rankVec(v) { var idx = [], out = new Float64Array(v.length).fill(NaN); v.forEach(function (x, i) { if (typeof x === "number" && isFinite(x)) idx.push(i); }); idx.sort(function (a, b) { return v[a] - v[b]; }); for (var i = 0; i < idx.length;) { var j = i; while (j + 1 < idx.length && v[idx[j + 1]] === v[idx[i]]) j++; for (var k = i; k <= j; k++) out[idx[k]] = (i + j) / 2 + 1; i = j + 1; } return out; }
+function okNum(v) { return typeof v === "number" && v === v; }
+function corrPair(a, b) { var n = 0, sa = 0, sb = 0; for (var i = 0; i < a.length; i++) if (okNum(a[i]) && okNum(b[i])) { n++; sa += a[i]; sb += b[i]; } if (n < 8) return null; var ma = sa / n, mb = sb / n, c = 0, va = 0, vb = 0; for (i = 0; i < a.length; i++) if (okNum(a[i]) && okNum(b[i])) { var x = a[i] - ma, y = b[i] - mb; c += x * y; va += x * x; vb += y * y; } if (!va || !vb) return null; var r = c / Math.sqrt(va * vb); r = Math.max(-0.999999, Math.min(0.999999, r)); var t = r * Math.sqrt((n - 2) / (1 - r * r)); return {r: r, n: n, p: 2 * (1 - S3.pt(Math.abs(t), n - 2))}; }
+function etaBinned(x, y) {   // share of y's variance explained by deciles of x (catches curved links)
+  var pts = []; for (var i = 0; i < x.length; i++) if (typeof x[i] === "number" && typeof y[i] === "number") pts.push([x[i], y[i]]); if (pts.length < 40) return null;
+  pts.sort(function (a, b) { return a[0] - b[0]; }); var k = 10, n = pts.length, m = pts.reduce(function (s, p) { return s + p[1]; }, 0) / n, sst = 0, ssb = 0;
+  pts.forEach(function (p) { sst += (p[1] - m) * (p[1] - m); });
+  for (var b = 0; b < k; b++) { var seg = pts.slice(Math.floor(b * n / k), Math.floor((b + 1) * n / k)); if (!seg.length) continue; var mm = seg.reduce(function (s, p) { return s + p[1]; }, 0) / seg.length; ssb += seg.length * (mm - m) * (mm - m); }
+  var eta2 = sst ? ssb / sst : 0, F = (ssb / (k - 1)) / ((sst - ssb) / (n - k)); return {eta2: eta2, p: 1 - S3.pf(F, k - 1, n - k), n: n};
+}
+function scanColumns(ds) {
+  var skip = ["id", "rowtag", "ignore", "weight"];
+  var usable = ds.cols.filter(function (c) { return skip.indexOf(tagOf(c).role) < 0 && c.type !== "empty" && c.type !== "text"; });
+  var nums = usable.filter(function (c) { return isNum(c) && c.type !== "year"; }).slice(0, 60), cats = usable.filter(function (c) { if (c.type !== "category") return false; var u = Object.create(null), k = 0; colVals(ds, idxOf(ds, c.name)).forEach(function (v) { if (v != null && !u[v]) { u[v] = 1; k++; } }); return k >= 2 && k <= 20; }).slice(0, 30);
+  var time = ds.cols.filter(function (c) { return c.type === "year" || c.type === "date" || tagOf(c).role === "time"; })[0];
+  return {nums: nums, cats: cats, time: time};
+}
+function splitHalves(n, seed) { var rnd = S3.rngN(seed), a = [], b = []; for (var i = 0; i < n; i++) (rnd.u() < 0.5 ? a : b).push(i); return [a, b]; }
+// Each test returns {p, eff, dir, detail} on a set of row indices
+function testFor(ds, cand, rows) {
+  var col = function (name) { var j = idxOf(ds, name); return rows.map(function (i) { return ds.rows[i][j]; }); };
+  if (cand.type === "link") { var c = corrPair(rankVec(col(cand.a)), rankVec(col(cand.b))); return c && {p: c.p, eff: Math.abs(c.r), dir: Math.sign(c.r), r: c.r, n: c.n}; }
+  if (cand.type === "curve") { var e = etaBinned(col(cand.a), col(cand.b)), l = corrPair(col(cand.a), col(cand.b)); if (!e || !l) return null; var gain = e.eta2 - l.r * l.r; return {p: e.p, eff: Math.sqrt(Math.max(0, gain)), dir: 1, gain: gain, eta2: e.eta2, r2: l.r * l.r, n: e.n}; }
+  if (cand.type === "group") { var y = col(cand.b), g = col(cand.a), G = Object.create(null); y.forEach(function (v, i) { if (typeof v === "number" && g[i] != null) (G[g[i]] = G[g[i]] || []).push(v); }); var names = Object.keys(G).filter(function (k) { return G[k].length >= 3; }); if (names.length < 2) return null; var kw = S2.kruskal(names.map(function (k) { return G[k]; })), n = names.reduce(function (s, k) { return s + G[k].length; }, 0); if (!kw || !isFinite(kw.p)) return null; var med = names.map(function (k) { return [k, S2.median(G[k]), G[k].length]; }).sort(function (a, b) { return b[1] - a[1]; }); return {p: kw.p, eff: Math.sqrt(Math.max(0, kw.H / (n - 1))), dir: 1, top: med[0], bottom: med[med.length - 1], n: n, order: med.map(function (m) { return m[0]; }).join("|")}; }
+  if (cand.type === "assoc") { var a = col(cand.a), b = col(cand.b), ra = [], rb = [], ix = Object.create(null); a.forEach(function (v, i) { if (v != null && b[i] != null) { if (!(v in ix)) { ix[v] = ra.length; ra.push(v); } if (rb.indexOf(b[i]) < 0) rb.push(b[i]); } }); if (ra.length < 2 || rb.length < 2) return null; var T = ra.map(function () { return rb.map(function () { return 0; }); }); a.forEach(function (v, i) { if (v != null && b[i] != null) T[ix[v]][rb.indexOf(b[i])]++; }); var ch = S.chisq(T); return ch && isFinite(ch.p) ? {p: ch.p, eff: ch.v, dir: 1, n: ch.n} : null; }
+  if (cand.type === "trend") { var tj = idxOf(ds, cand.a), tv = rows.map(function (i) { var v = ds.rows[i][tj]; return typeof v === "number" ? v : v ? Date.parse(String(v)) : null; }); var c2 = corrPair(rankVec(tv), rankVec(col(cand.b))); return c2 && {p: c2.p, eff: Math.abs(c2.r), dir: Math.sign(c2.r), r: c2.r, n: c2.n}; }
+  if (cand.type === "reversal") { var x = col(cand.a), yy = col(cand.b), gg = col(cand.g), all = corrPair(x, yy); if (!all) return null; var by = Object.create(null); x.forEach(function (v, i) { if (gg[i] != null) (by[gg[i]] = by[gg[i]] || []).push(i); }); var num = 0, den = 0, k = 0; Object.keys(by).forEach(function (key) { var id = by[key]; if (id.length < 8) return; var w = corrPair(id.map(function (i) { return x[i]; }), id.map(function (i) { return yy[i]; })); if (!w) return; var z = Math.atanh(w.r); num += z * (w.n - 3); den += w.n - 3; k++; }); if (k < 2 || !den) return null; var rw = Math.tanh(num / den), zt = (num / den) * Math.sqrt(den); var pw = 2 * (1 - S2.pnorm(Math.abs(zt))); if (Math.sign(rw) === Math.sign(all.r) || Math.abs(rw) < 0.1) return {p: 1, eff: 0, dir: 0}; return {p: Math.max(pw, all.p), eff: Math.min(Math.abs(rw), Math.abs(all.r)), dir: Math.sign(rw), rAll: all.r, rWithin: rw, n: all.n, groups: k}; }
+  if (cand.type === "subgroup") { var yi = idxOf(ds, cand.b), inR = [], outR = []; rows.forEach(function (i) { var v = ds.rows[i][yi]; if (typeof v !== "number") return; (cand.rule(ds.rows[i]) ? inR : outR).push(v); }); if (inR.length < 5 || outR.length < 5) return null; var t = S.ttest(inR, outR); return isFinite(t.p) ? {p: t.p, eff: Math.abs(t.d), dir: Math.sign(t.diff), diff: t.diff, nIn: inR.length, n: inR.length + outR.length} : null; }
+  return null;
+}
+function subgroupCandidates(ds, rows, cols, yName) {   // a depth-2 regression tree on the discovery half; each leaf becomes a rule
+  var yi = idxOf(ds, yName), preds = cols.nums.filter(function (c) { return c.name !== yName; }).concat(cols.cats).slice(0, 25); if (preds.length < 1) return [];
+  var parts = preds.map(function (c) { var j = idxOf(ds, c.name); if (isNum(c)) return {c: c, j: j, num: true}; var u = Object.create(null); rows.forEach(function (i) { var v = ds.rows[i][j]; if (v != null) u[v] = 1; }); return {c: c, j: j, lv: Object.keys(u)}; });
+  var X = [], y = [], keep = []; rows.forEach(function (i) { var r = ds.rows[i]; if (typeof r[yi] !== "number") return; var x = []; var ok = parts.every(function (p) { var v = r[p.j]; if (p.num) { if (typeof v !== "number") return false; x.push(v); } else { if (v == null) return false; p.lv.forEach(function (l) { x.push(String(v) === l ? 1 : 0); }); } return true; }); if (ok) { X.push(x); y.push(r[yi]); keep.push(i); } });
+  if (y.length < 60) return [];
+  var names = [], map = []; parts.forEach(function (p) { if (p.num) { names.push(p.c.name); map.push({j: p.j, num: true, name: p.c.name}); } else p.lv.forEach(function (l) { names.push(p.c.name + " = " + l); map.push({j: p.j, lv: l, name: p.c.name}); }); });
+  var t = ML.tree(X, y, {maxDepth: 2, minLeaf: Math.max(10, Math.round(y.length * 0.08))}), out = [];
+  (function walk(nd, path) { if (!nd.left) { if (path.length) out.push(path); return; } var m = map[nd.f]; walk(nd.left, path.concat([{m: m, le: true, thr: nd.thr}])); walk(nd.right, path.concat([{m: m, le: false, thr: nd.thr}])); })(t.root, []);
+  return out.map(function (path) {
+    var parts2 = [], byCol = Object.create(null);
+    path.forEach(function (s) { if (!s.m.num) { parts2.push(nameOf(s.m.name) + (s.le ? " is not " : " is ") + "“" + s.m.lv + "”"); return; } var r = byCol[s.m.name] = byCol[s.m.name] || {lo: -Infinity, hi: Infinity, at: parts2.length}; if (r.at === parts2.length) parts2.push(null); if (s.le) r.hi = Math.min(r.hi, s.thr); else r.lo = Math.max(r.lo, s.thr); });
+    Object.keys(byCol).forEach(function (k) { var r = byCol[k]; parts2[r.at] = nameOf(k) + (r.lo > -Infinity && r.hi < Infinity ? " is between " + f3(r.lo) + " and " + f3(r.hi) : r.lo > -Infinity ? " > " + f3(r.lo) : " ≤ " + f3(r.hi)); });
+    var label = parts2.join(" and ");
+    return {type: "subgroup", b: yName, label: label, rule: function (r) { return path.every(function (s) { var v = r[s.m.j]; if (s.m.num) return typeof v === "number" && (s.le ? v <= s.thr : v > s.thr); var is = String(v) === s.m.lv; return v != null && (s.le ? !is : is); }); }};
+  });
+}
+function clusterScan(ds, rows, cols) {   // k-means (k-means++ seeding) on standardized numbers; silhouette chooses k
+  var use = cols.nums.slice(0, 15); if (use.length < 2) return null;
+  var idx = use.map(function (c) { return idxOf(ds, c.name); }), X = [], at = [];
+  if (rows.length > 5000) { var stp = rows.length / 5000; rows = rows.filter(function (_, i) { return Math.floor(i / stp) !== Math.floor((i - 1) / stp); }); }
+  rows.forEach(function (i) { var r = ds.rows[i], v = idx.map(function (j) { return r[j]; }); if (v.every(function (x) { return typeof x === "number"; })) { X.push(v); at.push(i); } });
+  if (X.length < 60) return null;
+  var st = ML.standardize(X), Z = st.Z, rnd = S3.rngN(99), best = null, sample = Z.length > 1500 ? Z.filter(function (_, i) { return i % Math.ceil(Z.length / 1500) === 0; }) : Z;
+  var d2 = function (a, b) { var s = 0; for (var q = 0; q < a.length; q++) { var t = a[q] - b[q]; s += t * t; } return s; };
+  for (var k = 2; k <= 5; k++) {
+    var C = [Z[Math.floor(rnd.u() * Z.length)]];
+    while (C.length < k) { var ds2 = Z.map(function (z) { return Math.min.apply(null, C.map(function (c) { return d2(z, c); })); }), tot = ds2.reduce(function (a, b) { return a + b; }, 0), r0 = rnd.u() * tot, acc = 0; for (var i = 0; i < Z.length; i++) { acc += ds2[i]; if (acc >= r0) { C.push(Z[i]); break; } } }
+    var lab = new Array(Z.length);
+    for (var it = 0; it < 50; it++) {
+      var moved = 0; Z.forEach(function (z, i) { var bi = 0, bd = Infinity; C.forEach(function (c, ci) { var dd = d2(z, c); if (dd < bd) { bd = dd; bi = ci; } }); if (lab[i] !== bi) { lab[i] = bi; moved++; } });
+      C = C.map(function (c, ci) { var mem = Z.filter(function (_, i) { return lab[i] === ci; }); return mem.length ? c.map(function (_, q) { return mem.reduce(function (s, m) { return s + m[q]; }, 0) / mem.length; }) : c; });
+      if (!moved) break;
+    }
+    var sl = sample.map(function (z) { var dists = C.map(function (c) { return Math.sqrt(d2(z, c)); }), o = dists.slice().sort(function (a, b) { return a - b; }); return (o[1] - o[0]) / Math.max(o[1], 1e-12); }), sil = sl.reduce(function (a, b) { return a + b; }, 0) / sl.length;
+    if (!best || sil > best.sil) best = {k: k, C: C, lab: lab.slice(), sil: sil};
+  }
+  var sizes = best.C.map(function (_, ci) { return best.lab.filter(function (l) { return l === ci; }).length; });
+  var desc = best.C.map(function (c, ci) { var top = c.map(function (v, q) { return [use[q].name, v]; }).sort(function (a, b) { return Math.abs(b[1]) - Math.abs(a[1]); }).slice(0, 2); return {size: sizes[ci], traits: top}; });
+  return {k: best.k, sil: best.sil, desc: desc, use: use.map(function (c) { return c.name; }), centers: best.C, st: st, at: at, lab: best.lab};
+}
+function runDiscover(ds, done, progress) {
+  var cols = scanColumns(ds), n = ds.rows.length, all = [];
+  for (var i = 0; i < n; i++) all.push(i);
+  if (n > 50000) { var rs = S3.rngN(5); all = all.filter(function () { return rs.u() < 50000 / n; }); }
+  var halves = splitHalves(all.length, 2024).map(function (h) { return h.map(function (i) { return all[i]; }); }), A1 = halves[0], B1 = halves[1], cands = [];
+  for (var a = 0; a < cols.nums.length; a++) for (var b = a + 1; b < cols.nums.length; b++) { cands.push({type: "link", a: cols.nums[a].name, b: cols.nums[b].name}); cands.push({type: "curve", a: cols.nums[a].name, b: cols.nums[b].name}); cands.push({type: "curve", a: cols.nums[b].name, b: cols.nums[a].name}); }
+  cols.cats.forEach(function (c) { cols.nums.forEach(function (nm) { cands.push({type: "group", a: c.name, b: nm.name}); }); });
+  for (a = 0; a < cols.cats.length; a++) for (b = a + 1; b < cols.cats.length; b++) cands.push({type: "assoc", a: cols.cats[a].name, b: cols.cats[b].name});
+  if (cols.time) cols.nums.filter(function (c) { return c.name !== cols.time.name; }).forEach(function (nm) { cands.push({type: "trend", a: cols.time.name, b: nm.name}); });
+  var outcome = DSC.outcome && idxOf(ds, DSC.outcome) >= 0 ? DSC.outcome : (ds.cols.filter(function (c) { return tagOf(c).role === "outcome" && isNum(c); })[0] || {}).name;
+  var pos = 0, found = [], t0 = Date.now(), job = DSC.job;
+  function step() {
+    if (DSC.job !== job) return;
+    var start = Date.now();
+    while (pos < cands.length && Date.now() - start < 25) { var c = cands[pos++], r = null; try { r = testFor(ds, c, A1); } catch (e) {} if (r && r.p < 1) found.push({c: c, a: r}); }
+    if (pos < cands.length) { if (progress) progress(pos, cands.length); setTimeout(step, 0); return; }
+    finish();
+  }
+  function finish() {
+    // Reversals: strongest links × each grouping column
+    var links = found.filter(function (f) { return f.c.type === "link" && f.a.eff >= 0.1; }).sort(function (x, y) { return y.a.eff - x.a.eff; }).slice(0, 15);
+    links.forEach(function (f) { cols.cats.filter(function (g) { var u = Object.create(null), k = 0; colVals(ds, idxOf(ds, g.name)).forEach(function (v) { if (v != null && !u[v]) { u[v] = 1; k++; } }); return k <= 12; }).forEach(function (g) { var c = {type: "reversal", a: f.c.a, b: f.c.b, g: g.name}, r = testFor(ds, c, A1); if (r && r.eff > 0) found.push({c: c, a: r}); }); });
+    if (outcome) subgroupCandidates(ds, A1, cols, outcome).forEach(function (c) { var r = testFor(ds, c, A1); if (r) found.push({c: c, a: r}); });
+    // Curved links count only when the shape adds clearly beyond a straight line
+    found = found.filter(function (f) { return f.c.type !== "curve" || f.a.gain > 0.08; });
+    var q = bh(found.map(function (f) { return f.a.p; })), out = [];
+    found.forEach(function (f, i) {
+      if (q[i] > 0.1 || f.a.eff < 0.08) return;
+      var r2 = testFor(ds, f.c, B1), confirmed = !!(r2 && r2.p < 0.05 && (f.c.type === "group" || f.c.type === "assoc" || f.c.type === "curve" ? true : r2.dir === f.a.dir));
+      var fullRows = all, full = testFor(ds, f.c, fullRows) || f.a;
+      if (f.c.type === "curve" && !(full.gain > 0.05)) return;
+      out.push({c: f.c, disc: f.a, conf: r2, confirmed: confirmed, full: full, q: q[i]});
+    });
+    // Keep one of each link/curve pair (the curve only when it confirmed and the line did not explain it)
+    var seen = Object.create(null); out = out.filter(function (o) { if (o.c.type !== "curve") return true; var k = [o.c.a, o.c.b].sort().join("|"); if (seen[k]) return false; seen[k] = 1; return true; });
+    var cl = null; try { cl = clusterScan(ds, all, cols); } catch (e) {}
+    if (cl && cl.sil > 0.25) { var clB = null; try { clB = clusterScan(ds, B1, cols); } catch (e) {} out.push({c: {type: "cluster"}, cl: cl, confirmed: !!(clB && clB.sil > 0.2 && clB.k === cl.k), full: {eff: cl.sil}, disc: {p: 0}}); }
+    var un = null; try { var use = cols.nums.slice(0, 15); if (use.length >= 2 && typeof isoForest === "function") { var idx = use.map(function (c) { return idxOf(ds, c.name); }), med = idx.map(function (j) { return S.describe(colVals(ds, j)); }), X = ds.rows.map(function (r) { return idx.map(function (j, q) { return typeof r[j] === "number" ? (r[j] - med[q].median) / (med[q].sd || 1) : 0; }); }), sc = isoForest(X, 100, 256), cut = sc.slice().sort(function (a, b) { return b - a; })[Math.max(0, Math.floor(sc.length * 0.01) - 1)]; var rowsU = []; sc.forEach(function (v, i) { if (v >= cut && v > 0.6) rowsU.push(i); }); if (rowsU.length) { var drive = use.map(function (c, q) { return [c.name, rowsU.reduce(function (s, i) { return s + Math.abs(X[i][q]); }, 0) / rowsU.length]; }).sort(function (a, b) { return b[1] - a[1]; }); un = {rows: rowsU, drive: drive.slice(0, 3)}; } } } catch (e) {}
+    if (un) out.push({c: {type: "unusual"}, un: un, confirmed: false, full: {eff: 0.3}, disc: {p: 0}});
+    var roleIs = function (n, r) { return roleOf(ds, n) === r; }, expected = out.filter(function (o) { return o.c.type === "link" && ((roleIs(o.c.a, "item") && roleIs(o.c.b, "item")) || (roleIs(o.c.a, "rater") && roleIs(o.c.b, "rater")) || (["item", "rater"].indexOf(roleOf(ds, o.c.a)) >= 0 && ["item", "rater"].indexOf(roleOf(ds, o.c.b)) >= 0)); });
+    if (expected.length >= 3) { out = out.filter(function (o) { return expected.indexOf(o) < 0; }); var cs = []; expected.forEach(function (o) { [o.c.a, o.c.b].forEach(function (n) { if (cs.indexOf(n) < 0) cs.push(n); }); }); out.push({c: {type: "expected"}, ex: {cols: cs, n: expected.length, rmin: amin(expected.map(function (o) { return Math.abs(o.full.r); })), rmax: amax(expected.map(function (o) { return Math.abs(o.full.r); }))}, confirmed: true, full: {eff: 0.05}, disc: {p: 0}}); }
+    out.sort(function (x, y) { return (y.confirmed - x.confirmed) || (y.full.eff - x.full.eff); });
+    done({items: out, tested: found.length ? cands.length + found.filter(function (f) { return f.c.type === "reversal" || f.c.type === "subgroup"; }).length : cands.length, halves: [A1.length, B1.length], cols: cols, outcome: outcome, ms: Date.now() - t0});
+  }
+  step();
+}
+// ---- Pattern cards ----
+function strength(e) { return e >= 0.5 ? "strong" : e >= 0.3 ? "moderate" : e >= 0.1 ? "weak" : "slight"; }
+function patternText(p) {
+  var c = p.c, f = p.full || {}, N = function (n) { return "<b>" + esc(nameOf(n)) + "</b>"; };
+  switch (c.type) {
+    case "link": return ["Higher " + N(c.a) + " goes with " + (f.r >= 0 ? "higher " : "lower ") + N(c.b), strength(Math.abs(f.r)) + " link · rank correlation ρ = " + fz(f.r) + " · " + f.n + " rows"];
+    case "curve": return [N(c.b) + " follows a curved pattern across " + N(c.a), "the shape explains " + pct(f.eta2 || 0) + " of the variation, against " + pct(f.r2 || 0) + " for a straight line"];
+    case "group": return [N(c.b) + " differs across groups of " + N(c.a), "highest in “" + esc(f.top[0]) + "” (median " + f3(f.top[1]) + "), lowest in “" + esc(f.bottom[0]) + "” (median " + f3(f.bottom[1]) + ") · " + strength(f.eff) + " effect"];
+    case "assoc": return [N(c.a) + " and " + N(c.b) + " are linked", strength(f.eff) + " association · Cramér's V = " + fz(f.eff) + " · " + f.n + " rows"];
+    case "trend": return [N(c.b) + " has been " + (f.r >= 0 ? "rising" : "falling") + " over " + N(c.a), strength(Math.abs(f.r)) + " trend · ρ = " + fz(f.r)];
+    case "reversal": return ["The link between " + N(c.a) + " and " + N(c.b) + " reverses within groups of " + N(c.g), "overall r = " + fz(f.rAll) + ", but within groups r = " + fz(f.rWithin) + ": the overall pattern comes from differences between groups (Simpson's paradox)"];
+    case "subgroup": return [N(c.b) + " is " + (f.diff >= 0 ? "higher" : "lower") + " when " + esc(c.label), "by " + f3(Math.abs(f.diff)) + " on average · " + f.nIn + " rows match · effect d = " + fz(f.eff)];
+    case "cluster": var cl = p.cl; return ["The rows fall into " + cl.k + " natural groups", cl.desc.map(function (d, i) { return "group " + (i + 1) + " (" + d.size + " rows): " + d.traits.map(function (t) { return (t[1] > 0 ? "high " : "low ") + esc(nameOf(t[0])); }).join(", "); }).join("; ") + " · separation " + fz(cl.sil)];
+    case "expected": return ["The " + p.ex.cols.length + " questionnaire items and rater columns move together, as expected", p.ex.n + " links, ρ from " + fz(p.ex.rmin) + " to " + fz(p.ex.rmax) + ". Check them as a scale (Scale reliability) or as agreement (Rater agreement) rather than one pair at a time"];
+    case "unusual": return [p.un.rows.length + (p.un.rows.length === 1 ? " row stands" : " rows stand") + " out from the rest", "mostly through " + p.un.drive.map(function (d) { return esc(nameOf(d[0])); }).join(", ") + " (Isolation Forest, top 1%)"];
+  }
+  return ["", ""];
+}
+function openSpec(p) {
+  var c = p.c;
+  return {link: ["relate", {x: c.a, y: c.b}], curve: ["relate", {x: c.a, y: c.b}], group: ["compare", {y: c.b, g: c.a}], assoc: ["cross", {g: c.a, g2: c.b}], trend: ["trend", {y: c.b, t: c.a}], reversal: ["mixed", {y: c.b, mg: c.g, mx: [c.a]}], subgroup: ["describe", {y: c.b}], expected: p.ex ? (p.ex.cols.every(function (n) { return roleOf(cur(), n) === "rater"; }) ? ["agree", {raters: p.ex.cols}] : ["reliability", {items: p.ex.cols.filter(function (n) { return roleOf(cur(), n) === "item"; })}]) : null, cluster: ["factor", {fitems: p.cl ? p.cl.use : []}]}[c.type];
+}
+function patternCard(p, i) {
+  var t = patternText(p), pinned = DSC.pins.indexOf(i) >= 0, web = DSC.web[i];
+  var status = p.c.type === "unusual" || p.c.type === "expected" ? '<span class="chip q-reported">' + (p.c.type === "expected" ? "Expected" : "Descriptive") + "</span>" : p.confirmed ? '<span class="chip q-verified">Confirmed on held-out rows</span>' : '<span class="chip q-estimated">Did not hold up</span>';
+  var type = (DSC_TYPES.filter(function (x) { return x[0] === p.c.type; })[0] || [0, ""])[1];
+  return '<li class="pcard' + (p.confirmed ? "" : " weak") + '"><div class="pc-top"><span class="label">' + type + "</span>" + status + (pinned ? ' <span class="chip">Pinned</span>' : "") + '</div><p class="pc-head">' + t[0] + '.</p><p class="count">' + t[1] + "</p>" +
+    '<div class="slot">' + (openSpec(p) ? '<button type="button" class="btn" data-dopen="' + i + '">Analyse it</button>' : "") + (p.c.type === "subgroup" || p.c.type === "unusual" ? '<button type="button" class="btn" data-dtagrows="' + i + '">Tag these rows</button>' : "") +
+    '<button type="button" class="linkbtn" data-dpin="' + i + '">' + (pinned ? "Unpin" : "Pin") + "</button>" + (p.c.type === "expected" ? "" : '<button type="button" class="linkbtn" data-dweb="' + i + '" aria-expanded="' + !!web + '">Look for context on the web</button>') + "</div>" + (web ? webPanel(p, i) : "") + "</li>";
+}
+function discoverView() {
+  var ds = cur(); if (!ds) return noData("Discover", "Add a dataset under Your data, then let EKM scan every column combination for patterns.");
+  if (!ds.rows) { loadRows(ds).then(render); return '<p class="count" role="status">Loading…</p>'; }
+  var key = ds.id + ":" + ds.rows.length + ":" + ds.cols.length + ":" + (DSC.outcome || "") + ":" + (typeof dataFingerprint === "function" ? dataFingerprint(ds) : "");
+  if (DSC.key !== key && !DSC.job) startDiscover(ds, key);
+  var res = DSC.key === key ? DSC.res : null, nums = ds.cols.filter(isNum);
+  var head = '<h1 class="vt">Discover</h1><p class="lede">EKM tests every pair of columns, curved links, group differences, trends, reversals within groups, subgroups, natural groupings and unusual rows. To avoid chance findings, it searches half of the rows and confirms on the other half.</p>' +
+    '<div class="toolbar"><label class="field" for="d_out">Outcome for subgroup search<select id="d_out" data-dout="1"><option value="">' + (res && res.outcome ? "Tagged outcome (" + esc(res.outcome) + ")" : "None") + "</option>" + nums.map(function (c) { return '<option value="' + esc(c.name) + '"' + (c.name === DSC.outcome ? " selected" : "") + ">" + esc(c.name) + "</option>"; }).join("") + '</select></label><label class="field" for="d_q">Find<input id="d_q" type="search" value="' + esc(DSC.q) + '" placeholder="a column name"></label></div>' +
+    '<div class="pills" role="group" aria-label="Pattern type">' + DSC_TYPES.map(function (x) { return '<button type="button" class="pill' + (DSC.type === x[0] ? " on" : "") + '" aria-pressed="' + (DSC.type === x[0]) + '" data-dtype="' + x[0] + '">' + x[1] + "</button>"; }).join("") + "</div>";
+  if (!res) return head + '<p class="count" role="status" id="d-status">' + esc(DSC.status || "Scanning…") + "</p>";
+  var items = res.items.map(function (p, i) { return [p, i]; }).filter(function (pi) { var p = pi[0]; if (DSC.type !== "all" && p.c.type !== DSC.type) return false; if (DSC.q) { var hay = [p.c.a, p.c.b, p.c.g, p.c.label].concat(p.cl ? p.cl.use : []).join(" ").toLowerCase(); if (hay.indexOf(DSC.q.toLowerCase()) < 0) return false; } return true; });
+  var pins = items.filter(function (pi) { return DSC.pins.indexOf(pi[1]) >= 0; }), good = items.filter(function (pi) { return DSC.pins.indexOf(pi[1]) < 0 && (pi[0].confirmed || pi[0].c.type === "unusual"); }), weak = items.filter(function (pi) { return DSC.pins.indexOf(pi[1]) < 0 && !pi[0].confirmed && pi[0].c.type !== "unusual"; });
+  var conf = res.items.filter(function (p) { return p.confirmed; }).length;
+  return head + figs([["Combinations tested", res.tested.toLocaleString("en-US")], ["Confirmed patterns", String(conf)], ["Did not hold up", String(res.items.length - conf - res.items.filter(function (p) { return p.c.type === "unusual"; }).length)], ["Rows: search / confirm", res.halves[0] + " / " + res.halves[1]]], true) +
+    (pins.length ? '<h2 class="sub-h">Pinned</h2><ul class="plain pcards">' + pins.map(function (pi) { return patternCard(pi[0], pi[1]); }).join("") + "</ul>" : "") +
+    '<ul class="plain pcards">' + (good.length ? good.map(function (pi) { return patternCard(pi[0], pi[1]); }).join("") : '<li class="nd">No confirmed patterns of this type. That is a result too: these columns show no relationship strong enough to repeat in both halves.</li>') + "</ul>" +
+    (weak.length ? '<details class="dt"' + (DSC.showFailed ? " open" : "") + ' data-dfailed="1"><summary>' + weak.length + " pattern" + (weak.length > 1 ? "s" : "") + " that did not hold up on the held-out rows</summary><ul class=\"plain pcards\">" + weak.map(function (pi) { return patternCard(pi[0], pi[1]); }).join("") + "</ul></details>" : "") +
+    '<div class="caveats"><h3>Keep in mind</h3><ul class="plain"><li>Confirmed means the pattern appeared in a random half of the rows and repeated in the other half; it is still an association in these data, not a cause.</li><li>Candidates were filtered with the Benjamini–Hochberg false-discovery rate (10%) across all ' + res.tested.toLocaleString("en-US") + " combinations before confirmation.</li>" + (ds.rows.length > 50000 ? "<li>The scan used a random 50,000 rows; open a pattern to analyse every row.</li>" : "") + "</ul></div>";
+}
+function startDiscover(ds, key) {
+  var job = {}; DSC.job = job; DSC.status = "Scanning…";
+  setTimeout(function () { runDiscover(ds, function (res) { if (DSC.job !== job) return; DSC.job = null; DSC.res = res; DSC.key = key; DSC.pins = []; DSC.web = Object.create(null); auditLog("Scanned for patterns", ds, res.items.filter(function (p) { return p.confirmed; }).length + " confirmed of " + res.tested + " combinations"); if (st.tab === "discover") render(); }, function (a, b) { DSC.status = "Scanning… " + Math.round(a / b * 100) + "% of " + b.toLocaleString("en-US") + " combinations"; var el = document.getElementById("d-status"); if (el) el.textContent = DSC.status; }); }, 30);
+}
+GROUPS.discover = ["discover"]; VIEWS.discover = discoverView;
+var _navD = nav; nav = function (t) { if (t !== "discover" && DSC.job && !DSC.res) { /* keep scanning in the background */ } _navD(t); };
+view.addEventListener("change", function (e) {
+  var t = e.target; if (st.tab !== "discover") return;
+  if (t.dataset.dout) { DSC.outcome = t.value; DSC.key = ""; DSC.job = null; render(); return; }
+  if (t.id === "d_q") { DSC.q = t.value; render(); refocus("#d_q"); return; }
+});
+view.addEventListener("click", function (e) {
+  var b = e.target.closest("button"), sm = e.target.closest("summary"); if (sm && sm.parentElement.dataset.dfailed) { DSC.showFailed = !sm.parentElement.open; return; }
+  if (!b || st.tab !== "discover") return; var d = b.dataset, ds = cur(), res = DSC.res; if (!ds) return;
+  if (d.dtype) { DSC.type = d.dtype; render(); refocus('[data-dtype="' + d.dtype + '"]'); return; }
+  if (d.dpin != null) { var i = +d.dpin, k = DSC.pins.indexOf(i); if (k >= 0) DSC.pins.splice(k, 1); else DSC.pins.push(i); render(); return; }
+  if (d.dopen != null) { var sp = openSpec(res.items[+d.dopen]); A.kind = sp[0]; Object.keys(sp[1]).forEach(function (kk) { A.sel[kk] = sp[1][kk]; }); nav("analyze"); return; }
+  if (d.dtagrows != null) { var p = res.items[+d.dtagrows], rows = []; if (p.c.type === "unusual") rows = p.un.rows; else ds.rows.forEach(function (r, ix) { if (p.c.rule(r)) rows.push(ix); }); tagRows(ds, rows, p.c.type === "unusual" ? "Check" : "Subgroup", p.c.type === "subgroup" ? p.c.label.replace(/<[^>]+>/g, "") : "Flagged by Discover", "from Discover"); DSC.key = ""; nav("data"); return; }
+  if (d.dweb != null) { var j = +d.dweb; if (DSC.web[j]) delete DSC.web[j]; else DSC.web[j] = {query: defaultQuery(res.items[j]), results: null, busy: false, msg: ""}; render(); return; }
+});
+
+// ===== websearch.js =====
+// ---------- External context from the web (local mode only) ----------
+// Only the words in the query box are sent, after the person presses Search. Results are shown as external,
+// unverified context with their sources; page text is data, never instructions, and never changes EKM's numbers.
+function searchReady() { return localMode() && window.EKM_LOCAL && window.EKM_LOCAL.search; }
+function defaultQuery(p) {
+  var c = p.c, n = function (x) { var m = colMeta(cur(), x); return m && sensitive(m) ? "" : (m && m.label) || x; };
+  var q = {link: n(c.a) + " " + n(c.b) + " relationship study", curve: n(c.a) + " " + n(c.b) + " nonlinear relationship", group: n(c.b) + " differences by " + n(c.a), assoc: n(c.a) + " " + n(c.b) + " association", trend: n(c.b) + " trend over time", reversal: n(c.a) + " " + n(c.b) + " Simpson's paradox " + n(c.g), subgroup: n(c.b) + " " + String(c.label || "").replace(/[“”]/g, ""), cluster: (p.cl ? p.cl.use.slice(0, 3).map(n).join(" ") : "") + " profiles clusters", unusual: (p.un ? p.un.drive.map(function (d) { return n(d[0]); }).join(" ") : "") + " outliers"}[c.type] || "";
+  return q.replace(/\s+/g, " ").trim();
+}
+function webPanel(p, i) {
+  var w = DSC.web[i], prov = searchReady() ? window.EKM_LOCAL.search : "";
+  if (!localMode()) return '<div class="webctx"><p class="count">Web context runs in EKM\'s local mode, because pages opened elsewhere cannot reach the web. Start it with <code>python3 local_ai/server.py --search-provider brave</code> (or tavily, or searxng) and open the address it prints. Your rows never leave this computer; only the search words do.</p></div>';
+  if (!prov) return '<div class="webctx"><p class="count">Local mode is running without a search provider. Restart it with a provider, for example <code>EKM_SEARCH_KEY=… python3 local_ai/server.py --search-provider brave</code>. See README → Web context.</p></div>';
+  return '<div class="webctx"><label class="field" for="wq' + i + '">Search words (only these are sent to ' + esc(prov) + ')<input id="wq' + i + '" data-wq="' + i + '" value="' + esc(w.query) + '" maxlength="200"></label><div class="slot"><button type="button" class="btn" data-wsearch="' + i + '"' + (w.busy ? " disabled" : "") + '>Search</button><button type="button" class="btn" data-wsearch="' + i + '" data-deep="1"' + (w.busy ? " disabled" : "") + ">Search and read the top pages</button>" + (w.busy ? '<span class="count" role="status">Searching…</span>' : "") + "</div>" +
+    (w.msg ? '<p class="warn" role="status">' + esc(w.msg) + "</p>" : "") +
+    (w.results ? '<p class="count"><b>External context, not checked by EKM.</b> Judge each source yourself; these pages do not change any result.</p><ol class="webres">' + w.results.map(function (r) { return '<li><a href="' + esc(/^https?:\/\//i.test(r.url) ? r.url : "#") + '" target="_blank" rel="noopener noreferrer">' + esc(r.title || r.url) + '</a><div class="count">' + esc(r.host || "") + "</div>" + (r.snippet ? "<p>" + esc(r.snippet) + "</p>" : "") + ((r.excerpts || []).length ? '<ul class="plain excerpts">' + r.excerpts.map(function (x) { return "<li>“" + esc(x) + "”</li>"; }).join("") + "</ul>" : "") + "</li>"; }).join("") + "</ol>" : "") + "</div>";
+}
+function runSearch(i, deep) {
+  var w = DSC.web[i]; if (!w) return; var q = ((document.getElementById("wq" + i) || {}).value || w.query).trim(); w.query = q;
+  if (q.length < 3) { w.msg = "Type at least a few search words."; render(); return; }
+  w.busy = true; w.msg = ""; render();
+  fetch("/api/search", {method: "POST", headers: {"Content-Type": "application/json", "X-EKM-Token": window.EKM_LOCAL.token}, body: JSON.stringify({query: q, deep: !!deep})})
+    .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || "Search failed."); return j; }); })
+    .then(function (j) { w.results = (j.results || []).slice(0, 10); w.busy = false; if (!w.results.length) w.msg = "No results. Try different words."; auditLog("Searched the web", cur(), (deep ? "search and read: " : "search: ") + q); render(); })
+    .catch(function (e) { w.busy = false; w.msg = e.message || "Search failed."; render(); });
+}
+view.addEventListener("change", function (e) { var t = e.target; if (t.dataset && t.dataset.wq != null && DSC.web[+t.dataset.wq]) DSC.web[+t.dataset.wq].query = t.value; });
+view.addEventListener("click", function (e) { var b = e.target.closest("button[data-wsearch]"); if (!b) return; runSearch(+b.dataset.wsearch, !!b.dataset.deep); });
 
 nav((location.hash || "").slice(1) || "data");
 </script>
