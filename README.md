@@ -102,8 +102,21 @@ python3 tests/eval_local_model.py --model qwen2.5:1.5b  # actual local inference
 node tests/check_stress_fixes.js  # same Playwright/browser settings as above
 ```
 
-The suite checks lossless source values and headers, decimal/missing settings, additional Excel worksheets, special category labels, joins and reshape round-trips, malformed project selections, keyboard continuity, model cancellation during project restore, bounded chart ticks, scaled worked arithmetic, safe question variants, multi-tab recovery, and cancellable scans of all 319,600 pairs in an 800-column table. Excel checks require the approved CDN reader. The statistics suite now compares 92 quantities against SciPy, including extreme scales, offsets, n=3 intervals and Shapiro–Wilk scale invariance. This is regression coverage, not a guarantee for every possible dataset or study design.
+The suite checks lossless source values and headers, decimal/missing settings, additional Excel worksheets, special category labels, joins and reshape round-trips, malformed project selections, keyboard continuity, model cancellation during project restore, bounded chart ticks, scaled worked arithmetic, safe question variants, multi-tab recovery, and cancellable scans of all 319,600 pairs in an 800-column table. Excel checks require the approved CDN reader. The statistics suite now compares 102 quantities against SciPy, including extreme scales, offsets, n=3 intervals and Shapiro–Wilk scale invariance. This is regression coverage, not a guarantee for every possible dataset or study design.
 
 Relationship health checks run in a worker, with a yielding fallback if workers are unavailable. Progress and cancellation remain available while the table is usable. All pairs are screened; if more than 100 strongly correlated pairs are found, the UI shows the total and the first 100. Scientific chart axes share an exponent, and the worked correlation arithmetic uses the same scaled engine as the result.
 
 The local topic gate also understands p-value notation such as `p = 0.007` and common Spanish statistical wording such as `¿Qué significa el valor p?`. Responses remain the prepared English evidence. Sample-size and file-combination questions lead to existing tools and planning requirements; they do not invent a sample-size target.
+
+
+Full feature-flow regression suite:
+
+```bash
+node tests/check_feature_flows.js  # same Playwright/browser settings; starts its own local server
+```
+
+This exercises all ten analysis kinds and their deeper tools, six chart types, cleaning options and repeated actions, formula/replay/join/reshape controls, 3D rotation, clipboard and document exports, write-up editing, and cross-dataset state changes at desktop and 400px. It uses synthetic data and does not publish team shares. Set `EKM_SCREENSHOT_DIR` to save screenshots and result JSON; otherwise artifacts use a temporary directory. Cloud sharing is checked for its unavailable state; live account-backed storage and sharing require separate integration testing.
+
+Deep-tool simulations and subset results are invalidated when the dataset or table changes. Delayed runs are discarded if their original selection is no longer active. Subset sizes stay within available complete observations, and the lab reports empirical subset stability rather than prospective study power. Randomization and formula p-values are compared explicitly without automatically preferring either method. Repeated derived/indicator columns have unique names, and rerunning Isolation Forest preserves source columns and the prior undo state.
+
+Two-sided normal-approximation power includes both rejection tails, with reference checks at zero, small, positive and negative effects. Fisher-based correlation power is unavailable with three or fewer complete pairs.

@@ -1,7 +1,7 @@
 // ---------- More statistics: assumption checks, rank tests, post-hoc, paired, logistic, power, Bayes ----------
 // Each follows its published definition; results are checked against SciPy.
 var S2 = (function () {
-  function pnorm(z) { var q = 0.5 * S.gammaQ(0.5, z * z / 2); return z >= 0 ? 1 - q : q; }   // standard normal CDF via erfc
+  function pnorm(z) { if (z === Infinity) return 1; if (z === -Infinity) return 0; var q = 0.5 * S.gammaQ(0.5, z * z / 2); return z >= 0 ? 1 - q : q; }   // standard normal CDF via erfc
   function qnorm(p) {   // Acklam's inverse normal
     var a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716, 2.506628277459239],
       b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572],
@@ -107,8 +107,8 @@ var S2 = (function () {
   }
   // Power and sample size (normal approximation), alpha .05 two-sided, target 80%
   var ZA = 1.959964, ZB = 0.841621;
-  function powerD(d, n1, n2) { var nh = 2 / (1 / n1 + 1 / n2); return {power: pnorm(Math.abs(d) * Math.sqrt(nh / 2) - ZA), need: Math.ceil(2 * Math.pow((ZA + ZB) / Math.abs(d), 2))}; }
-  function powerR(r, n) { var z = Math.abs(Math.atanh(Math.max(-0.999, Math.min(0.999, r)))); return {power: pnorm(z * Math.sqrt(Math.max(1, n - 3)) - ZA), need: Math.ceil(Math.pow((ZA + ZB) / z, 2) + 3)}; }
+  function powerD(d, n1, n2) { var nh = 2 / (1 / n1 + 1 / n2); var delta = Math.abs(d) * Math.sqrt(nh / 2); return {power: pnorm(delta - ZA) + pnorm(-delta - ZA), need: Math.ceil(2 * Math.pow((ZA + ZB) / Math.abs(d), 2))}; }
+  function powerR(r, n) { var z = Math.abs(Math.atanh(Math.max(-0.999, Math.min(0.999, r)))); var delta = z * Math.sqrt(n - 3); return {power: n > 3 ? pnorm(delta - ZA) + pnorm(-delta - ZA) : NaN, need: Math.ceil(Math.pow((ZA + ZB) / z, 2) + 3)}; }
   // Approximate Bayes factor from BIC (Wagenmakers 2007): evidence for an effect against none
   function bfR2(r2, n, extra) { return Math.exp(-(n * Math.log(Math.max(1e-12, 1 - r2)) + (extra || 1) * Math.log(n)) / 2); }
   function bfWord(bf) { var b = bf >= 1 ? bf : 1 / bf, w = b > 100 ? "extreme" : b > 30 ? "very strong" : b > 10 ? "strong" : b > 3 ? "moderate" : "weak (anecdotal)"; return w + " evidence " + (bf >= 1 ? "for an effect" : "for no effect"); }

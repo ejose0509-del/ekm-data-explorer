@@ -223,13 +223,13 @@ function runAnalysis(ds) {
       shown.map(function (k, i) { return "<tr><td>" + esc(k) + '</td><td class="num">' + ds2[i].n + '</td><td class="num">' + f3(ds2[i].mean) + '</td><td class="num">' + f3(ds2[i].median) + '</td><td class="num">' + f3(ds2[i].sd) + "</td></tr>"; }).join("") + "</tbody></table></div>";
     if (names.length === 2) {
       var t = S.ttest(groups[names[0]], groups[names[1]]);
-      R.summary = {test: "Welch t-test", measure: s.y, groups: names, means: [t.A.mean, t.B.mean], diff: t.diff, ci95: [t.ciLo, t.ciHi], t: t.t, df: t.df, p: t.p, cohen_d: t.d};
+      R.summary = {test: "Welch t-test", n: t.A.n + t.B.n, measure: s.y, groups: names, means: [t.A.mean, t.B.mean], diff: t.diff, ci95: [t.ciLo, t.ciHi], t: t.t, df: t.df, p: t.p, cohen_d: t.d};
       R.head = figs([["Difference in averages", f3(t.diff)], ["95% range for it", f3(t.ciLo) + " to " + f3(t.ciHi)], ["p-value", fp(t.p)], ["Effect size (d)", f3(t.d)]], true) + tbl;
       R.reading.push("“" + esc(names[0]) + "” averages " + f3(t.A.mean) + " against " + f3(t.B.mean) + " for “" + esc(names[1]) + "”, a difference of " + f3(t.diff) + ". That gap is " + pWord(t.p) + ".");
       R.reading.push("The effect is " + (Math.abs(t.d) < 0.2 ? "negligible" : Math.abs(t.d) < 0.5 ? "small" : Math.abs(t.d) < 0.8 ? "medium" : "large") + " (Cohen's d = " + f3(t.d) + "). The true difference most plausibly lies between " + f3(t.ciLo) + " and " + f3(t.ciHi) + ".");
     } else {
       var an = S.anova(names.map(function (k) { return groups[k]; }));
-      R.summary = {test: "One-way ANOVA", measure: s.y, groups: names.length, F: an.F, df: [an.df1, an.df2], p: an.p, eta2: an.eta2, highest: names[0], lowest: names[names.length - 1]};
+      R.summary = {test: "One-way ANOVA", n: an.n, measure: s.y, groups: names.length, F: an.F, df: [an.df1, an.df2], p: an.p, eta2: an.eta2, highest: names[0], lowest: names[names.length - 1]};
       R.head = figs([["F", f3(an.F)], ["Groups", names.length], ["p-value", fp(an.p)], ["Share explained by group", Math.round(an.eta2 * 100) + "%"]], true) + tbl;
       R.reading.push("Across " + names.length + " groups, the differences in " + esc(s.y) + " are " + pWord(an.p) + ".");
       R.reading.push("Group membership accounts for about " + Math.round(an.eta2 * 100) + "% of the variation. Highest: “" + esc(names[0]) + "”; lowest: “" + esc(names[names.length - 1]) + "”.");
@@ -260,7 +260,7 @@ function runAnalysis(ds) {
     a.forEach(function (v, i) { if (v == null || b[i] == null) return; ra[v] = (ra[v] || 0) + 1; cb[b[i]] = (cb[b[i]] || 0) + 1; cells[JSON.stringify([String(v), String(b[i])])] = (cells[JSON.stringify([String(v), String(b[i])])] || 0) + 1; });
     var rk = Object.keys(ra).sort(function (p, q) { return ra[q] - ra[p]; }).slice(0, 12), ck = Object.keys(cb).sort(function (p, q) { return cb[q] - cb[p]; }).slice(0, 8);
     if (rk.length < 2 || ck.length < 2 || s.g === s.g2) return need(R, "two different category columns with at least two values each");
-    var table = rk.map(function (r) { return ck.map(function (k) { return cells[r + "\u0000" + k] || 0; }); }), ch = S.chisq(table);
+    var table = rk.map(function (r) { return ck.map(function (k) { return cells[JSON.stringify([String(r), String(k)])] || 0; }); }), ch = S.chisq(table);
     R.summary = {test: "Chi-square test of independence", rows: s.g, columns: s.g2, x2: ch.x2, df: ch.df, p: ch.p, cramers_v: ch.v, n: ch.n};
     R.head = figs([["Chi-square", f3(ch.x2)], ["p-value", fp(ch.p)], ["Strength (Cramér's V)", f3(ch.v)], ["Rows used", ch.n]], true) +
       '<div class="tablewrap"><table class="nosort"><thead><tr><th>' + esc(s.g) + " \\ " + esc(s.g2) + "</th>" + ck.map(function (k) { return "<th>" + esc(k) + "</th>"; }).join("") + "</tr></thead><tbody>" +

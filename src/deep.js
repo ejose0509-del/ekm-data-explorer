@@ -100,27 +100,38 @@ function simChart(r) {
 }
 function simulatePanel(ds, R) {
   var key = A.kind + JSON.stringify(A.sel), r = DP.sim[key];
-  if (!r) return '<p class="method-note">Shuffle the data so any real link is broken, 1,000 times, and see how often chance alone produces a result as strong as yours. This is the p-value made visible, with no formula assumptions.</p><button type="button" class="btn btn-primary" data-dsim="1">Run 1,000 simulations</button>';
-  var c = simChart(r);
-  return '<div class="chartwrap">' + c.svg + "</div>" + figs([["Your " + r.label, f3(r.obs)], ["Simulations as extreme", r.ext + " of " + r.N], ["Simulated p-value", r.p < 0.001 ? "< 0.001" : fp(r.p)]]) +
-    '<ul class="plain reading"><li>' + (r.ext === 0 ? "Not one of the " + r.N + " shuffled datasets came close to your result" + (c.off ? " (it lies off the right of this chart)" : "") + ", so chance alone is a very poor explanation." : r.ext + " of " + r.N + " shuffled datasets were at least as extreme as yours: chance alone produces a result like this about " + Math.round(r.p * 100) + "% of the time.") + "</li><li>This agrees with the formula p-value of " + fp(R.summary.p) + " when the test's assumptions hold; when they disagree, trust the simulation.</li></ul>";
+  if (!r) return '<p class="method-note">Shuffle the data 1,000 times under the null and compare the resulting statistics with yours. This requires exchangeable observations under the null; paired sign flips also require symmetric differences. Simulation does not remove study-design assumptions.</p><button type="button" class="btn btn-primary" data-dsim="1">Run 1,000 simulations</button>';
+  var c = simChart(r), formulaP = R.summary.p, same = typeof formulaP === 'number' && isFinite(formulaP) && (formulaP < .05) === (r.p < .05);
+  var comparison = typeof formulaP !== 'number' || !isFinite(formulaP) ? 'No formula p-value is available for comparison.' : same ? 'Both methods give the same decision at the conventional .05 threshold. Their p-values need not be identical.' : 'The simulation and formula test differ at the conventional .05 threshold. They use different assumptions; check exchangeability, group distributions and sample size before choosing an interpretation.';
+  return '<div class="chartwrap">' + c.svg + '</div>' + figs([['Your ' + r.label, f3(r.obs)], ['Simulations as extreme', r.ext + ' of ' + r.N], ['Simulated p-value', fp(r.p)]]) +
+    '<ul class="plain reading"><li>' + r.ext + ' of ' + r.N + ' simulated statistics were at least as extreme as the observed statistic' + (c.off ? ' (outside the displayed simulation range)' : '') + '. The Monte Carlo p-value uses (extreme + 1) / (simulations + 1); zero extreme simulations do not imply a zero p-value.</li><li>Formula p-value: ' + fp(formulaP) + '. ' + comparison + '</li><li>This is an approximate randomization result. Exchangeability and the study design still matter; do not automatically prefer it to the formula test.</li></ul>';
 }
 // 4. Sampling lab: how stable is the result at a smaller sample size?
-function samplingLab(ds, R) {
-  var N = R.summary.n || 0, n = DP.lab.n || Math.max(10, Math.round(N / 4)), r = DP.lab.res && DP.lab.res.key === A.kind + JSON.stringify(A.sel) + n ? DP.lab.res : null;
-  var body = '<p class="method-note">Draw 300 random subsets of your rows at a chosen size and redo the analysis on each. You see how much the result would wobble, and how often a study that size would find it.</p>' +
-    '<div class="slot"><label class="field" for="labn">Subset size<input type="range" id="labn" min="8" max="' + N + '" value="' + n + '" data-dlab="1"></label><b class="num">' + n + ' rows</b><button type="button" class="btn btn-primary" data-dlabrun="1">Draw 300 subsets</button></div>';
-  if (!r) return body;
-  return body + '<div class="chartwrap">' + histogram(r.vals, (A.kind === "relate" ? "r" : "difference in averages") + " in subsets of " + n + " rows") + "</div>" +
-    figs([["Middle 90% of results", f3(r.lo) + " to " + f3(r.hi)], ["Subsets finding p < .05", Math.round(r.sig * 100) + "%"], ["Full-data result", f3(r.full)]]) +
-    '<ul class="plain reading"><li>With ' + n + " rows, " + Math.round(r.sig * 100) + "% of studies would have found a clear result: that share is the study's power at this size.</li><li>The estimate ranges from " + f3(r.lo) + " to " + f3(r.hi) + " in 90% of subsets" + (r.lo * r.hi < 0 ? ", including both signs, so a study this small could get the direction wrong." : ".") + "</li></ul>";
+function boundedLabSize(R, n) {
+  var N = R.summary.n || 0, minimum = A.kind === 'compare' ? 4 : 3;
+  return Math.max(minimum, Math.min(N, Math.floor(+n || Math.max(minimum, Math.round(N / 4)))));
 }
+function samplingLab(ds, R) {
+  var N = R.summary.n || 0, minimum = A.kind === 'compare' ? 4 : 3;
+  if (N < minimum) return '<p class="nd">Not enough complete observations for subset analysis.</p>';
+  var n = boundedLabSize(R, DP.lab.n); DP.lab.n = n;
+  var r = DP.lab.res && DP.lab.res.key === A.kind + JSON.stringify(A.sel) + n ? DP.lab.res : null;
+  var body = '<p class="method-note">Draw 300 random subsets of the available rows and redo the analysis. These overlapping subsets describe sensitivity within this dataset; they do not estimate prospective study power.</p>' +
+    '<div class="slot"><label class="field" for="labn">Subset size<input type="range" id="labn" min="' + minimum + '" max="' + N + '" value="' + n + '" data-dlab="1"></label><b class="num">' + n + ' rows</b><button type="button" class="btn btn-primary" data-dlabrun="1">Draw 300 subsets</button></div>';
+  if (!r) return body;
+  if (!r.vals.length) return body + '<p class="warn">None of the subsets had enough usable variation and observations in each group. Increase the subset size or check the selected columns.</p>';
+  return body + '<div class="chartwrap">' + histogram(r.vals, (A.kind === 'relate' ? 'r' : 'difference in averages') + ' in subsets of ' + n + ' rows') + '</div>' +
+    figs([['Middle 90% of subset estimates', f3(r.lo) + ' to ' + f3(r.hi)], ['Usable subsets with p < .05', Math.round(r.sig * 100) + '%'], ['Full-data estimate', f3(r.full)]]) +
+    '<ul class="plain reading"><li>' + r.vals.length + ' of 300 subsets yielded usable estimates. Of those subsets, ' + Math.round(r.sig * 100) + '% crossed the .05 threshold; this is a descriptive resampling rate, not prospective power.</li><li>The middle 90% of subset estimates ranges from ' + f3(r.lo) + ' to ' + f3(r.hi) + (r.lo * r.hi < 0 ? ', including both directions.' : '.') + ' This is an empirical subset range, not a population confidence interval.</li></ul>';
+}
+
 function runLab(ds, R, n) {
+  n = boundedLabSize(R, n); DP.lab.n = n;
   var rnd = rng2(11), vals = [], sig = 0, full;
   if (A.kind === "relate") { var p = rowsXY(ds, A.sel.x, A.sel.y), idx = p.x.map(function (_, i) { return i; }); full = R.summary.r;
     for (var t = 0; t < 300; t++) { var pick = shuffle(idx, rnd).slice(0, n), c = S.correlate(pick.map(function (i) { return p.x[i]; }), pick.map(function (i) { return p.y[i]; })); if (c.r != null && isFinite(c.r)) { vals.push(c.r); if (c.p < 0.05) sig++; } } }
   else { var G = groupArrays(ds), lab = [], all = []; G.gs.forEach(function (q, gi) { q.forEach(function (v) { all.push(v); lab.push(gi); }); }); full = R.summary.diff; var id2 = all.map(function (_, i) { return i; });
-    for (var t2 = 0; t2 < 300; t2++) { var pk = shuffle(id2, rnd).slice(0, n), a = [], b = []; pk.forEach(function (i) { (lab[i] ? b : a).push(all[i]); }); if (a.length >= 2 && b.length >= 2) { var tt = S.ttest(a, b); vals.push(tt.diff); if (tt.p < 0.05) sig++; } } }
+    for (var t2 = 0; t2 < 300; t2++) { var pk = shuffle(id2, rnd).slice(0, n), a = [], b = []; pk.forEach(function (i) { (lab[i] ? b : a).push(all[i]); }); if (a.length >= 2 && b.length >= 2) { var tt = S.ttest(a, b); if (isFinite(tt.diff) && isFinite(tt.t) && isFinite(tt.p)) { vals.push(tt.diff); if (tt.p < 0.05) sig++; } } } }
   var sv = vals.slice().sort(function (a, b) { return a - b; });
   DP.lab.res = {key: A.kind + JSON.stringify(A.sel) + n, vals: vals, lo: S.quantile(sv, 0.05), hi: S.quantile(sv, 0.95), sig: sig / Math.max(1, vals.length), full: full};
 }
@@ -198,7 +209,15 @@ function holdoutLogistic(ds, preds) {
 }
 
 // The panel under the poster
+function syncDeepContext(ds) {
+  var previous = DP.context;
+  if (!previous || previous.id !== ds.id || previous.rows !== ds.rows || previous.cols !== ds.cols) {
+    DP.sim = Object.create(null); DP.lab = {n:null,res:null}; DP.pred = Object.create(null);
+    DP.context = {id:ds.id, rows:ds.rows, cols:ds.cols};
+  }
+}
 function deepPanel(ds, R) {
+  syncDeepContext(ds);
   var tabs = deepTabs(R); if (!tabs.length) return "";
   if (!tabs.some(function (t) { return t[0] === DP.tab; })) DP.tab = tabs[0][0];
   var body = "";
@@ -244,8 +263,17 @@ var _caption2 = caption; caption = function (ds) { return A.kind === "matrix" ? 
 view.addEventListener("click", function (e) {
   var b = e.target.closest("button"); if (!b || st.tab !== "analyze") return; var d = b.dataset, ds = cur();
   if (d.deep) { DP.tab = d.deep; render(); refocus('[data-deep="' + d.deep + '"]'); return; }
-  if (d.dsim) { b.disabled = true; b.textContent = "Simulating…"; setTimeout(function () { DP.sim[A.kind + JSON.stringify(A.sel)] = nullSim(ds, LAST_R, 1000); render(); }, 20); return; }
-  if (d.dlabrun) { var n = DP.lab.n || Math.max(10, Math.round((LAST_R.summary.n || 40) / 4)); DP.lab.n = n; b.disabled = true; b.textContent = "Drawing…"; setTimeout(function () { runLab(ds, LAST_R, n); render(); }, 20); return; }
+  if (d.dsim || d.dlabrun) {
+    var kind = A.kind, selection = JSON.stringify(A.sel), rows = ds.rows, cols = ds.cols, R = LAST_R, n = boundedLabSize(R, DP.lab.n);
+    if (d.dlabrun) DP.lab.n = n;
+    b.disabled = true; b.textContent = d.dsim ? 'Simulating…' : 'Drawing…';
+    setTimeout(function () {
+      if (cur() !== ds || ds.rows !== rows || ds.cols !== cols || A.kind !== kind || JSON.stringify(A.sel) !== selection || st.tab !== 'analyze') return;
+      if (d.dsim) DP.sim[kind + selection] = nullSim(ds, R, 1000); else runLab(ds, R, n);
+      render();
+    }, 20);
+    return;
+  }
   if (d.mpair != null) { var p = DP.pairs[+d.mpair]; A.kind = "relate"; A.sel = {x: p[1], y: p[0]}; A.ai = Object.create(null); render(); refocus('[data-akind="relate"]'); return; }
 });
 view.addEventListener("input", function (e) { if (e.target.dataset && e.target.dataset.dlab) { DP.lab.n = +e.target.value; var b = e.target.closest(".slot").querySelector("b.num"); if (b) b.textContent = e.target.value + " rows"; } });

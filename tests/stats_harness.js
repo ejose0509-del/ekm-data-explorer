@@ -39,4 +39,8 @@ for (const [name, scale] of [['large',1e150],['tiny',1e-150]]) {
 result.mean_huge_unit = S.mean([1e308,1e308,1e308])/1e308;
 result.mean_smallest_unit = S.mean([Number.MIN_VALUE,Number.MIN_VALUE,Number.MIN_VALUE])/Number.MIN_VALUE;
 for (const [name, scale] of [['large',1e150],['tiny',1e-150]]) { const sw=S2.shapiro(a.map(v=>v*scale));result[name+'_shapiro_W']=sw.W;result[name+'_shapiro_p']=sw.p; }
+const independent = S.chisq([[12,12],[12,12],[12,12]]);
+result.chi2_independent = independent.x2;result.chi2_independent_p = independent.p;result.chi2_independent_n=independent.n;
+for (const [name,d,n1,n2] of [['zero',0,20,20],['small',.05,24,48],['medium',.5,20,30],['negative',-.5,20,30]]) result['power_d_'+name]=S2.powerD(d,n1,n2).power;
+for (const [name,r,n] of [['zero',0,30],['medium',.3,30],['negative',-.3,30]]) result['power_r_'+name]=S2.powerR(r,n).power;
 console.log(JSON.stringify(result));

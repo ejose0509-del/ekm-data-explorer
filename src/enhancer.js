@@ -141,13 +141,13 @@ function opFill(ds, j, how, flag) {
   }
   if (flag && res.changed) {   // MissingIndicator: remember which rows were filled
     res.rows = res.rows.map(function (r, i) { return r.concat([v[i] == null ? "yes" : "no"]); });
-    res.cols = ds.cols.concat([{name: c.name + " was missing", type: "category"}]);
+    res.cols = ds.cols.concat([{name: uniqueColumnName(c.name + " was missing", ds.cols.map(function (c) { return c.name; })), type: "category"}]);
   }
   return res;
 }
 function opOutliers(ds, j, how) {
   var d = S.describe(colVals(ds, j)), lo = d.q1 - 1.5 * (d.q3 - d.q1), hi = d.q3 + 1.5 * (d.q3 - d.q1), bad = function (x) { return typeof x === "number" && (x < lo || x > hi); };
-  if (how === "flag") { var n = 0; var rows = ds.rows.map(function (r) { var b = bad(r[j]); if (b) n++; return r.concat([b ? "yes" : "no"]); }); return {rows: rows, cols: ds.cols.concat([{name: ds.cols[j].name + " unusual", type: "category"}]), changed: n}; }
+  if (how === "flag") { var n = 0; var rows = ds.rows.map(function (r) { var b = bad(r[j]); if (b) n++; return r.concat([b ? "yes" : "no"]); }); return {rows: rows, cols: ds.cols.concat([{name: uniqueColumnName(ds.cols[j].name + " unusual", ds.cols.map(function (c) { return c.name; })), type: "category"}]), changed: n}; }
   if (how === "cap") return mapCol(ds, j, function (x) { return typeof x !== "number" ? x : x < lo ? +lo.toPrecision(6) : x > hi ? +hi.toPrecision(6) : x; });
   var keep = ds.rows.filter(function (r) { return !bad(r[j]); }); return {rows: keep, changed: ds.rows.length - keep.length};
 }
@@ -156,18 +156,30 @@ function opDerive(ds, j, how) {
   if (how === "log") { name = "log10 of " + c.name; f = function (x) { return typeof x === "number" && x > 0 ? +Math.log10(x).toPrecision(6) : null; }; }
   else if (how === "z") { name = c.name + " (standardized)"; f = function (x) { return typeof x === "number" ? +((x - d.mean) / d.sd).toPrecision(5) : null; }; }
   else { name = c.name + " (quarter)"; f = function (x) { return typeof x !== "number" ? null : x <= d.q1 ? "Q1 lowest" : x <= d.median ? "Q2" : x <= d.q3 ? "Q3" : "Q4 highest"; }; }
+  name = uniqueColumnName(name, ds.cols.map(function (c) { return c.name; }));
   return {rows: ds.rows.map(function (r) { return r.concat([f(r[j])]); }), cols: ds.cols.concat([{name: name, type: how === "bins" ? "category" : "number"}]), changed: v.filter(function (x) { return x != null; }).length};
 }
 function opMerge(ds, j, clusters) {
   var map = Object.create(null); clusters.forEach(function (cl) { cl.values.forEach(function (v) { if (v !== cl.into) map[v] = cl.into; }); });
   return mapCol(ds, j, function (v) { return v != null && Object.prototype.hasOwnProperty.call(map, v) ? map[v] : v; });
 }
+function latestIsoOutputs(ds) {
+  var steps = (ds.recipe || []).filter(function (step) { return step.op === 'isolation-forest'; });
+  if (!steps.length) return [];
+  return steps[steps.length - 1].outputs || ['Anomaly score', 'Anomaly'];
+}
 function opIso(ds, cols, share) {
-  var idx = cols.map(function (n) { return idxOf(ds, n); }), stt = idx.map(function (i) { var d = S.describe(colVals(ds, i)); return [d.median, d.sd || 1]; });
-  var X = ds.rows.map(function (r) { return idx.map(function (i, q) { return typeof r[i] === "number" ? (r[i] - stt[q][0]) / stt[q][1] : 0; }); });
+  // Build the replacement without mutating the source before applyStep records undo.
+  var previous = latestIsoOutputs(ds), keep = ds.cols.map(function (_, j) { return j; }).filter(function (j) { return previous.indexOf(ds.cols[j].name) < 0; });
+  var source = {cols: keep.map(function (j) { return ds.cols[j]; }), rows: ds.rows.map(function (r) { return keep.map(function (j) { return r[j]; }); })};
+  cols = cols.filter(function (name) { var j = idxOf(source, name); return j >= 0 && isNum(source.cols[j]); });
+  if (!cols.length) throw new Error('Choose at least one source numeric column to score rows.');
+  var idx = cols.map(function (n) { return idxOf(source, n); }), stt = idx.map(function (i) { var d = S.describe(colVals(source, i)); return [d.median, d.sd || 1]; });
+  var X = source.rows.map(function (r) { return idx.map(function (i, q) { return typeof r[i] === "number" ? (r[i] - stt[q][0]) / stt[q][1] : 0; }); });
   var sc = isoForest(X, 100, 256), cut = sc.slice().sort(function (a, b) { return b - a; })[Math.max(0, Math.floor(sc.length * share) - 1)];
-  var n = 0; var rows = ds.rows.map(function (r, i) { var flag = sc[i] >= cut; if (flag) n++; return r.concat([+sc[i].toFixed(3), flag ? "yes" : "no"]); });
-  return {rows: rows, cols: ds.cols.concat([{name: "Anomaly score", type: "number"}, {name: "Anomaly", type: "category"}]), changed: n};
+  var n = 0, rows = source.rows.map(function (r, i) { var flag = sc[i] >= cut; if (flag) n++; return r.concat([+sc[i].toFixed(3), flag ? "yes" : "no"]); });
+  var names = source.cols.map(function (c) { return c.name; }), score = uniqueColumnName('Anomaly score', names), flag = uniqueColumnName('Anomaly', names.concat([score]));
+  return {rows: rows, cols: source.cols.concat([{name: score, type: 'number'}, {name: flag, type: 'category'}]), changed: n, outputs: [score, flag]};
 }
 
 // --- view ---
@@ -199,7 +211,7 @@ function enhanceView() {
     '<div class="toolbar"><label class="field" for="ecol">Column<select id="ecol" data-ecol="1">' + catCols.map(function (c) { return "<option" + (c.name === E.clusterCol ? " selected" : "") + ">" + esc(c.name) + "</option>"; }).join("") + "</select></label>" +
     '<label class="field" for="emeth">Method<select id="emeth" data-emeth="1">' + [["fingerprint", "Same words, any order or case"], ["ngram", "Same letters (catches typos)"], ["levenshtein", "Spelled within 1–2 letters"]].map(function (m) { return '<option value="' + m[0] + '"' + (E.clusterMethod === m[0] ? " selected" : "") + ">" + m[1] + "</option>"; }).join("") + "</select></label>" +
     '<button type="button" class="btn" data-efind="1">Find groups</button></div>' + clusterList(ds) + "</section>" : "";
-  if (!E.iso) E.iso = {cols: numCols.slice(0, 6).map(function (c) { return c.name; }), share: 0.05};
+  if (!E.iso || E.iso.dataset !== ds.id) E.iso = {dataset: ds.id, cols: numCols.slice(0, 6).map(function (c) { return c.name; }), share: 0.05};
   var isoPanel = numCols.length >= 2 ? '<section class="card"><h2>Find unusual rows</h2><p class="count">An Isolation Forest (the method behind scikit-learn’s IsolationForest) looks at several numbers at once and scores how easily each row separates from the rest. It catches rows that are odd in combination even when each value looks normal on its own.</p>' +
     '<fieldset class="field preds"><legend>Use these columns</legend>' + numCols.map(function (c) { return '<label class="chk"><input type="checkbox" data-eiso="' + esc(c.name) + '"' + (E.iso.cols.indexOf(c.name) >= 0 ? " checked" : "") + "> " + esc(c.name) + "</label>"; }).join("") + "</fieldset>" +
     '<div class="slot"><label class="field" for="eshare">Flag the most unusual<select id="eshare" data-eshare="1">' + [0.01, 0.02, 0.05, 0.1].map(function (s) { return '<option value="' + s + '"' + (E.iso.share === s ? " selected" : "") + ">" + s * 100 + "% of rows</option>"; }).join("") + '</select></label><button type="button" class="btn btn-primary" data-eisorun="1"' + (E.iso.cols.length ? "" : " disabled") + ">Score rows</button></div>" + topAnomalies(ds) + "</section>" : "";
@@ -239,9 +251,9 @@ function clusterList(ds) {
   }).join("") + '</ul><button type="button" class="btn btn-primary" data-emerge="1">Merge selected groups</button>';
 }
 function topAnomalies(ds) {
-  var j = idxOf(ds, "Anomaly score"); if (j < 0) return "";
+  var outputs = latestIsoOutputs(ds); if (!outputs.length) return ""; var j = idxOf(ds, outputs[0]); if (j < 0) return "";
   var top = ds.rows.map(function (r, i) { return [r[j], i]; }).filter(function (x) { return typeof x[0] === "number"; }).sort(function (a, b) { return b[0] - a[0]; }).slice(0, 8);
-  var show = ds.cols.map(function (c, i) { return i; }).filter(function (i) { return i !== j && ds.cols[i].name !== "Anomaly"; }).slice(0, 6);
+  var show = ds.cols.map(function (c, i) { return i; }).filter(function (i) { return i !== j && ds.cols[i].name !== outputs[1]; }).slice(0, 6);
   return '<h2 class="sub-h">Most unusual rows</h2><div class="tablewrap"><table class="nosort"><thead><tr><th>Score</th>' + show.map(function (i) { return "<th>" + esc(ds.cols[i].name) + "</th>"; }).join("") + "</tr></thead><tbody>" +
     top.map(function (t) { var r = ds.rows[t[1]]; return '<tr><td class="num">' + t[0].toFixed(2) + "</td>" + show.map(function (i) { return "<td>" + (r[i] == null ? '<span class="nd">—</span>' : esc(typeof r[i] === "number" ? f3(r[i]) : String(r[i]).slice(0, 30))) + "</td>"; }).join("") + "</tr>"; }).join("") +
     '</tbody></table></div><p class="count">Scores near 1 are easy to isolate (unusual); around 0.5 or below are ordinary. A high score is a reason to look, not proof of an error.</p>';
@@ -265,8 +277,10 @@ view.addEventListener("click", function (e) {
   if (d.efind) { E.clusters = clusterValues(countsOf(ds, E.clusterCol), E.clusterMethod); E.picked = Object.create(null); render(); refocus("[data-emerge]", "[data-efind]"); return; }
   if (d.emerge) { var cl = (E.clusters || []).filter(function (_, i) { return E.picked[i] !== false; }); if (!cl.length) return;
     return applyStep(ds, {op: "merge", col: E.clusterCol, method: E.clusterMethod, groups: cl.map(function (x) { return {values: x.values, into: x.into}; }), text: "Merged " + cl.length + " group" + (cl.length > 1 ? "s" : "") + " of similar " + E.clusterCol + " values"}, function () { return opMerge(ds, idxOf(ds, E.clusterCol), cl); }); }
-  if (d.eisorun) { ["Anomaly score", "Anomaly"].forEach(function (n) { var k = idxOf(ds, n); if (k >= 0) { ds.rows = ds.rows.map(function (r) { return r.filter(function (_, i) { return i !== k; }); }); ds.cols = ds.cols.filter(function (_, i) { return i !== k; }); } });
-    return applyStep(ds, {op: "isolation-forest", cols: E.iso.cols, share: E.iso.share, text: "Scored rows for unusualness (Isolation Forest, " + E.iso.cols.length + " columns), flagging the top " + E.iso.share * 100 + "%", unit: "rows flagged"}, function () { return opIso(ds, E.iso.cols, E.iso.share); }); }
+  if (d.eisorun) {
+    var isoStep = {op: 'isolation-forest', cols: E.iso.cols.slice(), share: E.iso.share, text: 'Scored rows for unusualness (Isolation Forest, ' + E.iso.cols.length + ' columns), flagging the top ' + E.iso.share * 100 + '%', unit: 'rows flagged'};
+    return applyStep(ds, isoStep, function () { var res = opIso(ds, isoStep.cols, isoStep.share); isoStep.outputs = res.outputs; return res; });
+  }
   if (d.eundo) { var u = E.undo[ds.id].pop(); ds.rows = u.rows; ds.cols = u.cols; ds.recipe = ds.recipe.slice(0, -1); E.msg = "Undid the last step."; render(); saveSet(ds); return; }
   if (d.ereset) { var o = E.orig[ds.id]; ds.rows = o.rows; ds.cols = o.cols; ds.recipe = o.recipe.slice(); E.undo[ds.id] = []; E.msg = "Back to the data as it was before this session's changes."; render(); saveSet(ds); return; }
 });

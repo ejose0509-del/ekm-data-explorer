@@ -43,6 +43,13 @@ for name in ['large','tiny']:
 ref['mean_huge_unit']=np.mean([1.,1.,1.]);ref['mean_smallest_unit']=np.mean([np.nextafter(0.,1.)]*3)/np.nextafter(0.,1.)
 for name in ['large','tiny']:
     ref[name+'_shapiro_W']=st.shapiro(a).statistic;ref[name+'_shapiro_p']=st.shapiro(a).pvalue
+independent = st.chi2_contingency([[12,12],[12,12],[12,12]], correction=False)
+ref['chi2_independent']=independent.statistic;ref['chi2_independent_p']=independent.pvalue;ref['chi2_independent_n']=np.sum([[12,12],[12,12],[12,12]])
+critical=1.959964
+for name,d,n1,n2 in [('zero',0,20,20),('small',.05,24,48),('medium',.5,20,30),('negative',-.5,20,30)]:
+    delta=abs(d)/np.sqrt(1/n1+1/n2);ref['power_d_'+name]=st.norm.sf(critical-delta)+st.norm.cdf(-critical-delta)
+for name,r,n in [('zero',0,30),('medium',.3,30),('negative',-.3,30)]:
+    delta=abs(np.arctanh(r))*np.sqrt(n-3);ref['power_r_'+name]=st.norm.sf(critical-delta)+st.norm.cdf(-critical-delta)
 bad = 0
 for k, v in ref.items():
     actual=ekm.get(k)

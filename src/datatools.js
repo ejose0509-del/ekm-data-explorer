@@ -93,7 +93,7 @@ function replayAll(ds, steps) {
     (E.undo[ds.id] = E.undo[ds.id] || []).push({rows: ds.rows, cols: JSON.parse(JSON.stringify(ds.cols))});
     if (!E.orig[ds.id]) E.orig[ds.id] = {rows: ds.rows, cols: JSON.parse(JSON.stringify(ds.cols)), recipe: (ds.recipe || []).slice()};
     ds.rows = res.rows; if (res.cols) ds.cols = res.cols;
-    ds.recipe = (ds.recipe || []).concat([Object.assign({}, st2, {at: new Date().toISOString(), changed: res.changed, replayed: true})]); done++;
+    ds.recipe = (ds.recipe || []).concat([Object.assign({}, st2, {at: new Date().toISOString(), changed: res.changed, replayed: true, outputs: res.outputs || st2.outputs})]); done++;
   });
   saveSet(ds);
   return {done: done, skipped: skipped};
@@ -129,7 +129,7 @@ VIEWS.enhance = function () { var h = _enhanceView(), ds = cur(); if (!ds || !ds
 view.addEventListener("toggle", function (e) { var d = e.target.dataset && e.target.dataset.dtsec; if (d && e.target.open) DT.open = d; }, true);
 view.addEventListener("change", function (e) {
   if (st.tab !== "enhance") return; var t = e.target, d = t.dataset || {};
-  if (d.dtj) { DT.join[d.dtj] = t.value; if (d.dtj === "with") DT.join.kr = ""; render(); return; }
+  if (d.dtj) { DT.open = "join"; DT.join[d.dtj] = t.value; if (d.dtj === "with") DT.join.kr = ""; render(); return; }
   if (d.dtp) { DT.pivot[d.dtp] = t.value; return; }
   if (d.dtm != null) { var ids = DT.melt.ids || []; DT.melt.ids = t.checked ? ids.concat([d.dtm]) : ids.filter(function (x) { return x !== d.dtm; }); return; }
   if (t.id === "rfile" && t.files && t.files[0]) {

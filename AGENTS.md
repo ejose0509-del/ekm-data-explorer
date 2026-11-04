@@ -9,7 +9,7 @@ python3 build.py                  # src/ -> dist/index.html
 python3 tests/check_stats.py      # statistics vs SciPy (needs node, numpy, scipy)
 ```
 
-Open `dist/index.html` in a browser to use it. Run the stats check after any change to `src/stats.js` or `src/stats2.js`; all 92 values (including the original 30) must match SciPy.
+Open `dist/index.html` in a browser to use it. Run the stats check after any change to `src/stats.js` or `src/stats2.js`; all 102 values (including the original 30) must match SciPy.
 
 ## Layout
 

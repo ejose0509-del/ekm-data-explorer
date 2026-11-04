@@ -428,7 +428,7 @@ var S = (function () {
 // ---------- More statistics: assumption checks, rank tests, post-hoc, paired, logistic, power, Bayes ----------
 // Each follows its published definition; results are checked against SciPy.
 var S2 = (function () {
-  function pnorm(z) { var q = 0.5 * S.gammaQ(0.5, z * z / 2); return z >= 0 ? 1 - q : q; }   // standard normal CDF via erfc
+  function pnorm(z) { if (z === Infinity) return 1; if (z === -Infinity) return 0; var q = 0.5 * S.gammaQ(0.5, z * z / 2); return z >= 0 ? 1 - q : q; }   // standard normal CDF via erfc
   function qnorm(p) {   // Acklam's inverse normal
     var a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716, 2.506628277459239],
       b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572],
@@ -534,8 +534,8 @@ var S2 = (function () {
   }
   // Power and sample size (normal approximation), alpha .05 two-sided, target 80%
   var ZA = 1.959964, ZB = 0.841621;
-  function powerD(d, n1, n2) { var nh = 2 / (1 / n1 + 1 / n2); return {power: pnorm(Math.abs(d) * Math.sqrt(nh / 2) - ZA), need: Math.ceil(2 * Math.pow((ZA + ZB) / Math.abs(d), 2))}; }
-  function powerR(r, n) { var z = Math.abs(Math.atanh(Math.max(-0.999, Math.min(0.999, r)))); return {power: pnorm(z * Math.sqrt(Math.max(1, n - 3)) - ZA), need: Math.ceil(Math.pow((ZA + ZB) / z, 2) + 3)}; }
+  function powerD(d, n1, n2) { var nh = 2 / (1 / n1 + 1 / n2); var delta = Math.abs(d) * Math.sqrt(nh / 2); return {power: pnorm(delta - ZA) + pnorm(-delta - ZA), need: Math.ceil(2 * Math.pow((ZA + ZB) / Math.abs(d), 2))}; }
+  function powerR(r, n) { var z = Math.abs(Math.atanh(Math.max(-0.999, Math.min(0.999, r)))); var delta = z * Math.sqrt(n - 3); return {power: n > 3 ? pnorm(delta - ZA) + pnorm(-delta - ZA) : NaN, need: Math.ceil(Math.pow((ZA + ZB) / z, 2) + 3)}; }
   // Approximate Bayes factor from BIC (Wagenmakers 2007): evidence for an effect against none
   function bfR2(r2, n, extra) { return Math.exp(-(n * Math.log(Math.max(1e-12, 1 - r2)) + (extra || 1) * Math.log(n)) / 2); }
   function bfWord(bf) { var b = bf >= 1 ? bf : 1 / bf, w = b > 100 ? "extreme" : b > 30 ? "very strong" : b > 10 ? "strong" : b > 3 ? "moderate" : "weak (anecdotal)"; return w + " evidence " + (bf >= 1 ? "for an effect" : "for no effect"); }
@@ -768,13 +768,13 @@ function runAnalysis(ds) {
       shown.map(function (k, i) { return "<tr><td>" + esc(k) + '</td><td class="num">' + ds2[i].n + '</td><td class="num">' + f3(ds2[i].mean) + '</td><td class="num">' + f3(ds2[i].median) + '</td><td class="num">' + f3(ds2[i].sd) + "</td></tr>"; }).join("") + "</tbody></table></div>";
     if (names.length === 2) {
       var t = S.ttest(groups[names[0]], groups[names[1]]);
-      R.summary = {test: "Welch t-test", measure: s.y, groups: names, means: [t.A.mean, t.B.mean], diff: t.diff, ci95: [t.ciLo, t.ciHi], t: t.t, df: t.df, p: t.p, cohen_d: t.d};
+      R.summary = {test: "Welch t-test", n: t.A.n + t.B.n, measure: s.y, groups: names, means: [t.A.mean, t.B.mean], diff: t.diff, ci95: [t.ciLo, t.ciHi], t: t.t, df: t.df, p: t.p, cohen_d: t.d};
       R.head = figs([["Difference in averages", f3(t.diff)], ["95% range for it", f3(t.ciLo) + " to " + f3(t.ciHi)], ["p-value", fp(t.p)], ["Effect size (d)", f3(t.d)]], true) + tbl;
       R.reading.push("“" + esc(names[0]) + "” averages " + f3(t.A.mean) + " against " + f3(t.B.mean) + " for “" + esc(names[1]) + "”, a difference of " + f3(t.diff) + ". That gap is " + pWord(t.p) + ".");
       R.reading.push("The effect is " + (Math.abs(t.d) < 0.2 ? "negligible" : Math.abs(t.d) < 0.5 ? "small" : Math.abs(t.d) < 0.8 ? "medium" : "large") + " (Cohen's d = " + f3(t.d) + "). The true difference most plausibly lies between " + f3(t.ciLo) + " and " + f3(t.ciHi) + ".");
     } else {
       var an = S.anova(names.map(function (k) { return groups[k]; }));
-      R.summary = {test: "One-way ANOVA", measure: s.y, groups: names.length, F: an.F, df: [an.df1, an.df2], p: an.p, eta2: an.eta2, highest: names[0], lowest: names[names.length - 1]};
+      R.summary = {test: "One-way ANOVA", n: an.n, measure: s.y, groups: names.length, F: an.F, df: [an.df1, an.df2], p: an.p, eta2: an.eta2, highest: names[0], lowest: names[names.length - 1]};
       R.head = figs([["F", f3(an.F)], ["Groups", names.length], ["p-value", fp(an.p)], ["Share explained by group", Math.round(an.eta2 * 100) + "%"]], true) + tbl;
       R.reading.push("Across " + names.length + " groups, the differences in " + esc(s.y) + " are " + pWord(an.p) + ".");
       R.reading.push("Group membership accounts for about " + Math.round(an.eta2 * 100) + "% of the variation. Highest: “" + esc(names[0]) + "”; lowest: “" + esc(names[names.length - 1]) + "”.");
@@ -805,7 +805,7 @@ function runAnalysis(ds) {
     a.forEach(function (v, i) { if (v == null || b[i] == null) return; ra[v] = (ra[v] || 0) + 1; cb[b[i]] = (cb[b[i]] || 0) + 1; cells[JSON.stringify([String(v), String(b[i])])] = (cells[JSON.stringify([String(v), String(b[i])])] || 0) + 1; });
     var rk = Object.keys(ra).sort(function (p, q) { return ra[q] - ra[p]; }).slice(0, 12), ck = Object.keys(cb).sort(function (p, q) { return cb[q] - cb[p]; }).slice(0, 8);
     if (rk.length < 2 || ck.length < 2 || s.g === s.g2) return need(R, "two different category columns with at least two values each");
-    var table = rk.map(function (r) { return ck.map(function (k) { return cells[r + "\u0000" + k] || 0; }); }), ch = S.chisq(table);
+    var table = rk.map(function (r) { return ck.map(function (k) { return cells[JSON.stringify([String(r), String(k)])] || 0; }); }), ch = S.chisq(table);
     R.summary = {test: "Chi-square test of independence", rows: s.g, columns: s.g2, x2: ch.x2, df: ch.df, p: ch.p, cramers_v: ch.v, n: ch.n};
     R.head = figs([["Chi-square", f3(ch.x2)], ["p-value", fp(ch.p)], ["Strength (Cramér's V)", f3(ch.v)], ["Rows used", ch.n]], true) +
       '<div class="tablewrap"><table class="nosort"><thead><tr><th>' + esc(s.g) + " \\ " + esc(s.g2) + "</th>" + ck.map(function (k) { return "<th>" + esc(k) + "</th>"; }).join("") + "</tr></thead><tbody>" +
@@ -1232,13 +1232,13 @@ function opFill(ds, j, how, flag) {
   }
   if (flag && res.changed) {   // MissingIndicator: remember which rows were filled
     res.rows = res.rows.map(function (r, i) { return r.concat([v[i] == null ? "yes" : "no"]); });
-    res.cols = ds.cols.concat([{name: c.name + " was missing", type: "category"}]);
+    res.cols = ds.cols.concat([{name: uniqueColumnName(c.name + " was missing", ds.cols.map(function (c) { return c.name; })), type: "category"}]);
   }
   return res;
 }
 function opOutliers(ds, j, how) {
   var d = S.describe(colVals(ds, j)), lo = d.q1 - 1.5 * (d.q3 - d.q1), hi = d.q3 + 1.5 * (d.q3 - d.q1), bad = function (x) { return typeof x === "number" && (x < lo || x > hi); };
-  if (how === "flag") { var n = 0; var rows = ds.rows.map(function (r) { var b = bad(r[j]); if (b) n++; return r.concat([b ? "yes" : "no"]); }); return {rows: rows, cols: ds.cols.concat([{name: ds.cols[j].name + " unusual", type: "category"}]), changed: n}; }
+  if (how === "flag") { var n = 0; var rows = ds.rows.map(function (r) { var b = bad(r[j]); if (b) n++; return r.concat([b ? "yes" : "no"]); }); return {rows: rows, cols: ds.cols.concat([{name: uniqueColumnName(ds.cols[j].name + " unusual", ds.cols.map(function (c) { return c.name; })), type: "category"}]), changed: n}; }
   if (how === "cap") return mapCol(ds, j, function (x) { return typeof x !== "number" ? x : x < lo ? +lo.toPrecision(6) : x > hi ? +hi.toPrecision(6) : x; });
   var keep = ds.rows.filter(function (r) { return !bad(r[j]); }); return {rows: keep, changed: ds.rows.length - keep.length};
 }
@@ -1247,18 +1247,30 @@ function opDerive(ds, j, how) {
   if (how === "log") { name = "log10 of " + c.name; f = function (x) { return typeof x === "number" && x > 0 ? +Math.log10(x).toPrecision(6) : null; }; }
   else if (how === "z") { name = c.name + " (standardized)"; f = function (x) { return typeof x === "number" ? +((x - d.mean) / d.sd).toPrecision(5) : null; }; }
   else { name = c.name + " (quarter)"; f = function (x) { return typeof x !== "number" ? null : x <= d.q1 ? "Q1 lowest" : x <= d.median ? "Q2" : x <= d.q3 ? "Q3" : "Q4 highest"; }; }
+  name = uniqueColumnName(name, ds.cols.map(function (c) { return c.name; }));
   return {rows: ds.rows.map(function (r) { return r.concat([f(r[j])]); }), cols: ds.cols.concat([{name: name, type: how === "bins" ? "category" : "number"}]), changed: v.filter(function (x) { return x != null; }).length};
 }
 function opMerge(ds, j, clusters) {
   var map = Object.create(null); clusters.forEach(function (cl) { cl.values.forEach(function (v) { if (v !== cl.into) map[v] = cl.into; }); });
   return mapCol(ds, j, function (v) { return v != null && Object.prototype.hasOwnProperty.call(map, v) ? map[v] : v; });
 }
+function latestIsoOutputs(ds) {
+  var steps = (ds.recipe || []).filter(function (step) { return step.op === 'isolation-forest'; });
+  if (!steps.length) return [];
+  return steps[steps.length - 1].outputs || ['Anomaly score', 'Anomaly'];
+}
 function opIso(ds, cols, share) {
-  var idx = cols.map(function (n) { return idxOf(ds, n); }), stt = idx.map(function (i) { var d = S.describe(colVals(ds, i)); return [d.median, d.sd || 1]; });
-  var X = ds.rows.map(function (r) { return idx.map(function (i, q) { return typeof r[i] === "number" ? (r[i] - stt[q][0]) / stt[q][1] : 0; }); });
+  // Build the replacement without mutating the source before applyStep records undo.
+  var previous = latestIsoOutputs(ds), keep = ds.cols.map(function (_, j) { return j; }).filter(function (j) { return previous.indexOf(ds.cols[j].name) < 0; });
+  var source = {cols: keep.map(function (j) { return ds.cols[j]; }), rows: ds.rows.map(function (r) { return keep.map(function (j) { return r[j]; }); })};
+  cols = cols.filter(function (name) { var j = idxOf(source, name); return j >= 0 && isNum(source.cols[j]); });
+  if (!cols.length) throw new Error('Choose at least one source numeric column to score rows.');
+  var idx = cols.map(function (n) { return idxOf(source, n); }), stt = idx.map(function (i) { var d = S.describe(colVals(source, i)); return [d.median, d.sd || 1]; });
+  var X = source.rows.map(function (r) { return idx.map(function (i, q) { return typeof r[i] === "number" ? (r[i] - stt[q][0]) / stt[q][1] : 0; }); });
   var sc = isoForest(X, 100, 256), cut = sc.slice().sort(function (a, b) { return b - a; })[Math.max(0, Math.floor(sc.length * share) - 1)];
-  var n = 0; var rows = ds.rows.map(function (r, i) { var flag = sc[i] >= cut; if (flag) n++; return r.concat([+sc[i].toFixed(3), flag ? "yes" : "no"]); });
-  return {rows: rows, cols: ds.cols.concat([{name: "Anomaly score", type: "number"}, {name: "Anomaly", type: "category"}]), changed: n};
+  var n = 0, rows = source.rows.map(function (r, i) { var flag = sc[i] >= cut; if (flag) n++; return r.concat([+sc[i].toFixed(3), flag ? "yes" : "no"]); });
+  var names = source.cols.map(function (c) { return c.name; }), score = uniqueColumnName('Anomaly score', names), flag = uniqueColumnName('Anomaly', names.concat([score]));
+  return {rows: rows, cols: source.cols.concat([{name: score, type: 'number'}, {name: flag, type: 'category'}]), changed: n, outputs: [score, flag]};
 }
 
 // --- view ---
@@ -1290,7 +1302,7 @@ function enhanceView() {
     '<div class="toolbar"><label class="field" for="ecol">Column<select id="ecol" data-ecol="1">' + catCols.map(function (c) { return "<option" + (c.name === E.clusterCol ? " selected" : "") + ">" + esc(c.name) + "</option>"; }).join("") + "</select></label>" +
     '<label class="field" for="emeth">Method<select id="emeth" data-emeth="1">' + [["fingerprint", "Same words, any order or case"], ["ngram", "Same letters (catches typos)"], ["levenshtein", "Spelled within 1–2 letters"]].map(function (m) { return '<option value="' + m[0] + '"' + (E.clusterMethod === m[0] ? " selected" : "") + ">" + m[1] + "</option>"; }).join("") + "</select></label>" +
     '<button type="button" class="btn" data-efind="1">Find groups</button></div>' + clusterList(ds) + "</section>" : "";
-  if (!E.iso) E.iso = {cols: numCols.slice(0, 6).map(function (c) { return c.name; }), share: 0.05};
+  if (!E.iso || E.iso.dataset !== ds.id) E.iso = {dataset: ds.id, cols: numCols.slice(0, 6).map(function (c) { return c.name; }), share: 0.05};
   var isoPanel = numCols.length >= 2 ? '<section class="card"><h2>Find unusual rows</h2><p class="count">An Isolation Forest (the method behind scikit-learn’s IsolationForest) looks at several numbers at once and scores how easily each row separates from the rest. It catches rows that are odd in combination even when each value looks normal on its own.</p>' +
     '<fieldset class="field preds"><legend>Use these columns</legend>' + numCols.map(function (c) { return '<label class="chk"><input type="checkbox" data-eiso="' + esc(c.name) + '"' + (E.iso.cols.indexOf(c.name) >= 0 ? " checked" : "") + "> " + esc(c.name) + "</label>"; }).join("") + "</fieldset>" +
     '<div class="slot"><label class="field" for="eshare">Flag the most unusual<select id="eshare" data-eshare="1">' + [0.01, 0.02, 0.05, 0.1].map(function (s) { return '<option value="' + s + '"' + (E.iso.share === s ? " selected" : "") + ">" + s * 100 + "% of rows</option>"; }).join("") + '</select></label><button type="button" class="btn btn-primary" data-eisorun="1"' + (E.iso.cols.length ? "" : " disabled") + ">Score rows</button></div>" + topAnomalies(ds) + "</section>" : "";
@@ -1330,9 +1342,9 @@ function clusterList(ds) {
   }).join("") + '</ul><button type="button" class="btn btn-primary" data-emerge="1">Merge selected groups</button>';
 }
 function topAnomalies(ds) {
-  var j = idxOf(ds, "Anomaly score"); if (j < 0) return "";
+  var outputs = latestIsoOutputs(ds); if (!outputs.length) return ""; var j = idxOf(ds, outputs[0]); if (j < 0) return "";
   var top = ds.rows.map(function (r, i) { return [r[j], i]; }).filter(function (x) { return typeof x[0] === "number"; }).sort(function (a, b) { return b[0] - a[0]; }).slice(0, 8);
-  var show = ds.cols.map(function (c, i) { return i; }).filter(function (i) { return i !== j && ds.cols[i].name !== "Anomaly"; }).slice(0, 6);
+  var show = ds.cols.map(function (c, i) { return i; }).filter(function (i) { return i !== j && ds.cols[i].name !== outputs[1]; }).slice(0, 6);
   return '<h2 class="sub-h">Most unusual rows</h2><div class="tablewrap"><table class="nosort"><thead><tr><th>Score</th>' + show.map(function (i) { return "<th>" + esc(ds.cols[i].name) + "</th>"; }).join("") + "</tr></thead><tbody>" +
     top.map(function (t) { var r = ds.rows[t[1]]; return '<tr><td class="num">' + t[0].toFixed(2) + "</td>" + show.map(function (i) { return "<td>" + (r[i] == null ? '<span class="nd">—</span>' : esc(typeof r[i] === "number" ? f3(r[i]) : String(r[i]).slice(0, 30))) + "</td>"; }).join("") + "</tr>"; }).join("") +
     '</tbody></table></div><p class="count">Scores near 1 are easy to isolate (unusual); around 0.5 or below are ordinary. A high score is a reason to look, not proof of an error.</p>';
@@ -1356,8 +1368,10 @@ view.addEventListener("click", function (e) {
   if (d.efind) { E.clusters = clusterValues(countsOf(ds, E.clusterCol), E.clusterMethod); E.picked = Object.create(null); render(); refocus("[data-emerge]", "[data-efind]"); return; }
   if (d.emerge) { var cl = (E.clusters || []).filter(function (_, i) { return E.picked[i] !== false; }); if (!cl.length) return;
     return applyStep(ds, {op: "merge", col: E.clusterCol, method: E.clusterMethod, groups: cl.map(function (x) { return {values: x.values, into: x.into}; }), text: "Merged " + cl.length + " group" + (cl.length > 1 ? "s" : "") + " of similar " + E.clusterCol + " values"}, function () { return opMerge(ds, idxOf(ds, E.clusterCol), cl); }); }
-  if (d.eisorun) { ["Anomaly score", "Anomaly"].forEach(function (n) { var k = idxOf(ds, n); if (k >= 0) { ds.rows = ds.rows.map(function (r) { return r.filter(function (_, i) { return i !== k; }); }); ds.cols = ds.cols.filter(function (_, i) { return i !== k; }); } });
-    return applyStep(ds, {op: "isolation-forest", cols: E.iso.cols, share: E.iso.share, text: "Scored rows for unusualness (Isolation Forest, " + E.iso.cols.length + " columns), flagging the top " + E.iso.share * 100 + "%", unit: "rows flagged"}, function () { return opIso(ds, E.iso.cols, E.iso.share); }); }
+  if (d.eisorun) {
+    var isoStep = {op: 'isolation-forest', cols: E.iso.cols.slice(), share: E.iso.share, text: 'Scored rows for unusualness (Isolation Forest, ' + E.iso.cols.length + ' columns), flagging the top ' + E.iso.share * 100 + '%', unit: 'rows flagged'};
+    return applyStep(ds, isoStep, function () { var res = opIso(ds, isoStep.cols, isoStep.share); isoStep.outputs = res.outputs; return res; });
+  }
   if (d.eundo) { var u = E.undo[ds.id].pop(); ds.rows = u.rows; ds.cols = u.cols; ds.recipe = ds.recipe.slice(0, -1); E.msg = "Undid the last step."; render(); saveSet(ds); return; }
   if (d.ereset) { var o = E.orig[ds.id]; ds.rows = o.rows; ds.cols = o.cols; ds.recipe = o.recipe.slice(); E.undo[ds.id] = []; E.msg = "Back to the data as it was before this session's changes."; render(); saveSet(ds); return; }
 });
@@ -1685,7 +1699,7 @@ function replayAll(ds, steps) {
     (E.undo[ds.id] = E.undo[ds.id] || []).push({rows: ds.rows, cols: JSON.parse(JSON.stringify(ds.cols))});
     if (!E.orig[ds.id]) E.orig[ds.id] = {rows: ds.rows, cols: JSON.parse(JSON.stringify(ds.cols)), recipe: (ds.recipe || []).slice()};
     ds.rows = res.rows; if (res.cols) ds.cols = res.cols;
-    ds.recipe = (ds.recipe || []).concat([Object.assign({}, st2, {at: new Date().toISOString(), changed: res.changed, replayed: true})]); done++;
+    ds.recipe = (ds.recipe || []).concat([Object.assign({}, st2, {at: new Date().toISOString(), changed: res.changed, replayed: true, outputs: res.outputs || st2.outputs})]); done++;
   });
   saveSet(ds);
   return {done: done, skipped: skipped};
@@ -1721,7 +1735,7 @@ VIEWS.enhance = function () { var h = _enhanceView(), ds = cur(); if (!ds || !ds
 view.addEventListener("toggle", function (e) { var d = e.target.dataset && e.target.dataset.dtsec; if (d && e.target.open) DT.open = d; }, true);
 view.addEventListener("change", function (e) {
   if (st.tab !== "enhance") return; var t = e.target, d = t.dataset || {};
-  if (d.dtj) { DT.join[d.dtj] = t.value; if (d.dtj === "with") DT.join.kr = ""; render(); return; }
+  if (d.dtj) { DT.open = "join"; DT.join[d.dtj] = t.value; if (d.dtj === "with") DT.join.kr = ""; render(); return; }
   if (d.dtp) { DT.pivot[d.dtp] = t.value; return; }
   if (d.dtm != null) { var ids = DT.melt.ids || []; DT.melt.ids = t.checked ? ids.concat([d.dtm]) : ids.filter(function (x) { return x !== d.dtm; }); return; }
   if (t.id === "rfile" && t.files && t.files[0]) {
@@ -1993,27 +2007,38 @@ function simChart(r) {
 }
 function simulatePanel(ds, R) {
   var key = A.kind + JSON.stringify(A.sel), r = DP.sim[key];
-  if (!r) return '<p class="method-note">Shuffle the data so any real link is broken, 1,000 times, and see how often chance alone produces a result as strong as yours. This is the p-value made visible, with no formula assumptions.</p><button type="button" class="btn btn-primary" data-dsim="1">Run 1,000 simulations</button>';
-  var c = simChart(r);
-  return '<div class="chartwrap">' + c.svg + "</div>" + figs([["Your " + r.label, f3(r.obs)], ["Simulations as extreme", r.ext + " of " + r.N], ["Simulated p-value", r.p < 0.001 ? "< 0.001" : fp(r.p)]]) +
-    '<ul class="plain reading"><li>' + (r.ext === 0 ? "Not one of the " + r.N + " shuffled datasets came close to your result" + (c.off ? " (it lies off the right of this chart)" : "") + ", so chance alone is a very poor explanation." : r.ext + " of " + r.N + " shuffled datasets were at least as extreme as yours: chance alone produces a result like this about " + Math.round(r.p * 100) + "% of the time.") + "</li><li>This agrees with the formula p-value of " + fp(R.summary.p) + " when the test's assumptions hold; when they disagree, trust the simulation.</li></ul>";
+  if (!r) return '<p class="method-note">Shuffle the data 1,000 times under the null and compare the resulting statistics with yours. This requires exchangeable observations under the null; paired sign flips also require symmetric differences. Simulation does not remove study-design assumptions.</p><button type="button" class="btn btn-primary" data-dsim="1">Run 1,000 simulations</button>';
+  var c = simChart(r), formulaP = R.summary.p, same = typeof formulaP === 'number' && isFinite(formulaP) && (formulaP < .05) === (r.p < .05);
+  var comparison = typeof formulaP !== 'number' || !isFinite(formulaP) ? 'No formula p-value is available for comparison.' : same ? 'Both methods give the same decision at the conventional .05 threshold. Their p-values need not be identical.' : 'The simulation and formula test differ at the conventional .05 threshold. They use different assumptions; check exchangeability, group distributions and sample size before choosing an interpretation.';
+  return '<div class="chartwrap">' + c.svg + '</div>' + figs([['Your ' + r.label, f3(r.obs)], ['Simulations as extreme', r.ext + ' of ' + r.N], ['Simulated p-value', fp(r.p)]]) +
+    '<ul class="plain reading"><li>' + r.ext + ' of ' + r.N + ' simulated statistics were at least as extreme as the observed statistic' + (c.off ? ' (outside the displayed simulation range)' : '') + '. The Monte Carlo p-value uses (extreme + 1) / (simulations + 1); zero extreme simulations do not imply a zero p-value.</li><li>Formula p-value: ' + fp(formulaP) + '. ' + comparison + '</li><li>This is an approximate randomization result. Exchangeability and the study design still matter; do not automatically prefer it to the formula test.</li></ul>';
 }
 // 4. Sampling lab: how stable is the result at a smaller sample size?
-function samplingLab(ds, R) {
-  var N = R.summary.n || 0, n = DP.lab.n || Math.max(10, Math.round(N / 4)), r = DP.lab.res && DP.lab.res.key === A.kind + JSON.stringify(A.sel) + n ? DP.lab.res : null;
-  var body = '<p class="method-note">Draw 300 random subsets of your rows at a chosen size and redo the analysis on each. You see how much the result would wobble, and how often a study that size would find it.</p>' +
-    '<div class="slot"><label class="field" for="labn">Subset size<input type="range" id="labn" min="8" max="' + N + '" value="' + n + '" data-dlab="1"></label><b class="num">' + n + ' rows</b><button type="button" class="btn btn-primary" data-dlabrun="1">Draw 300 subsets</button></div>';
-  if (!r) return body;
-  return body + '<div class="chartwrap">' + histogram(r.vals, (A.kind === "relate" ? "r" : "difference in averages") + " in subsets of " + n + " rows") + "</div>" +
-    figs([["Middle 90% of results", f3(r.lo) + " to " + f3(r.hi)], ["Subsets finding p < .05", Math.round(r.sig * 100) + "%"], ["Full-data result", f3(r.full)]]) +
-    '<ul class="plain reading"><li>With ' + n + " rows, " + Math.round(r.sig * 100) + "% of studies would have found a clear result: that share is the study's power at this size.</li><li>The estimate ranges from " + f3(r.lo) + " to " + f3(r.hi) + " in 90% of subsets" + (r.lo * r.hi < 0 ? ", including both signs, so a study this small could get the direction wrong." : ".") + "</li></ul>";
+function boundedLabSize(R, n) {
+  var N = R.summary.n || 0, minimum = A.kind === 'compare' ? 4 : 3;
+  return Math.max(minimum, Math.min(N, Math.floor(+n || Math.max(minimum, Math.round(N / 4)))));
 }
+function samplingLab(ds, R) {
+  var N = R.summary.n || 0, minimum = A.kind === 'compare' ? 4 : 3;
+  if (N < minimum) return '<p class="nd">Not enough complete observations for subset analysis.</p>';
+  var n = boundedLabSize(R, DP.lab.n); DP.lab.n = n;
+  var r = DP.lab.res && DP.lab.res.key === A.kind + JSON.stringify(A.sel) + n ? DP.lab.res : null;
+  var body = '<p class="method-note">Draw 300 random subsets of the available rows and redo the analysis. These overlapping subsets describe sensitivity within this dataset; they do not estimate prospective study power.</p>' +
+    '<div class="slot"><label class="field" for="labn">Subset size<input type="range" id="labn" min="' + minimum + '" max="' + N + '" value="' + n + '" data-dlab="1"></label><b class="num">' + n + ' rows</b><button type="button" class="btn btn-primary" data-dlabrun="1">Draw 300 subsets</button></div>';
+  if (!r) return body;
+  if (!r.vals.length) return body + '<p class="warn">None of the subsets had enough usable variation and observations in each group. Increase the subset size or check the selected columns.</p>';
+  return body + '<div class="chartwrap">' + histogram(r.vals, (A.kind === 'relate' ? 'r' : 'difference in averages') + ' in subsets of ' + n + ' rows') + '</div>' +
+    figs([['Middle 90% of subset estimates', f3(r.lo) + ' to ' + f3(r.hi)], ['Usable subsets with p < .05', Math.round(r.sig * 100) + '%'], ['Full-data estimate', f3(r.full)]]) +
+    '<ul class="plain reading"><li>' + r.vals.length + ' of 300 subsets yielded usable estimates. Of those subsets, ' + Math.round(r.sig * 100) + '% crossed the .05 threshold; this is a descriptive resampling rate, not prospective power.</li><li>The middle 90% of subset estimates ranges from ' + f3(r.lo) + ' to ' + f3(r.hi) + (r.lo * r.hi < 0 ? ', including both directions.' : '.') + ' This is an empirical subset range, not a population confidence interval.</li></ul>';
+}
+
 function runLab(ds, R, n) {
+  n = boundedLabSize(R, n); DP.lab.n = n;
   var rnd = rng2(11), vals = [], sig = 0, full;
   if (A.kind === "relate") { var p = rowsXY(ds, A.sel.x, A.sel.y), idx = p.x.map(function (_, i) { return i; }); full = R.summary.r;
     for (var t = 0; t < 300; t++) { var pick = shuffle(idx, rnd).slice(0, n), c = S.correlate(pick.map(function (i) { return p.x[i]; }), pick.map(function (i) { return p.y[i]; })); if (c.r != null && isFinite(c.r)) { vals.push(c.r); if (c.p < 0.05) sig++; } } }
   else { var G = groupArrays(ds), lab = [], all = []; G.gs.forEach(function (q, gi) { q.forEach(function (v) { all.push(v); lab.push(gi); }); }); full = R.summary.diff; var id2 = all.map(function (_, i) { return i; });
-    for (var t2 = 0; t2 < 300; t2++) { var pk = shuffle(id2, rnd).slice(0, n), a = [], b = []; pk.forEach(function (i) { (lab[i] ? b : a).push(all[i]); }); if (a.length >= 2 && b.length >= 2) { var tt = S.ttest(a, b); vals.push(tt.diff); if (tt.p < 0.05) sig++; } } }
+    for (var t2 = 0; t2 < 300; t2++) { var pk = shuffle(id2, rnd).slice(0, n), a = [], b = []; pk.forEach(function (i) { (lab[i] ? b : a).push(all[i]); }); if (a.length >= 2 && b.length >= 2) { var tt = S.ttest(a, b); if (isFinite(tt.diff) && isFinite(tt.t) && isFinite(tt.p)) { vals.push(tt.diff); if (tt.p < 0.05) sig++; } } } }
   var sv = vals.slice().sort(function (a, b) { return a - b; });
   DP.lab.res = {key: A.kind + JSON.stringify(A.sel) + n, vals: vals, lo: S.quantile(sv, 0.05), hi: S.quantile(sv, 0.95), sig: sig / Math.max(1, vals.length), full: full};
 }
@@ -2091,7 +2116,15 @@ function holdoutLogistic(ds, preds) {
 }
 
 // The panel under the poster
+function syncDeepContext(ds) {
+  var previous = DP.context;
+  if (!previous || previous.id !== ds.id || previous.rows !== ds.rows || previous.cols !== ds.cols) {
+    DP.sim = Object.create(null); DP.lab = {n:null,res:null}; DP.pred = Object.create(null);
+    DP.context = {id:ds.id, rows:ds.rows, cols:ds.cols};
+  }
+}
 function deepPanel(ds, R) {
+  syncDeepContext(ds);
   var tabs = deepTabs(R); if (!tabs.length) return "";
   if (!tabs.some(function (t) { return t[0] === DP.tab; })) DP.tab = tabs[0][0];
   var body = "";
@@ -2137,8 +2170,17 @@ var _caption2 = caption; caption = function (ds) { return A.kind === "matrix" ? 
 view.addEventListener("click", function (e) {
   var b = e.target.closest("button"); if (!b || st.tab !== "analyze") return; var d = b.dataset, ds = cur();
   if (d.deep) { DP.tab = d.deep; render(); refocus('[data-deep="' + d.deep + '"]'); return; }
-  if (d.dsim) { b.disabled = true; b.textContent = "Simulating…"; setTimeout(function () { DP.sim[A.kind + JSON.stringify(A.sel)] = nullSim(ds, LAST_R, 1000); render(); }, 20); return; }
-  if (d.dlabrun) { var n = DP.lab.n || Math.max(10, Math.round((LAST_R.summary.n || 40) / 4)); DP.lab.n = n; b.disabled = true; b.textContent = "Drawing…"; setTimeout(function () { runLab(ds, LAST_R, n); render(); }, 20); return; }
+  if (d.dsim || d.dlabrun) {
+    var kind = A.kind, selection = JSON.stringify(A.sel), rows = ds.rows, cols = ds.cols, R = LAST_R, n = boundedLabSize(R, DP.lab.n);
+    if (d.dlabrun) DP.lab.n = n;
+    b.disabled = true; b.textContent = d.dsim ? 'Simulating…' : 'Drawing…';
+    setTimeout(function () {
+      if (cur() !== ds || ds.rows !== rows || ds.cols !== cols || A.kind !== kind || JSON.stringify(A.sel) !== selection || st.tab !== 'analyze') return;
+      if (d.dsim) DP.sim[kind + selection] = nullSim(ds, R, 1000); else runLab(ds, R, n);
+      render();
+    }, 20);
+    return;
+  }
   if (d.mpair != null) { var p = DP.pairs[+d.mpair]; A.kind = "relate"; A.sel = {x: p[1], y: p[0]}; A.ai = Object.create(null); render(); refocus('[data-akind="relate"]'); return; }
 });
 view.addEventListener("input", function (e) { if (e.target.dataset && e.target.dataset.dlab) { DP.lab.n = +e.target.value; var b = e.target.closest(".slot").querySelector("b.num"); if (b) b.textContent = e.target.value + " rows"; } });
