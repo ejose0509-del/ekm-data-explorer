@@ -305,3 +305,11 @@ The only motion in the system. When a figure's value changes in place, it is rew
 
 ## The Paper (manuscript and exports)
 The Write-up tab pins a sheet of paper to the board: background #f7f6f1, ink #1d2722, muted ink #59665f/#5b6862, rules #cfd6d1, control borders #8a958f, STIX Two Text at 16px body, 16.5px item headings, 19px section heads, 28px title. Exported reports and figures use the same print palette (chart ink #1b2620, blue #1f5fa8, amber #a86b00) on white. This is a deliberate second material for documents leaving the board; its sizes sit outside the board's six-step ramp on purpose. Chalk sketches in empty states use 9.5–13px SVG text that scales with the drawing.
+
+## Additions (planning, measurement, modeling, workflow)
+- **Analysis menu:** kinds are grouped under small uppercase labels (Describe, Compare, Relate and predict, Measure) inside one ruled band; each group wraps its pills.
+- **Plan tab:** uses the same three-step poster (Design · Result · Justification); the key figure is the needed sample; the power curve uses a dashed chalk-grey reference line for the target.
+- **Reference lines** in charts (chance, perfect calibration, power target) are dashed `--chalk-3`; data series keep the chalk palette.
+- **Editable grid:** inputs sit on `--board-3` with a `--rule` border and a yellow focus border; the header row stays visible while scrolling.
+- **Model rules and code** use a monospace block on `--board-3`; it is the only monospace surface.
+- **Figure options** can swap the chalk palette for Okabe–Ito (colour-blind safe) or greyscale; text-size classes `fs-sm`, `fs-lg`, `fs-xl` scale tick and axis labels.

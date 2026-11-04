@@ -1,10 +1,16 @@
 """Optional loopback-only EKM + Ollama bridge. Python standard library only."""
 import argparse
+import ipaddress
 import json
+import math
+import os
 import re
 import secrets
+import socket
+import sqlite3
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -140,6 +146,75 @@ def answer(packet, model, planner=None):
         return {'status': 'fallback', 'code': 'unavailable', 'lines': ['The local model was unavailable or did not return a valid evidence selection. Here is the current rules-based explanation.'] + evidence[intent]}
 
 
+FETCH_LIMIT = 200 * 1024 * 1024
+ROW_LIMIT = 1_000_000
+
+
+def public_host(host):
+    """Resolve host and refuse loopback, private, link-local and other non-public addresses (SSRF guard)."""
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        raise ValueError('That address could not be found.')
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_global or ip.is_multicast:
+            raise ValueError('Links to this computer or a private network are not fetched.')
+
+
+class PublicRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        parts = urllib.parse.urlsplit(newurl)
+        if parts.scheme not in ('http', 'https') or not parts.hostname:
+            raise ValueError('The link redirected somewhere that is not allowed.')
+        public_host(parts.hostname)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def fetch_url(url):
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ('http', 'https') or not parts.hostname:
+        raise ValueError('Use a link that starts with https://')
+    public_host(parts.hostname)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), PublicRedirects())
+    req = urllib.request.Request(url, headers={'User-Agent': 'EKM-Data-Explorer/1.0'})
+    with opener.open(req, timeout=30) as response:
+        data = response.read(FETCH_LIMIT + 1)
+        if len(data) > FETCH_LIMIT:
+            raise ValueError('The file is larger than 200 MB.')
+        return data, response.headers.get('Content-Type', 'application/octet-stream')
+
+
+READ_ACTIONS = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
+
+
+def query_sqlite(path, query):
+    path = os.path.realpath(os.path.expanduser(str(path)))
+    if not re.search(r'\.(sqlite3?|db|db3)$', path, re.I) or not os.path.isfile(path):
+        raise ValueError('Choose an existing .sqlite, .sqlite3, .db or .db3 file.')
+    if not isinstance(query, str) or not 1 <= len(query.strip()) <= 20000:
+        raise ValueError('Write a query of up to 20,000 characters.')
+    con = sqlite3.connect(urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) + '?mode=ro', uri=True, timeout=5)
+    try:
+        # Only reading is authorized: any write, attach or pragma is refused by SQLite itself.
+        con.set_authorizer(lambda action, *_: sqlite3.SQLITE_OK if action in READ_ACTIONS else sqlite3.SQLITE_DENY)
+        cur = con.execute(query)
+        if cur.description is None:
+            raise ValueError('The query returned no table.')
+        columns = [d[0] for d in cur.description]
+        rows, truncated = [], False
+        for row in cur:
+            if len(rows) >= ROW_LIMIT:
+                truncated = True
+                break
+            rows.append([None if isinstance(v, float) and not math.isfinite(v) else v if isinstance(v, (int, float, str)) or v is None else (v.hex() if isinstance(v, bytes) else str(v)) for v in row])
+        return {'columns': columns, 'rows': rows, 'truncated': truncated}
+    except sqlite3.DatabaseError as err:
+        raise ValueError('Database error: ' + str(err).split('\n')[0][:200])
+    finally:
+        con.close()
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass  # Do not log questions, results or tokens.
@@ -181,7 +256,7 @@ class Handler(BaseHTTPRequestHandler):
         if (not self.valid_host() or self.headers.get('Origin') != 'http://' + self.server.authority
                 or not secrets.compare_digest(self.headers.get('X-EKM-Token', '').encode(), self.server.token.encode())):
             return self.send_json(403, {'error': 'Open the app from this local service.'})
-        if self.path != '/api/explain':
+        if self.path not in ('/api/explain', '/api/fetch', '/api/sqlite'):
             return self.send_json(404, {'error': 'Not found.'})
         if self.headers.get('Content-Type') != 'application/json':
             return self.send_json(415, {'error': 'JSON required.'})
@@ -191,9 +266,32 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(413, {'error': 'Request too large or empty.'})
             self.connection.settimeout(10)
             packet = json.loads(self.rfile.read(length))
-            validate_packet(packet)
+            if self.path == '/api/explain':
+                validate_packet(packet)
+            elif not isinstance(packet, dict):
+                raise ValueError('Invalid request.')
         except (ValueError, OSError):
             return self.send_json(400, {'error': 'Invalid request.'})
+        if self.path == '/api/fetch':
+            try:
+                data, ctype = fetch_url(str(packet.get('url', '')))
+            except ValueError as err:
+                return self.send_json(400, {'error': str(err)})
+            except (OSError, urllib.error.URLError) as err:
+                return self.send_json(502, {'error': 'The link could not be fetched (' + str(getattr(err, 'reason', err))[:120] + ').'})
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/octet-stream')
+            self.send_header('X-EKM-Content-Type', re.sub(r'[^\w/.+;=\- ]', '', ctype)[:120])
+            self.send_header('Content-Length', str(len(data)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        if self.path == '/api/sqlite':
+            try:
+                return self.send_json(200, query_sqlite(packet.get('path', ''), packet.get('query', '')))
+            except ValueError as err:
+                return self.send_json(400, {'error': str(err)})
         if not self.server.model_lock.acquire(blocking=False):
             return self.send_json(429, {'error': 'The local model is busy. Try again shortly.', 'code': 'busy'})
         try:

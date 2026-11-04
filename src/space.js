@@ -11,7 +11,7 @@ function fitSurface(xs, ys, zs, curved) {   // z = b0 + b1 x + b2 y (+ b3 xy + b
 function spaceSpec(ds, xn, yn, zn, surface) {
   var xi = idxOf(ds, xn), yi = idxOf(ds, yn), zi = idxOf(ds, zn), P = []; filterRows(ds).forEach(function (r) { if ([r[xi], r[yi], r[zi]].every(function (v) { return typeof v === "number"; })) P.push([r[xi], r[yi], r[zi]]); });
   if (P.length < 5) return null;
-  var rng = [0, 1, 2].map(function (c) { var v = P.map(function (p) { return p[c]; }); return [Math.min.apply(null, v), Math.max.apply(null, v)]; });
+  var rng = [0, 1, 2].map(function (c) { var v = P.map(function (p) { return p[c]; }); return [amin(v), amax(v)]; });
   var plane = fitSurface(P.map(function (p) { return p[0]; }), P.map(function (p) { return p[1]; }), P.map(function (p) { return p[2]; }), false), curved = fitSurface(P.map(function (p) { return p[0]; }), P.map(function (p) { return p[1]; }), P.map(function (p) { return p[2]; }), true);
   return {P: P, rng: rng, names: [xn, yn, zn], plane: plane, curved: curved, surface: surface};
 }

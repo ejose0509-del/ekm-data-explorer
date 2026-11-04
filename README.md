@@ -43,6 +43,24 @@ node tests/check_assistant.js
 
 It blocks external requests and verifies routing, numerical grounding, refusals, stale-state handling, write-up review, escaping and responsive behavior at 1440px and 400px.
 
+## Newer methods (verified against reference libraries)
+
+```bash
+pip install numpy scipy pandas statsmodels scikit-learn pingouin factor_analyzer
+python3 tests/check_methods.py      # 41 groups vs statsmodels, scikit-learn, pingouin, factor_analyzer
+node tests/check_new_features.js    # 46 browser checks at 1440px and 400px (Playwright, as below)
+```
+
+- **Plan a study:** sample size, power or smallest detectable effect for t-tests, ANOVA, correlation, two proportions, chi-square and multiple regression, using exact noncentral distributions; dropout and design-effect inflation; a ready-to-paste justification that goes into the write-up's Methods.
+- **Repeated and grouped observations:** repeated-measures ANOVA with Mauchly's test and Greenhouse–Geisser/Huynh–Feldt corrections, Friedman, Holm-adjusted paired post-hoc tests; linear mixed models (REML, random intercepts and slopes) compared side by side with ordinary and cluster-robust (CR1) standard errors, ICC and design effect.
+- **Questionnaires and measurement:** Cronbach's alpha with Feldt interval, McDonald's omega, item analysis and reverse scoring; PCA and principal-axis factor analysis with parallel analysis, KMO, Bartlett, varimax/promax; Cohen's (weighted) and Fleiss' kappa; all six Shrout–Fleiss ICCs with intervals. Scale and factor scores can be added as columns.
+- **Missing data:** pattern map, Little's MCAR test, tests of whether missingness relates to other columns, and multiple imputation by chained equations (predictive mean matching) with Rubin's-rules pooling and Barnard–Rubin degrees of freedom; completed datasets can be saved stacked.
+- **Predictive modeling:** linear, ridge, lasso, elastic net, logistic, decision tree and random forest; 5/10-fold, stratified, grouped and time-ordered cross-validation; out-of-fold R², RMSE, MAE, AUC, accuracy, F1, Brier, ROC, calibration curve with slope/intercept and ECE; permutation importance; model comparison on identical folds; out-of-fold predictions as a column.
+- **Data editing:** an editable, sortable grid (edits are undoable steps), multi-condition filters, variable labels, units and value labels, recoding and range binning, row appending, and left/inner/right/full/semi/anti joins with lookup or SQL matching.
+- **Reproducible workflows:** record analyses with their dataset fingerprint, cleaning steps and settings; rerun and compare every number; export the sequence as a Python (pandas, SciPy, statsmodels, scikit-learn, pingouin) or R script that starts from the original data. The browser suite runs the exported Python and checks it reproduces EKM's results.
+- **Connected data and teamwork:** import from links (including shared Google Sheets), and in local mode from public URLs and read-only SQLite queries; refresh replays the cleaning steps; scheduled refresh while the page is open; a hash-chained audit trail with verification and CSV export; a team workspace that shares whole projects when the page runs in Claude (storage rules: `workspace` read by viewers, written only by each owner).
+- **Scale and publication:** files up to 200 MB (CSV parsed in a background worker; 400,000 rows import in about five seconds), Parquet import, cached column summaries, large scatter plots drawn from an even sample; native Word (.docx) and PDF export of the write-up with figures; figure titles, axis titles, colour-blind-safe and greyscale palettes, text size, export width and up to 4× PNG resolution.
+
 ## What is inside
 
 - **Your data:** CSV, TSV, Excel and JSON upload, column types, profiles, CSV and steps export.

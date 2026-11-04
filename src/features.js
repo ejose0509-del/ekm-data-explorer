@@ -133,7 +133,7 @@ function runPivot(ds) {
   var agg = function (v) { if (!v) return null; if (s.agg === "count") return v.length; var x = S.nums(v); if (!x.length) return null; return s.agg === "sum" ? x.reduce(function (p, q) { return p + q; }, 0) : s.agg === "mean" ? S.mean(x) : S.quantile(x.sort(function (p, q) { return p - q; }), 0.5); };
   var R1 = Object.keys(rk).sort().slice(0, 40), C1 = Object.keys(ck).sort().slice(0, 12), vals = [];
   var grid = R1.map(function (a) { return C1.map(function (b) { var v = agg(cell[JSON.stringify([String(a), String(b)])]); if (v != null) vals.push([v, a, b]); return v; }); });
-  var mx = Math.max.apply(null, vals.map(function (v) { return Math.abs(v[0]); }).concat([1e-9]));
+  var mx = amax(vals.map(function (v) { return Math.abs(v[0]); }).concat([1e-9]));
   R.head = '<div class="tablewrap"><table class="nosort pivot"><thead><tr><th>' + esc(s.g) + (s.g2 ? " \\ " + esc(s.g2) : "") + "</th>" + C1.map(function (b) { return '<th class="num">' + esc(b) + "</th>"; }).join("") + "</tr></thead><tbody>" +
     R1.map(function (a, i) { return "<tr><td>" + esc(a) + "</td>" + grid[i].map(function (v) { return v == null ? '<td class="nd">—</td>' : '<td class="num" style="background:rgba(147,200,242,' + (0.06 + 0.32 * Math.abs(v) / mx).toFixed(2) + ')">' + f3(v) + "</td>"; }).join("") + "</tr>"; }).join("") + "</tbody></table></div>";
   vals.sort(function (p, q) { return q[0] - p[0]; });

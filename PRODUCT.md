@@ -18,7 +18,7 @@ Turn a raw table into trustworthy findings: health check and cleaning first, the
 Statistical rigor (results match SciPy) plus explanation in plain language. Cleaning methods follow OpenRefine, ydata-profiling, Palantir Foundry and scikit-learn. The offline assistant explains computed results with fixed rules; it does not use a language model or send data. An optional Python service offers local Ollama evidence selection when explicitly started; it sends only questions and computed evidence to loopback. The standalone page keeps working without it. Optional storage and sharing integrations remain separate.
 
 ## Capabilities and Constraints
-Tabs: Your data, Clean & enhance, Analyze, Charts. Local project save/open and optional browser persistence; private per-person cloud storage when available; change history with undo. No example dataset: people start from their own data.
+Tabs: Plan, Your data, Clean & enhance, Analyze, Charts, Write-up. Analyses span description, group comparison (including repeated measures), relationships and prediction (including mixed models and cross-validated machine learning), measurement (reliability, factor analysis, rater agreement) and missing data (Little's test, multiple imputation). Every analysis can be recorded in a reproducible workflow, rerun and exported as Python or R; every change is logged in a hash-chained audit trail. Local project save/open and optional browser persistence; private per-person cloud storage when available; change history with undo. No example dataset: people start from their own data.
 
 ## Brand Commitments
 Name open to change (currently "EKM · Every Kid Matters"). Must not look like a generic SaaS dashboard, a lab-instrument costume, or playful/cute.

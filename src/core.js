@@ -2,6 +2,9 @@
 var st = {tab: "data"};
 var GROUPS = Object.create(null), VIEWS = Object.create(null);
 var view = document.getElementById("view");
+// Min and max without spreading arguments (safe for arrays of any length)
+function amin(a) { var m = Infinity; for (var i = 0; i < a.length; i++) if (a[i] < m) m = a[i]; return m; }
+function amax(a) { var m = -Infinity; for (var i = 0; i < a.length; i++) if (a[i] > m) m = a[i]; return m; }
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]; }); }
 function go2(t, label) { return '<a class="more-link" href="#' + t + '" data-go="' + t + '">' + label + " →</a>"; }
 function refocus(sel, alt) { var el = view.querySelector(sel) || (alt && view.querySelector(alt)); if (el) el.focus(); }

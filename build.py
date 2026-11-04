@@ -14,6 +14,8 @@ MODULES = [
     "core.js",       # router, esc(), render(), nav(), tabs
     "stats.js",      # S: describe, t-test, ANOVA, chi-square, correlation, OLS
     "stats2.js",     # S2: Shapiro-Wilk, Levene, rank tests, paired, logistic, power, Bayes
+    "stats3.js",     # S3: exact power, repeated measures, mixed models, reliability, factors, agreement, missing data
+    "ml.js",         # ML: trees, forests, penalized regression, validation schemes, metrics
     "analyzer.js",   # datasets, parsing, private storage, Your data / Analyze / Charts views
     "enhancer.js",   # Clean & enhance: health checks, fixes, history, Isolation Forest
     "empty.js",      # first-run previews for every tab
@@ -25,11 +27,20 @@ MODULES = [
     "writeup.js",    # Write-up tab
     "assistant.js",  # Offline questions, explanations, and write-up review
     "local-model.js", # Opt-in loopback Python/Ollama evidence selection
+    "methods.js",     # Repeated measures, grouped data, reliability, factor analysis, agreement, missing data
+    "modeling.js",    # Predict an outcome: cross-validated models, importance, calibration
     "reliability.js", # Validity gate for interpretable results
     "project.js",     # Browser downloads, project files and local persistence
     "input-integrity.js", # Source-preserving import and type settings
     "responsive-checks.js", # Cancellable relationship scans and focus retention
+    "editing.js",     # Editable grid, filter conditions, labels and units, recoding, appending, join types
+    "plan.js",        # Plan tab: sample size, power and sensitivity
+    "workflow.js",    # Reproducible workflow, Python/R scripts, audit trail, project metadata
+    "publish.js",     # Large files, Parquet, cached column work, Word/PDF export, figure options
+    "connect.js",     # Import from links and SQLite, scheduled refresh, team workspace
+    "layout.js",      # Analysis menu grouped by purpose
 ]
+VENDOR = ["vendor/parquet.js"]  # third-party bundles, each in its own <script> (licences in src/vendor)
 
 
 def read(name):
@@ -41,7 +52,8 @@ def build():
     page = read("index.template.html")
     js = "\n".join("// ===== %s =====\n%s" % (m, read(m)) for m in MODULES)
     js = "var EKM_STATS_SOURCE = " + json.dumps(read("stats.js")) + ";\n" + js
-    page = page.replace("/*@CSS@*/", read("theme.css")).replace("/*@JS@*/", js)
+    vendor = "\n".join(read(v).replace("</script", "<\\/script") for v in VENDOR)
+    page = page.replace("/*@CSS@*/", read("theme.css")).replace("/*@VENDOR@*/", vendor).replace("/*@JS@*/", js)
     os.makedirs(os.path.join(ROOT, "dist"), exist_ok=True)
     out = os.path.join(ROOT, "dist", "index.html")
     with open(out, "w", encoding="utf-8") as f:

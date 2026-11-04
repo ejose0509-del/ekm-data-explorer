@@ -93,10 +93,10 @@ function nullSim(ds, R, N) {
   return {obs: obs, sims: sims, label: label, p: (ext + 1) / (N + 1), ext: ext, N: N, two: two};
 }
 function simChart(r) {
-  var v = r.sims, lo = Math.min.apply(null, v.concat([r.obs, r.two ? -Math.abs(r.obs) : r.obs])), hi = Math.max.apply(null, v.concat([r.obs, r.two ? Math.abs(r.obs) : r.obs])), svg = histogram(v.concat([]), "Simulated " + r.label + " when there is no real effect");
-  var W = CW(), x = function (t) { return 56 + (t - Math.min.apply(null, v)) / ((Math.max.apply(null, v) - Math.min.apply(null, v)) || 1) * (W - 68); };
-  if (r.obs >= Math.min.apply(null, v) && r.obs <= Math.max.apply(null, v)) svg = svg.replace("</svg>", '<line x1="' + x(r.obs) + '" x2="' + x(r.obs) + '" y1="10" y2="260" stroke="var(--yellow)" stroke-width="2.5"/><text x="' + (x(r.obs) + 4) + '" y="22" class="tk" fill="var(--yellow)">yours</text></svg>');
-  return {svg: svg, off: r.obs < Math.min.apply(null, v) || r.obs > Math.max.apply(null, v)};
+  var v = r.sims, lo = amin(v.concat([r.obs, r.two ? -Math.abs(r.obs) : r.obs])), hi = amax(v.concat([r.obs, r.two ? Math.abs(r.obs) : r.obs])), svg = histogram(v.concat([]), "Simulated " + r.label + " when there is no real effect");
+  var W = CW(), x = function (t) { return 56 + (t - amin(v)) / ((amax(v) - amin(v)) || 1) * (W - 68); };
+  if (r.obs >= amin(v) && r.obs <= amax(v)) svg = svg.replace("</svg>", '<line x1="' + x(r.obs) + '" x2="' + x(r.obs) + '" y1="10" y2="260" stroke="var(--yellow)" stroke-width="2.5"/><text x="' + (x(r.obs) + 4) + '" y="22" class="tk" fill="var(--yellow)">yours</text></svg>');
+  return {svg: svg, off: r.obs < amin(v) || r.obs > amax(v)};
 }
 function simulatePanel(ds, R) {
   var key = A.kind + JSON.stringify(A.sel), r = DP.sim[key];
@@ -163,8 +163,8 @@ function fitDists(v) {
 }
 function fitPanel(ds) {
   var F = fitDists(getCol(ds, filterRows(ds), A.sel.y)); if (F.x.length < 8) return '<p class="nd">At least 8 values are needed to compare distributions.</p>';
-  var best = F.fits[0], svg = histogram(F.x, A.sel.y), lo = Math.min.apply(null, F.x), hi = Math.max.apply(null, F.x), W = CW(), H = 300, k = Math.max(5, Math.min(30, Math.ceil(Math.log2(F.x.length) + 1))), w = (hi - lo) / k || 1;
-  var bins = new Array(k).fill(0); F.x.forEach(function (q) { bins[Math.min(k - 1, Math.floor((q - lo) / w))]++; }); var yt = ticks(0, Math.max.apply(null, bins), 4), ytop = yt[yt.length - 1];
+  var best = F.fits[0], svg = histogram(F.x, A.sel.y), lo = amin(F.x), hi = amax(F.x), W = CW(), H = 300, k = Math.max(5, Math.min(30, Math.ceil(Math.log2(F.x.length) + 1))), w = (hi - lo) / k || 1;
+  var bins = new Array(k).fill(0); F.x.forEach(function (q) { bins[Math.min(k - 1, Math.floor((q - lo) / w))]++; }); var yt = ticks(0, amax(bins), 4), ytop = yt[yt.length - 1];
   var X = function (t) { return 56 + (t - lo) / ((hi - lo) || 1) * (W - 68); }, Y = function (c) { return H - 40 - c / ytop * (H - 60); };
   var curves = F.fits.slice(0, 3).map(function (d, i) { var pts = []; for (var j = 0; j <= 80; j++) { var q = lo + (hi - lo) * j / 80; if (q <= 0 && d.name !== "Normal") continue; pts.push(X(q) + "," + Y(d.pdf(q) * F.x.length * w)); } return '<polyline fill="none" stroke="' + ["var(--yellow)", "var(--pink)", "var(--green)"][i] + '" stroke-width="' + (i ? 1.5 : 2.5) + '"' + (i ? ' stroke-dasharray="5 4"' : "") + ' points="' + pts.join(" ") + '"/>'; }).join("");
   svg = svg.replace("</svg>", curves + "</svg>");

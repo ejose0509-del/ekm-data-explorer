@@ -244,3 +244,27 @@ input[type=range] { accent-color: var(--yellow); width: min(320px, 70vw) }
 .assistant-answer li { padding-left: var(--s3); border-left: 1px solid var(--rule-2) }
 .assistant .pills { align-items: start }
 .checklist .chip { white-space: normal }
+
+/* Analysis menu grouped by purpose */
+.kindgroups { display: grid; gap: var(--s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); padding: var(--s3) 0 }
+.kg { display: grid; gap: var(--s2); align-content: start } .kg > .label { font: 600 var(--t1) var(--ui); letter-spacing: .06em; text-transform: uppercase; color: var(--chalk-3) }
+/* Editable grid and variable details */
+.gridwrap { max-height: 70vh; overflow: auto } .grid th { position: sticky; top: 0; background: var(--board-2); z-index: 1 } .grid th .linkbtn { color: var(--chalk); white-space: nowrap }
+.grid td { padding: 2px var(--s1) } .grid input.cell { min-width: 9ch; width: 100%; padding: 3px 6px; font: 400 var(--t2) var(--ui); background: var(--board-3); border: 1px solid var(--rule); border-radius: 3px; color: var(--chalk) }
+.grid input.cell:focus { border-color: var(--yellow) }
+.vartable input { width: 100%; min-width: 12ch } .vartable input.short { min-width: 6ch; width: 8ch }
+.cond { padding: var(--s2) 0; border-bottom: 1px dashed var(--rule) } .cond:last-of-type { border-bottom: 0 }
+/* Model details, workflow and audit lists */
+pre.rules { font: 400 var(--t1)/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--chalk-2); background: var(--board-3); border: 1px solid var(--rule); border-radius: 4px; padding: var(--s3); overflow-x: auto; margin: 0; max-height: 360px }
+code { font: 400 .92em ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--chalk) }
+.wflist { margin: 0; padding-left: 1.4em; display: grid; gap: var(--s3) } .wflist li { padding-left: var(--s1) } .wflist .chip { margin-top: var(--s1) }
+.audit li { padding: var(--s2) 0; border-bottom: 1px solid var(--rule) } .audit li:last-child { border-bottom: 0 }
+td b.hi { color: var(--yellow) }
+/* Figure options: text size classes applied to the chart */
+.achart.fs-sm .tk { font-size: 9.5px } .achart.fs-sm .ax { font-size: 11px }
+.achart.fs-lg .tk { font-size: 14px } .achart.fs-lg .ax { font-size: 16px }
+.achart.fs-xl .tk { font-size: 17px } .achart.fs-xl .ax { font-size: 20px }
+/* Plan */
+input[type=number] { font: inherit; color: var(--chalk); background: var(--board-3); border: 1px solid var(--rule-2); border-radius: 4px; padding: 6px 8px; width: 100%; max-width: 22ch }
+.field .count { font-weight: 400 }
+.wflist .linkbtn { margin-left: var(--s3) }

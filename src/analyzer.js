@@ -25,7 +25,7 @@ function splitCSV(text) {
     else if (!quoted && (c === "\r" || c === "\n")) { if (started) break; }
     else if (!quoted) { var at = seps.indexOf(c); if (at >= 0) counts[at]++; if (/\S/.test(c)) started = true; }
   }
-  var d = seps[counts.indexOf(Math.max.apply(null, counts))];
+  var d = seps[counts.indexOf(amax(counts))];
   var rows = [], row = [], cell = "", q = false;
   for (var i = 0; i < text.length; i++) {
     var ch = text[i];
@@ -323,7 +323,7 @@ function LW(W) { return W < 400 ? 112 : 196; }
 var PAL = ["var(--blue)", "var(--yellow)", "var(--pink)", "var(--green)", "var(--orange)", "var(--violet)", "var(--chalk-2)"];
 function ticks(lo, hi, n) {
   if (!isFinite(lo) || !isFinite(hi) || hi < lo) return [];
-  var scale = Math.max(Math.abs(lo), Math.abs(hi), 1e-300);
+  var scale = Math.pow(10, Math.floor(Math.log10(Math.max(Math.abs(lo), Math.abs(hi), 1e-300))));   // a power of ten keeps ticks round and avoids overflow
   if (lo === hi) { var pad = Math.max(scale * .05, 1e-300); lo = isFinite(lo - pad) ? lo - pad : lo; hi = isFinite(hi + pad) ? hi + pad : hi; }
   var span = hi / scale - lo / scale, unit = Math.pow(10, Math.floor(Math.log10(span / Math.max(1, n)))), err = n / span * unit;
   unit *= err <= .15 ? 10 : err <= .35 ? 5 : err <= .75 ? 2 : 1;
@@ -348,21 +348,21 @@ function frame(W, H, x, y, xt, yt, xl, yl, body, xfmt) {
 }
 function histogram(v, label) {
   if (v.length < 2) return "";
-  var W = CW(), H = 300, lo = Math.min.apply(null, v), hi = Math.max.apply(null, v), k = Math.max(5, Math.min(30, Math.ceil(Math.log2(v.length) + 1))), w = (hi - lo) / k || 1, bins = new Array(k).fill(0);
+  var W = CW(), H = 300, lo = amin(v), hi = amax(v), k = Math.max(5, Math.min(30, Math.ceil(Math.log2(v.length) + 1))), w = (hi - lo) / k || 1, bins = new Array(k).fill(0);
   v.forEach(function (x) { bins[Math.min(k - 1, Math.floor((x - lo) / w))]++; });
-  var ym = Math.max.apply(null, bins), yt = ticks(0, ym, 4), xt = ticks(lo, hi, W < 400 ? 4 : 6).filter(function (t) { return t >= lo && t <= hi; });
+  var ym = amax(bins), yt = ticks(0, ym, 4), xt = ticks(lo, hi, W < 400 ? 4 : 6).filter(function (t) { return t >= lo && t <= hi; });
   var x = function (t) { return 56 + (t - lo) / ((hi - lo) || 1) * (W - 68); }, y = function (c) { return H - 40 - c / yt[yt.length - 1] * (H - 60); };
   var body = bins.map(function (c, i) { var x0 = x(lo + i * w), x1 = x(lo + (i + 1) * w); return '<rect x="' + (x0 + 1) + '" y="' + y(c) + '" width="' + Math.max(1, x1 - x0 - 2) + '" height="' + (H - 40 - y(c)) + '" fill="var(--accent)" opacity="0.85"><title>' + f3(lo + i * w) + "–" + f3(lo + (i + 1) * w) + ": " + c + "</title></rect>"; }).join("");
   return frame(W, H, x, y, xt, yt, label, "Rows", body);
 }
 function bars(items, yl) {
-  var ba = chartAxis(items.map(function (item) { return item[1]; })), W = CW(), rowH = 26, H = items.length * rowH + 30, mx = Math.max.apply(null, items.map(function (i) { return i[1]; })) || 1;
+  var ba = chartAxis(items.map(function (item) { return item[1]; })), W = CW(), rowH = 26, H = items.length * rowH + 30, mx = amax(items.map(function (i) { return i[1]; })) || 1;
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="' + esc(yl) + '">';
   items.forEach(function (it, i) { var L = LW(W), w = it[1] / mx * (W - L - 64), yy = 10 + i * rowH; g += '<text x="' + (L - 6) + '" y="' + (yy + 15) + '" text-anchor="end" class="tk">' + esc(String(it[0]).slice(0, W < 400 ? 14 : 28)) + '</text><rect x="' + L + '" y="' + (yy + 3) + '" width="' + Math.max(1, w) + '" height="16" rx="2" fill="var(--accent)"/><text x="' + (L + 4 + w) + '" y="' + (yy + 15) + '" class="tk">' + ba.format(it[1]) + "</text>"; });
   return g + (ba.scaled ? '<text x="56" y="' + (H - 4) + '" class="ax">' + esc(yl + ba.suffix) + '</text>' : '') + "</svg>";
 }
 function boxplot(names, ds2, yl) {
-  var W = CW(), rowH = 30, H = names.length * rowH + 44, lo = Math.min.apply(null, ds2.map(function (d) { return d.min; })), hi = Math.max.apply(null, ds2.map(function (d) { return d.max; })), xt = ticks(lo, hi, W < 400 ? 3 : 6).filter(function (t) { return t >= lo && t <= hi; });
+  var W = CW(), rowH = 30, H = names.length * rowH + 44, lo = amin(ds2.map(function (d) { return d.min; })), hi = amax(ds2.map(function (d) { return d.max; })), xt = ticks(lo, hi, W < 400 ? 3 : 6).filter(function (t) { return t >= lo && t <= hi; });
   var xa = chartAxis(xt), L = LW(W), x = function (v) { return L + (v - lo) / ((hi - lo) || 1) * (W - L - 16); };
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="' + esc(yl) + ' by group">';
   xt.forEach(function (t) { g += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="6" y2="' + (H - 34) + '" stroke="var(--line)"/><text x="' + x(t) + '" y="' + (H - 20) + '" text-anchor="middle" class="tk">' + xa.format(t) + "</text>"; });
@@ -370,7 +370,7 @@ function boxplot(names, ds2, yl) {
   return g + '<text x="' + ((W + L) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="ax">' + esc(yl + xa.suffix) + "</text></svg><p class=\"count\">Box = middle half; line = median; dot = average.</p>";
 }
 function scatter(xs, ys, xl, yl, co) {
-  var W = CW(), H = 340, xlo = Math.min.apply(null, xs), xhi = Math.max.apply(null, xs), ylo = Math.min.apply(null, ys), yhi = Math.max.apply(null, ys), xt = ticks(xlo, xhi, W < 400 ? 4 : 6), yt = ticks(ylo, yhi, 5);
+  var W = CW(), H = 340, xlo = amin(xs), xhi = amax(xs), ylo = amin(ys), yhi = amax(ys), xt = ticks(xlo, xhi, W < 400 ? 4 : 6), yt = ticks(ylo, yhi, 5);
   xlo = Math.min(xlo, xt[0]); xhi = Math.max(xhi, xt[xt.length - 1]); ylo = Math.min(ylo, yt[0]); yhi = Math.max(yhi, yt[yt.length - 1]);
   var x = function (v) { return 56 + (v - xlo) / ((xhi - xlo) || 1) * (W - 68); }, y = function (v) { return H - 40 - (v - ylo) / ((yhi - ylo) || 1) * (H - 56); };
   var body = xs.map(function (v, i) { return '<circle cx="' + x(v) + '" cy="' + y(ys[i]) + '" r="3.5" fill="var(--accent)" opacity="0.7"/>'; }).join("");
@@ -379,7 +379,7 @@ function scatter(xs, ys, xl, yl, co) {
 }
 function lineChart(lines, xl, yl) {
   var W = CW(), H = 320, all = [].concat.apply([], lines.map(function (l) { return l.pts; })), xs = all.map(function (p) { return p[0]; }), ys = all.map(function (p) { return p[1]; });
-  var xlo = Math.min.apply(null, xs), xhi = Math.max.apply(null, xs), yt = ticks(Math.min(0, Math.min.apply(null, ys)), Math.max.apply(null, ys), 5), xt = ticks(xlo, xhi, W < 400 ? 4 : 6).filter(function (t) { return t >= xlo && t <= xhi; });
+  var xlo = amin(xs), xhi = amax(xs), yt = ticks(Math.min(0, amin(ys)), amax(ys), 5), xt = ticks(xlo, xhi, W < 400 ? 4 : 6).filter(function (t) { return t >= xlo && t <= xhi; });
   var x = function (v) { return 56 + (v - xlo) / ((xhi - xlo) || 1) * (W - 68); }, y = function (v) { return H - 40 - (v - yt[0]) / ((yt[yt.length - 1] - yt[0]) || 1) * (H - 56); };
   var body = lines.map(function (l, i) { return '<polyline fill="none" stroke="' + PAL[i % PAL.length] + '" stroke-width="2" points="' + l.pts.map(function (p) { return x(p[0]) + "," + y(p[1]); }).join(" ") + '"/>' + l.pts.map(function (p) { return '<circle cx="' + x(p[0]) + '" cy="' + y(p[1]) + '" r="2.5" fill="' + PAL[i % PAL.length] + '"><title>' + esc(l.name) + " " + Math.round(p[0]) + ": " + f3(p[1]) + "</title></circle>"; }).join(""); }).join("");
   var legend = '<div class="legend">' + lines.map(function (l, i) { return '<span><i style="background:' + PAL[i % PAL.length] + '"></i>' + esc(l.name) + "</span>"; }).join("") + "</div>";
@@ -387,7 +387,7 @@ function lineChart(lines, xl, yl) {
 }
 function coefChart(coefs) {
   if (!coefs.length) return "";
-  var W = CW(), rowH = 30, H = coefs.length * rowH + 44, lo = Math.min(0, Math.min.apply(null, coefs.map(function (c) { return c.lo; }))), hi = Math.max(0, Math.max.apply(null, coefs.map(function (c) { return c.hi; }))), xt = ticks(lo, hi, 5).filter(function (t) { return t >= lo && t <= hi; });
+  var W = CW(), rowH = 30, H = coefs.length * rowH + 44, lo = Math.min(0, amin(coefs.map(function (c) { return c.lo; }))), hi = Math.max(0, amax(coefs.map(function (c) { return c.hi; }))), xt = ticks(lo, hi, 5).filter(function (t) { return t >= lo && t <= hi; });
   var xa = chartAxis(xt), L = LW(W), x = function (v) { return L + (v - lo) / ((hi - lo) || 1) * (W - L - 16); };
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="Effect of each predictor with 95% range">';
   xt.forEach(function (t) { g += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="6" y2="' + (H - 34) + '" stroke="' + (t === 0 ? "var(--muted)" : "var(--line)") + '"/><text x="' + x(t) + '" y="' + (H - 20) + '" text-anchor="middle" class="tk">' + xa.format(t) + "</text>"; });
