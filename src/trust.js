@@ -17,10 +17,10 @@ cacheProject = function () {
 };
 var _trustRender = render;
 render = function () {
-  if (MOD.job && (cur() !== MOD.job.ds || A.kind !== MOD.job.kind || st.tab !== "analyze" || modelKey(MOD.job.ds) !== MOD.job.key)) { MOD.job = null; MOD.busy = ""; }
+  if (MOD.job && (cur() !== MOD.job.ds || A.kind !== MOD.job.kind || st.tab !== "analyze" || modelCacheKey(MOD.job.ds) !== MOD.job.key)) { MOD.job = null; MOD.busy = ""; }
   var ds = cur();
   if (ds && Array.isArray(ds.rows)) {
-    if (MOD.key && MOD.key !== modelKey(ds)) { MOD.key = ""; MOD.res = null; MOD.compare = null; MOD.compareKey = ""; }
+    if (MOD.key && MOD.key !== modelCacheKey(ds)) { MOD.key = ""; MOD.res = null; MOD.compare = null; MOD.compareKey = ""; }
     if (MI.res && (MI.ds !== ds.rows || MI.key !== miInputKey(ds))) { MI.res = null; MI.ds = null; MI.key = ""; }
   }
   _trustRender();

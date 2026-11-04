@@ -41,6 +41,10 @@ MODULES = [
     "trust.js",       # Versioned results and explicit data-quality rules
     "verified-export.js", # Exact model replay and score checks in Python/R
     "layout.js",      # Analysis menu grouped by purpose
+    "tags.js",        # Column roles, levels, sensitivity and topics; row tags; dataset tags
+    "explain.js",     # Plain headline, everyday effect sizes, how sure, reading level, glossary, data overview
+    "discover.js",    # Discover tab: pattern scan with held-out confirmation
+    "websearch.js",   # External web context through local mode
 ]
 VENDOR = ["vendor/parquet.js"]  # third-party bundles, each in its own <script> (licences in src/vendor)
 

@@ -130,7 +130,7 @@ function crossValidate(st, model, scheme, done, progress) {
   step();
 }
 function syncCV(st, model, scheme) { var r = null; var _st = setTimeout; try { window.setTimeout = function (f) { f(); }; crossValidate(st, model, scheme, function (x) { r = x; }); } finally { window.setTimeout = _st; } return r; }
-function modelKey(ds, extra) { var s = A.sel; return JSON.stringify([ds.id, ds.rows.length, s.mt, s.mp, s.mm, s.mv, s.mvg, s.mvt, s.mpos, s.mdepth, s.mgap, dataVersion(ds), s.f, s.fv, A.sel.where || null, extra || ""]); }
+function modelCacheKey(ds, extra) { var s = A.sel; return JSON.stringify([ds.id, ds.rows.length, s.mt, s.mp, s.mm, s.mv, s.mvg, s.mvt, s.mpos, s.mdepth, s.mgap, dataVersion(ds), s.f, s.fv, A.sel.where || null, extra || ""]); }
 function costOf(st, model) { var cells = st.y.length * Math.max(1, st.X[0] ? st.X[0].length : 1); return model === "forest" ? cells * 40 : model === "tree" ? cells * 2 : ["ridge", "lasso", "enet", "logistic"].indexOf(model) >= 0 ? cells * 3 : cells; }
 
 function runModel(ds) {
@@ -153,7 +153,7 @@ function runModel(ds) {
   if (st.y.length < 20) return need(R, "at least 20 complete rows");
   if (st.task === "multi" && st.classes.length > 10) return need(R, "an outcome with at most 10 categories (or a number)");
   if (s.mv === "group" && !st.groups) return need(R, "a group column for grouped folds");
-  var key = modelKey(ds), res = MOD.key === key ? MOD.res : null;
+  var key = modelCacheKey(ds), res = MOD.key === key ? MOD.res : null;
   if (!res && !MOD.busy && (MOD.force || costOf(st, s.mm) * (s.mv === "k10" ? 10 : 5) < 4e6)) { res = syncCV(st, s.mm, s.mv); MOD.key = key; MOD.res = res; }
   var run = '<div class="slot"><button type="button" class="btn btn-primary" data-mtrain="1"' + (MOD.busy ? " disabled" : "") + ">" + (res ? "Retrain" : "Train and validate") + '</button><button type="button" class="btn" data-mcompare="1"' + (MOD.busy ? " disabled" : "") + ">Compare all models</button>" + (MOD.busy ? '<span class="count" role="status">' + esc(MOD.busy) + "</span>" : "") + "</div>";
   if (!res) { R.head = '<p class="count">' + st.y.length + " complete rows, " + st.names.length + " predictor columns after encoding categories. This model takes a few seconds to validate.</p>" + run; R.reading = []; return R; }
@@ -186,7 +186,7 @@ function runModel(ds) {
   if (full.coef) ex += '<h3 class="sub-h">Coefficients (fit on all rows)</h3>' + (full.alpha != null ? '<p class="count">Penalty chosen by inner 3-fold cross-validation: ' + f3(full.alpha) + ".</p>" : "") + table(["Predictor", st.task === "reg" ? "Change in " + esc(s.mt) + " per unit" : "Log-odds per unit", "Per SD (standardized)"], st.names.map(function (n, j) { return [esc(n), f3(full.coef[j]), full.std[j] === 0 ? '<span class="nd">0 (dropped)</span>' : f3(full.std[j])]; }));
   if (full.tree) ex += '<h3 class="sub-h">The tree (fit on all rows)</h3><pre class="rules">' + esc(ML.treeRules(full.tree, st.names, f3, st.classes, 40).join("\n")) + "</pre>";
   if (full.oob) { var oi = full.oob.map(function (v, i) { return v == null ? -1 : i; }).filter(function (i) { return i >= 0; }), om = scoreOf(st, pickRows(st.y, oi), pickRows(full.oob, oi)); ex += '<p class="count">Out-of-bag ' + mm[1] + " on all rows: " + f3(om[mm[0]]) + " (" + full.forest.trees.length + " trees).</p>"; }
-  var cmpKey = modelKey(ds, "compare");
+  var cmpKey = modelCacheKey(ds, "compare");
   if (MOD.compare && MOD.compareKey === cmpKey) ex += '<h3 class="sub-h">All models, same folds</h3>' + table(["Model", mm[1] + " (mean ± SD)", st.task === "reg" ? "RMSE" : st.task === "cls" ? "Brier" : "Balanced accuracy"], MOD.compare.map(function (c) { return c.err ? [esc(c.label), '<span class="nd">' + esc(c.err) + "</span>", ""] : [esc(c.label) + (c.model === s.mm ? " (shown)" : ""), f3(c.mean) + " ± " + f3(c.sd), f3(st.task === "reg" ? c.overall.rmse : st.task === "cls" ? c.overall.brier : c.overall.balanced)]; }));
   ex += '<div class="slot"><button type="button" class="btn" data-mpredcol="1">Add out-of-fold predictions as a column</button><span class="count">Each row is predicted by a model that never saw it.</span></div>';
   R.extra = ex;
@@ -205,15 +205,15 @@ function runModel(ds) {
 }
 function trainAsync(ds, compare) {
   var st = modelSetup(ds), s = A.sel, list = compare ? MODELS[st.task] : [[s.mm, ""]], outs = [], i = 0;
-  var job = {ds: ds, key: modelKey(ds), kind: A.kind}; MOD.job = job;
-  st.active = function () { return MOD.job === job && cur() === ds && A.kind === job.kind && modelKey(ds) === job.key; };
+  var job = {ds: ds, key: modelCacheKey(ds), kind: A.kind}; MOD.job = job;
+  st.active = function () { return MOD.job === job && cur() === ds && A.kind === job.kind && modelCacheKey(ds) === job.key; };
   MOD.busy = "Training…"; render();
   (function next() {
     if (!st.active()) { if (MOD.job === job) { MOD.job = null; MOD.busy = ""; } return; }
     if (i >= list.length) {
       MOD.busy = ""; MOD.job = null;
-      if (compare) { MOD.compare = outs; MOD.compareKey = modelKey(ds, "compare"); var mine = outs.filter(function (o) { return o.model === s.mm; })[0]; if (mine && mine.raw) { MOD.res = mine.raw; MOD.key = modelKey(ds); } }
-      else { MOD.res = outs[0].raw; MOD.key = modelKey(ds); }
+      if (compare) { MOD.compare = outs; MOD.compareKey = modelCacheKey(ds, "compare"); var mine = outs.filter(function (o) { return o.model === s.mm; })[0]; if (mine && mine.raw) { MOD.res = mine.raw; MOD.key = modelCacheKey(ds); } }
+      else { MOD.res = outs[0].raw; MOD.key = modelCacheKey(ds); }
       render(); refocus(compare ? "[data-mcompare]" : "[data-mtrain]"); return;
     }
     var m = list[i];
