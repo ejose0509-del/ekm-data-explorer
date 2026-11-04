@@ -43,4 +43,20 @@ const independent = S.chisq([[12,12],[12,12],[12,12]]);
 result.chi2_independent = independent.x2;result.chi2_independent_p = independent.p;result.chi2_independent_n=independent.n;
 for (const [name,d,n1,n2] of [['zero',0,20,20],['small',.05,24,48],['medium',.5,20,30],['negative',-.5,20,30]]) result['power_d_'+name]=S2.powerD(d,n1,n2).power;
 for (const [name,r,n] of [['zero',0,30],['medium',.3,30],['negative',-.3,30]]) result['power_r_'+name]=S2.powerR(r,n).power;
+// Exercise Discover's actual helpers, not copies of their formulas.
+const discover = src("discover.js");
+eval(discover.slice(discover.indexOf("function discoverSilhouette("), discover.indexOf("function subgroupRule(")));
+eval(discover.slice(discover.indexOf("function rankVec("), discover.indexOf("function etaBinned(")));
+eval(discover.slice(discover.indexOf("function testFor("), discover.indexOf("function subgroupCandidates(")));
+function idxOf(ds, name) { return ds.cols.findIndex(c=>c.name===name); }
+const points = [[0,0],[0,1],[1,0],[8,8],[8,9],[9,8]];
+result.discover_silhouette = discoverSilhouette(points, [0,0,0,1,1,1]);
+result.discover_singleton_silhouette = discoverSilhouette(points.concat([[20,20]]), [0,0,0,1,1,1,2]);
+for (const [name, scale] of [["huge",1e300],["tiny",1e-300]]) {
+ const c = corrPair([1,2,3,4,5,6,7,8].map(v=>v*scale),[2,1,4,3,6,5,8,7].map(v=>v*scale));
+ result['discover_'+name+'_r']=c.r;result['discover_'+name+'_p']=c.p;
+}
+const missingDs = {cols:[{name:'X'},{name:'Y'}],rows:[1,2,null,4,5,6,7,8,9,10,11,12].map((v,i)=>[v,[3,null,4,1,7,6,null,9,8,10,11,12][i]])};
+const missingRank = testFor(missingDs,{type:'link',a:'X',b:'Y'},missingDs.rows.map((_,i)=>i));
+result.discover_missing_r=missingRank.r;result.discover_missing_p=missingRank.p;
 console.log(JSON.stringify(result));

@@ -20,7 +20,7 @@ const nav = (t) => page.locator('#tabs a[href="#' + t + '"]').click();
 const select = async (id, v) => { if (await page.locator("#" + id).count()) await page.locator("#" + id).selectOption(v); };
 async function upload(text = csv, name = "Cohort.csv") { await nav("data"); await page.locator("#afile").setInputFiles({name, mimeType: "text/csv", buffer: Buffer.from(text)}); await page.waitForFunction(() => !A.busy && cur()); }
 const colTag = (name) => page.evaluate((n) => cur().cols[idxOf(cur(), n)].tags, name);
-async function scan() { await nav("discover"); await page.waitForFunction(() => DSC.res && !DSC.job, null, {timeout: 120000}); return page.evaluate(() => DSC.res.items.map((p) => ({type: p.c.type, a: p.c.a, b: p.c.b, g: p.c.g, confirmed: p.confirmed}))); }
+async function scan() { await nav("discover"); await page.locator("[data-drun]").click(); await page.waitForFunction(() => DSC.res && !DSC.job, null, {timeout: 120000}); return page.evaluate(() => DSC.res.items.map((p) => ({type: p.c.type, a: p.c.a, b: p.c.b, g: p.c.g, confirmed: p.confirmed}))); }
 
 (async () => {
   const url = await appURL, browser = await chromium.launch({channel: process.env.BROWSER_CHANNEL || undefined, headless: true});
@@ -42,16 +42,16 @@ async function scan() { await nav("discover"); await page.waitForFunction(() => 
       await check("tags steer defaults and ordinal columns get the rank-based caveat", async () => {
         const j = await page.evaluate(() => idxOf(cur(), "Hours")); await page.locator('[data-ctag="role"][data-vcol="' + j + '"]').selectOption("outcome");
         const k = await page.evaluate(() => idxOf(cur(), "Score")); await page.locator('[data-ctag="role"][data-vcol="' + k + '"]').selectOption("predictor");
-        await page.evaluate(() => { A.sel = Object.create(null); }); await nav("analyze"); await page.locator('[data-akind="describe"]').click(); assert.equal(await page.evaluate(() => A.sel.y), "Hours");
-        await page.locator('[data-akind="compare"]').click(); await select("y", "Satisfaction"); await select("g", "Track"); assert(await page.evaluate(() => LAST_R.caveats.some((c) => /tagged ordinal/.test(c))));
+        await page.evaluate(() => { A.sel = Object.create(null); }); await nav("analyze"); await selectAnalysis(page, '[data-akind="describe"]'); assert.equal(await page.evaluate(() => A.sel.y), "Hours");
+        await selectAnalysis(page, '[data-akind="compare"]'); await select("y", "Satisfaction"); await select("g", "Track"); assert(await page.evaluate(() => LAST_R.caveats.some((c) => /tagged ordinal/.test(c))));
         await page.locator("[data-ctconfirm]").count();
       });
       await check("row tags: tag in the grid, Exclude leaves analyses, and replays", async () => {
-        await nav("analyze"); await page.locator('[data-akind="describe"]').click(); await select("y", "Score"); const n0 = await page.evaluate(() => LAST_R.summary.n);
+        await nav("analyze"); await selectAnalysis(page, '[data-akind="describe"]'); await select("y", "Score"); const n0 = await page.evaluate(() => LAST_R.summary.n);
         await nav("data"); for (const i of [0, 1, 2]) await page.locator('[data-rtpick="' + i + '"]').check(); await page.locator("#rt_tag").fill("Exclude"); await page.locator("#rt_note").fill("withdrew consent");
         await page.locator('[data-rtgo="picked"]').click(); assert.deepEqual(await page.evaluate(() => cur().rows.slice(0, 3).map((r) => r[idxOf(cur(), "Row tag")])), ["Exclude", "Exclude", "Exclude"]);
         assert.equal(await page.evaluate(() => cur().rows[0][idxOf(cur(), "Row note")]), "withdrew consent");
-        await nav("analyze"); await page.locator('[data-akind="describe"]').click(); await select("y", "Score"); assert.equal(await page.evaluate(() => LAST_R.summary.n), n0 - 3); assert(await page.evaluate(() => LAST_R.caveats.some((c) => /3 rows tagged Exclude/.test(c))));
+        await nav("analyze"); await selectAnalysis(page, '[data-akind="describe"]'); await select("y", "Score"); assert.equal(await page.evaluate(() => LAST_R.summary.n), n0 - 3); assert(await page.evaluate(() => LAST_R.caveats.some((c) => /3 rows tagged Exclude/.test(c))));
         const py = await page.evaluate(() => pyStep(cur().recipe.filter((s) => s.op === "rowtag")[0], cur())); assert(py.includes("Exclude"));
       });
       await check("dataset tags show in the list and survive a project round trip", async () => {
@@ -65,14 +65,14 @@ async function scan() { await nav("discover"); await page.waitForFunction(() => 
       });
       for (const k of ["describe", "compare", "relate", "regress", "cross", "mixed", "reliability", "model"])
         await check("takeaway and how-sure badge for " + k, async () => {
-          await nav("analyze"); await page.locator('[data-akind="' + k + '"]').click();
+          await nav("analyze"); await selectAnalysis(page, '[data-akind="' + k + '"]');
           if (k === "compare") { await select("y", "Score"); await select("g", "Track"); } if (k === "relate") { await select("x", "Hours"); await select("y", "Score"); } if (k === "cross") { await select("g", "Track"); await select("g2", "Site"); }
           if (k === "mixed") { await select("y", "Response"); await select("mg", "Site"); await page.locator('[data-msel="mx"][value="Dose"]').check(); }
           if (k === "model") { await select("mt", "Score"); }
           if (await page.evaluate(() => LAST_R.valid === false)) return;
-          const tk = await page.locator(".takeaway").innerText(); assert(tk.length > 30 && /How sure|Describes these rows/.test(tk), tk.slice(0, 120));
+          const tk = await page.locator(".takeaway").innerText(); assert(tk.length > 30 && /Evidence:|Describes these rows/.test(tk), tk.slice(0, 120));
         });
-      await check("everyday translation for a group difference", async () => { await nav("analyze"); await page.locator('[data-akind="compare"]').click(); await select("y", "Score"); await select("g", "Track"); const t = await page.locator(".takeaway").innerText(); assert(/Science.*higher/.test(t) && /of the time/.test(t), t); });
+      await check("everyday translation for a group difference", async () => { await nav("analyze"); await selectAnalysis(page, '[data-akind="compare"]'); await select("y", "Score"); await select("g", "Track"); const t = await page.locator(".takeaway").innerText(); assert(/Science.*higher/.test(t) && /of the time/.test(t), t); });
       await check("reading level folds the formula and tables; glossary explains terms", async () => {
         await page.locator('[data-xlvl="new"]').click(); assert(await page.locator(".mathfold").count()); await page.locator('[data-xlvl="researcher"]').click(); assert.equal(await page.locator(".mathfold").count(), 0);
         await page.locator('[data-xlvl="new"]').click(); const term = page.locator("button.term").first(); assert(await term.count(), "no glossary term"); await term.click(); assert((await page.locator(".termdef").innerText()).length > 20);
@@ -107,3 +107,9 @@ async function scan() { await nav("discover"); await page.waitForFunction(() => 
   } finally { await browser.close(); child.kill(); }
   console.log(count + " tag, takeaway and pattern checks passed" + (fails ? ", " + fails + " failed" : "")); process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error(e); child.kill(); process.exit(1); });
+
+async function selectAnalysis(page, selector) {
+  var picker = page.locator('.analysis-picker');
+  if (await picker.count() && !(await picker.evaluate(function (el) { return el.open; }))) await picker.locator('summary').click();
+  await page.locator(selector).click();
+}

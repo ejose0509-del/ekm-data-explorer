@@ -290,3 +290,9 @@ input[type=number] { font: inherit; color: var(--chalk); background: var(--board
 .pc-head { font: 400 var(--t3)/1.45 var(--display) } .pc-head b { font-weight: 600; color: var(--chalk) }
 .webctx { display: grid; gap: var(--s2); border-top: 1px dashed var(--rule-2); padding-top: var(--s3) } .webres { margin: 0; padding-left: 1.3em; display: grid; gap: var(--s3) } .webres p { font-size: var(--t2); color: var(--chalk-2) }
 .excerpts li { font: italic var(--t2)/1.5 var(--display); color: var(--chalk-2); padding-left: var(--s2); border-left: 1px solid var(--rule-2); margin-top: var(--s1) }
+
+/* Compact analysis entry keeps the current result close to its inputs. */
+.analysis-picker, .assistant-fold { border-bottom: 1px solid var(--rule); padding: var(--s2) 0; }
+.analysis-picker > summary, .assistant-fold > summary { font-size: var(--t2); cursor: pointer; color: var(--blue); }
+.analysis-picker .kindgroups, .assistant-fold .ask { margin-top: var(--s3); }
+#pattern-detail:focus { outline: 2px solid var(--yellow); outline-offset: var(--s1); }

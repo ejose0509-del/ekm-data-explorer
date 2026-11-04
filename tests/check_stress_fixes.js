@@ -45,12 +45,12 @@ var assert = require('assert'), fs = require('fs'), path = require('path'), spaw
    assert(await page.evaluate(function(){var p=projectSnapshot();p.selection={lp:['ID']};p.chart={type:'box',fit:true};validateProject(p);p.selection={lp:'ID'};try{restoreProject(p);return false;}catch(e){return true;}}));
    assert(await page.evaluate(function(){LM.ctl=new AbortController();var ctl=LM.ctl;restoreProject(projectSnapshot());return ctl.signal.aborted && LM.ctl===null;}));pass(width+'px last-column guard, typed selection schemas and restore during inference');
    await upload('disagreement.csv','Value,Group\n1,A\n2,A\n10,B\n11,B');
-   await page.locator('#tabs a[href="#analyze"]').click();await page.locator('[data-akind="compare"]').click();
+   await page.locator('#tabs a[href="#analyze"]').click();await selectAnalysis(page, '[data-akind="compare"]');
    var reading=await page.evaluate(function(){return LAST_R.reading.join(' ');});assert(reading.includes('differs at the .05 threshold'));assert(!reading.includes('agrees as a check'));
    await page.locator('#y').focus();await page.locator('#y').selectOption('Value');assert.equal(await page.evaluate(function(){return document.activeElement.id;}),'y');
    await page.keyboard.press('Tab');assert.equal(await page.evaluate(function(){return document.activeElement.id;}),'g');
-   await page.locator('#askq').fill('What does p = 0.007 tell me?');await page.locator('#askform button[type="submit"]').click();assert((await page.locator('#ask-answer').innerText()).includes('null hypothesis'));
-   await page.locator('#askq').fill('Combine two files');await page.locator('#askform button[type="submit"]').click();assert((await page.locator('#ask-answer').innerText()).includes('Combine datasets'));await fits();pass(width+'px honest disagreement, keyboard sequence and safe question wording');
+   await page.locator('.assistant-fold').evaluate(function (el) { el.open = true; }); await page.locator('#askq').fill('What does p = 0.007 tell me?');await page.locator('#askform button[type="submit"]').click();assert((await page.locator('#ask-answer').innerText()).includes('null hypothesis'));
+   await page.locator('.assistant-fold').evaluate(function (el) { el.open = true; }); await page.locator('#askq').fill('Combine two files');await page.locator('#askform button[type="submit"]').click();assert((await page.locator('#ask-answer').innerText()).includes('Combine datasets'));await fits();pass(width+'px honest disagreement, keyboard sequence and safe question wording');
    assert(await page.evaluate(function(){var cases=[[9007199254740992,9007199254740994],[-1e308,1e308],[1e-300,2e-300],[1e308,1e308],[0,0]];return cases.every(function(c){var t=ticks(c[0],c[1],6);return t.length>0&&t.length<=100&&t.every(function(v,i){return isFinite(v)&&(!i||v>t[i-1]);});});}));
    await page.evaluate(function(){var d=makeSet('Scaled',['X','Y'],[[1e150,1e150],[2e150,3e150],[3e150,2e150],[4e150,5e150],[5e150,4e150]]);A.sets=[d];pickSet(d.id);A.kind='relate';nav('analyze');});
    assert(Math.abs(await page.evaluate(function(){return LAST_R.summary.r;})-.8)<1e-12);await fits();assert((await page.locator('.achart').first().innerHTML()).includes('×10^150'));assert.equal(await page.locator('.worked tr').filter({has:page.locator('th').filter({hasText:/^r$/})}).locator('.ws-val').innerText(),'0.800');
@@ -69,8 +69,17 @@ var assert = require('assert'), fs = require('fs'), path = require('path'), spaw
   assert(await p1.evaluate(function(){return Object.keys(localStorage).some(function(k){return k.indexOf(PROJECT.key+'-draft-')===0;});}));
   await p1.locator('[data-project-latest]').click();assert.deepEqual(await p1.evaluate(function(){return A.sets.map(function(d){return d.name;});}),['Second','Original']);pass('two-tab save conflict preserves newer copy, stale draft and explicit recovery');
   await Promise.all([p1.evaluate(function(){A.sets.unshift(makeSet('Concurrent one',['X'],[[5],[6]]));A.cur=A.sets[0].id;render();}),p2.evaluate(function(){A.sets.unshift(makeSet('Concurrent two',['X'],[[7],[8]]));A.cur=A.sets[0].id;render();})]);
+  // A different renderer can observe its localStorage cache before the browser delivers
+  // the other tab's storage event. Wait for both persisted drafts to become visible.
+  await p1.waitForFunction(function(){var names=Object.keys(localStorage).filter(function(k){return k.indexOf(PROJECT.key+'-draft-')===0;}).map(function(k){return JSON.parse(localStorage.getItem(k)).project.datasets.map(function(d){return d.name;});});return names.some(function(n){return n.indexOf('Concurrent one')>=0;})&&names.some(function(n){return n.indexOf('Concurrent two')>=0;});});
   var drafts=await p1.evaluate(function(){return Object.keys(localStorage).filter(function(k){return k.indexOf(PROJECT.key+'-draft-')===0;}).map(function(k){return JSON.parse(localStorage.getItem(k)).project.datasets.map(function(d){return d.name;});});});assert(drafts.some(function(names){return names.indexOf('Concurrent one')>=0;}));assert(drafts.some(function(names){return names.indexOf('Concurrent two')>=0;}));
   await p1.locator('[data-project-clear]').click();await p2.waitForFunction(function(){return !PROJECT.remember;});assert(await p1.evaluate(function(){return !Object.keys(localStorage).some(function(k){return k.indexOf(PROJECT.key)===0;});}));pass('simultaneous tabs retain both drafts; forget removes all copies and disables other tabs');await context.close();
   console.log(count+' adversarial regression groups passed');
  } finally {if(browser)await browser.close();child.kill();}
 })().catch(function(e){console.error(e);process.exit(1);});
+
+async function selectAnalysis(page, selector) {
+  var picker = page.locator('.analysis-picker');
+  if (await picker.count() && !(await picker.evaluate(function (el) { return el.open; }))) await picker.locator('summary').click();
+  await page.locator(selector).click();
+}

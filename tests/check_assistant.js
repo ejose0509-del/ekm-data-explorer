@@ -25,7 +25,7 @@ var appURL = require("url").pathToFileURL(path.join(__dirname, "..", "dist", "in
       assert(await page.getByRole("heading", {name: "Offline result assistant"}).isVisible());
       assert.equal(await page.getByText("Ask Claude to explain", {exact: true}).count(), 0);
       pass(width + "px offline load and null integrations");
-      async function question(q) { await page.locator("#askq").fill(q); await page.getByRole("button", {name: "Answer", exact: true}).click(); }
+      async function question(q) { await page.locator(".assistant-fold").evaluate(function (el) { el.open = true; }); await page.locator("#askq").fill(q); await page.getByRole("button", {name: "Answer", exact: true}).click(); }
       async function topic(id) { await page.locator('[data-local-topic="' + id + '"]').click(); return page.locator("#offline-answer").innerText(); }
       async function noOverflow() { assert(await page.evaluate(function () { return document.documentElement.scrollWidth <= innerWidth; }), "page overflow"); }
       var routes = await page.evaluate(function () {
@@ -51,7 +51,7 @@ var appURL = require("url").pathToFileURL(path.join(__dirname, "..", "dist", "in
       await page.locator('[data-asel="y"]').selectOption("Score total");
       var mean = await page.evaluate(function () { return f3(LAST_R.summary.mean); });
       assert((await page.locator("#offline-answer").innerText()).includes("Mean: " + mean));
-      await page.locator('[data-akind="relate"]').click();
+      await selectAnalysis(page, '[data-akind="relate"]');
       await page.locator('[data-asel="x"]').selectOption("Hours"); await page.locator('[data-asel="y"]').selectOption("Score");
       await page.locator('summary').filter({hasText: "Use only some rows"}).click();
       await page.locator('[data-asel="f"]').selectOption("Group"); await page.locator('[data-asel="fv"]').selectOption("A");
@@ -81,7 +81,7 @@ var appURL = require("url").pathToFileURL(path.join(__dirname, "..", "dist", "in
       pass(width + "px per-result checks and stale-review invalidation");
       await page.locator('#tabs a[href="#analyze"]').click();
       for (var kind of ["describe", "compare", "relate", "cross", "trend", "regress", "paired", "logistic", "pivot", "matrix"]) {
-        await page.locator('[data-akind="' + kind + '"]').click();
+        await selectAnalysis(page, '[data-akind="' + kind + '"]');
         if (await page.locator("#offline-answer").count()) {
           var text = await topic("result"); assert(!/\b(?:NaN|Infinity|undefined)\b/.test(text), kind + " invalid numeric claim");
           for (var topicId of ["uncertainty", "assumptions", "pvalue", "next"]) await topic(topicId);
@@ -120,3 +120,9 @@ var appURL = require("url").pathToFileURL(path.join(__dirname, "..", "dist", "in
     console.log(count + " assistant check groups passed");
   } finally { await browser.close(); }
 })().catch(function (e) { console.error(e); process.exitCode = 1; });
+
+async function selectAnalysis(page, selector) {
+  var picker = page.locator('.analysis-picker');
+  if (await picker.count() && !(await picker.evaluate(function (el) { return el.open; }))) await picker.locator('summary').click();
+  await page.locator(selector).click();
+}

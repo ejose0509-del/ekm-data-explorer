@@ -50,6 +50,27 @@ for name,d,n1,n2 in [('zero',0,20,20),('small',.05,24,48),('medium',.5,20,30),('
     delta=abs(d)/np.sqrt(1/n1+1/n2);ref['power_d_'+name]=st.norm.sf(critical-delta)+st.norm.cdf(-critical-delta)
 for name,r,n in [('zero',0,30),('medium',.3,30),('negative',-.3,30)]:
     delta=abs(np.arctanh(r))*np.sqrt(n-3);ref['power_r_'+name]=st.norm.sf(critical-delta)+st.norm.cdf(-critical-delta)
+# Standard silhouette uses mean pairwise within/nearest-cluster distances.
+from scipy.spatial.distance import cdist
+points = np.array([[0.,0.],[0.,1.],[1.,0.],[8.,8.],[8.,9.],[9.,8.]])
+def silhouette(points, labels):
+    labels = np.array(labels); distances = cdist(points, points)
+    values = []
+    for i in range(len(points)):
+        same = np.flatnonzero(labels == labels[i]); same = same[same != i]
+        if not len(same): values.append(0.); continue
+        a = distances[i, same].mean()
+        b = min(distances[i, labels == label].mean() for label in set(labels) if label != labels[i])
+        values.append((b-a)/max(a,b) if max(a,b) else 0.)
+    return np.mean(values)
+ref['discover_silhouette'] = silhouette(points, [0,0,0,1,1,1])
+ref['discover_singleton_silhouette'] = silhouette(np.vstack([points,[20.,20.]]), [0,0,0,1,1,1,2])
+r = st.pearsonr([1,2,3,4,5,6,7,8], [2,1,4,3,6,5,8,7])
+for name in ['huge','tiny']:
+    ref['discover_'+name+'_r'] = r.statistic; ref['discover_'+name+'_p'] = r.pvalue
+missing_x = np.array([1.,2.,np.nan,4.,5.,6.,7.,8.,9.,10.,11.,12.]); missing_y = np.array([3.,np.nan,4.,1.,7.,6.,np.nan,9.,8.,10.,11.,12.])
+mask = np.isfinite(missing_x) & np.isfinite(missing_y); missing_rank = st.spearmanr(missing_x[mask], missing_y[mask])
+ref['discover_missing_r'] = missing_rank.statistic; ref['discover_missing_p'] = missing_rank.pvalue
 bad = 0
 for k, v in ref.items():
     actual=ekm.get(k)

@@ -31,7 +31,16 @@ function suggestColumn(ds, c) {
   t.suggested = true;
   return t;
 }
-function suggestAll(ds) { ds.cols = ds.cols.map(function (c) { return c.tags ? c : Object.assign({}, c, {tags: suggestColumn(ds, c)}); }); return ds; }
+function suggestAll(ds) {
+  ds.cols = ds.cols.map(function (c) {
+    // Upgrade old automatic integer-ID guesses without changing confirmed user roles.
+    if (tagOf(c).suggested && tagOf(c).role === "id" && isNum(c) && _likelyIdT && !_likelyIdT(ds, c)) {
+      var bare = Object.assign({}, c, {tags: null}), fresh = suggestColumn(ds, bare);
+      return Object.assign({}, c, {tags: Object.assign({}, c.tags, fresh, {role: fresh.role || ""})});
+    }
+    return c.tags ? c : Object.assign({}, c, {tags: suggestColumn(ds, c)});
+  }); return ds;
+}
 var _makeSetT = makeSet;
 makeSet = function (name, header, body, origin, extra) { return suggestAll(_makeSetT(name, header, body, origin, extra)); };
 var _addDerivedT = addDerived;
@@ -72,7 +81,20 @@ runAnalysis = function (ds) {
 function withoutSensitive(ds) { var keep = ds.cols.map(function (c, j) { return sensitive(c) ? -1 : j; }).filter(function (j) { return j >= 0; }); if (keep.length === ds.cols.length) return ds; return {cols: keep.map(function (j) { return ds.cols[j]; }), rows: ds.rows.map(function (r) { return keep.map(function (j) { return r[j]; }); }), dropped: ds.cols.length - keep.length}; }
 var _csvTextT = csvText;
 csvText = function (ds) { if (ds && ds.cols && !A.includeSensitive) { var w = withoutSensitive(ds); if (w.dropped) { XP.msg = w.dropped + " column" + (w.dropped > 1 ? "s" : "") + " tagged personal or sensitive " + (w.dropped > 1 ? "were" : "was") + " left out of the file. Tick “Include sensitive columns” under Variable details to export them."; } return _csvTextT(w); } return _csvTextT(ds); };
-if (typeof wsShare === "function") { var _wsShareT = wsShare; wsShare = function () { var keep = A.sets; A.sets = A.sets.map(function (ds) { if (!ds.rows || A.includeSensitive) return ds; var w = withoutSensitive(ds); return w.dropped ? Object.assign({}, ds, {cols: w.cols, rows: w.rows}) : ds; }); try { _wsShareT(); } finally { A.sets = keep; } }; }
+function projectHasSensitive(p) {
+  function has(x) {
+    if (!x || typeof x !== "object") return false;
+    if (x.tags && x.tags.sens) return true;
+    if (Array.isArray(x)) return x.some(has);
+    return Object.keys(x).some(function (k) { return k !== "rows" && k !== "rawRows" && has(x[k]); });
+  }
+  return has(p);
+}
+if (typeof wsShare === "function") { var _wsShareT = wsShare; wsShare = function () {
+  var hasSensitive; try { hasSensitive = projectHasSensitive(projectSnapshot()); } catch (e) { CN.wsMsg = e.message || "Load the datasets before sharing the full project."; render(); return; }
+  if (!A.includeSensitive && hasSensitive) { CN.wsMsg = "This full project contains tagged sensitive columns, originals or history. Export a redacted working CSV instead, or explicitly include sensitive columns under Variable details before sharing the full project."; render(); return; }
+  return _wsShareT();
+}; }
 
 // ---- Row tags (a real column, so they survive steps, refreshes, exports and scripts) ----
 function opRowTag(ds, rows, tag, note) {
@@ -87,7 +109,7 @@ function opRowTag(ds, rows, tag, note) {
 }
 function tagRows(ds, idx, tag, note, how) {
   if (!idx.length) { TAGS.msg = "No rows to tag."; render(); return; }
-  applyStep(ds, {op: "rowtag", rows: idx.slice(0, 50000), tag: tag, note: note || "", text: (tag ? "Tagged " + idx.length + " row" + (idx.length > 1 ? "s" : "") + " “" + tag + "”" : "Cleared the tag on " + idx.length + " rows") + (how ? " (" + how + ")" : "") + (note ? ": " + note : ""), unit: "rows"}, function () { return opRowTag(ds, idx, tag, note); });
+  applyStep(ds, {op: "rowtag", rows: idx.slice(), tag: tag, note: note || "", text: (tag ? "Tagged " + idx.length + " row" + (idx.length > 1 ? "s" : "") + " “" + tag + "”" : "Cleared the tag on " + idx.length + " rows") + (how ? " (" + how + ")" : "") + (note ? ": " + note : ""), unit: "rows"}, function () { return opRowTag(ds, idx, tag, note); });
   TAGS.picked = Object.create(null);
 }
 var _replayStepT = replayStep;
@@ -107,8 +129,8 @@ function sel(attr, j, opts, val, label) { return '<select data-ctag="' + attr + 
 function variableCard(ds) {
   var q = TAGS.q.toLowerCase(), sugg = ds.cols.filter(function (c) { return tagOf(c).suggested; }).length, sens = ds.cols.filter(sensitive).length;
   var list = ds.cols.map(function (c, j) { return [c, j]; }).filter(function (p) { var c = p[0], t = tagOf(c); return !q || (c.name + " " + (c.label || "") + " " + (t.role || "") + " " + (t.topics || []).join(" ")).toLowerCase().indexOf(q) >= 0; });
-  return '<section class="card" aria-labelledby="vd-h"><h2 id="vd-h">Variable details</h2><p class="count">Tags tell EKM what each column is: the outcome and groups set analysis defaults, ordinal columns get rank-based results, and personal or sensitive columns stay out of exports and sharing. Suggested tags are marked; check them.</p>' +
-    '<div class="toolbar"><label class="field" for="vd_q">Find a column<input id="vd_q" type="search" value="' + esc(TAGS.q) + '" placeholder="name, label, role or topic"></label>' + (sugg ? '<button type="button" class="btn" data-ctconfirm="1">Confirm ' + sugg + " suggested</button>" : "") + '<label class="chk"><input type="checkbox" data-incsens="1"' + (A.includeSensitive ? " checked" : "") + "> Include sensitive columns in exports" + (sens ? " (" + sens + ")" : "") + "</label></div>" +
+  return '<section class="card" aria-labelledby="vd-h"><h2 id="vd-h">Variable details</h2><p class="count">Tags tell EKM what each column is: the outcome and groups set analysis defaults, ordinal columns get rank-based results, and tagged personal or sensitive columns are omitted from working-table CSV exports unless included. Original-data CSVs and project backups preserve all values, history and notes; reports may quote sensitive values. Review these before sharing. Suggested tags are marked; check them.</p>' +
+    '<div class="toolbar"><label class="field" for="vd_q">Find a column<input id="vd_q" type="search" value="' + esc(TAGS.q) + '" placeholder="name, label, role or topic"></label>' + (sugg ? '<button type="button" class="btn" data-ctconfirm="1">Confirm ' + sugg + " suggested</button>" : "") + '<label class="chk"><input type="checkbox" data-incsens="1"' + (A.includeSensitive ? " checked" : "") + "> Include sensitive columns in working CSV / full project sharing" + (sens ? " (" + sens + ")" : "") + "</label></div>" +
     '<div class="tablewrap"><table class="nosort vartable"><thead><tr><th>Column</th><th>Role</th><th>Level</th><th>Sensitivity</th><th>Label</th><th>Unit</th><th>Value labels</th><th>Topics</th></tr></thead><tbody>' + list.map(function (p) {
       var c = p[0], j = p[1], t = tagOf(c), vl = c.values ? Object.keys(c.values).map(function (k) { return k + " = " + c.values[k]; }).join("; ") : "";
       return "<tr><td><b>" + esc(c.name) + "</b>" + (t.suggested ? ' <span class="chip q-reported">Suggested</span>' : "") + (t.sens ? ' <span class="chip q-excluded">' + (t.sens === "health" ? "Sensitive" : "Personal") + "</span>" : "") + "</td><td>" + sel("role", j, TAGS.roles, t.role, "Role of " + esc(c.name)) + "</td><td>" + sel("level", j, TAGS.levels, t.level, "Level of " + esc(c.name)) + "</td><td>" + sel("sens", j, TAGS.sens, t.sens, "Sensitivity of " + esc(c.name)) +
@@ -161,6 +183,8 @@ validateProject = function (p) {
     var cm = Object.create(null); (Array.isArray(t.cols) ? t.cols : []).forEach(function (c) { if (c && typeof c.name === "string") cm[c.name] = cleanTags(c.tags); });
     ds.cols = ds.cols.map(function (c) { return cm[c.name] ? Object.assign({}, c, {tags: cm[c.name]}) : c; }); suggestAll(ds);
   });
+  function copyTags(source, dest) { if (!source || !dest) return; dest.cols.forEach(function (c) { var old = (source.cols || []).filter(function (v) { return v.name === c.name; })[0], t = old && cleanTags(old.tags); if (t) c.tags = t; }); }
+  out.datasets.forEach(function (ds) { var h = p.history || {}; copyTags((h.original || {})[ds.id], out.history.original[ds.id]); (out.history.undo[ds.id] || []).forEach(function (u, i) { copyTags(((h.undo || {})[ds.id] || [])[i], u); }); });
   return out;
 };
 

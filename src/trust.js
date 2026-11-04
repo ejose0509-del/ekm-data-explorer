@@ -84,5 +84,4 @@ validateProject = function (p) {
   return v;
 };
 
-// Restore only after all project-schema extensions have registered.
-restoreBrowserProject();
+// Browser restoration runs in the page bootstrap after all schema extensions.

@@ -30,7 +30,7 @@ function likelyId(ds, c) {
   if (/(^|[^a-z])(id|uuid|key|code)$|^(id|row|record|#)/i.test(c.name)) return true;
   var j = idxOf(ds, c.name), u = Object.create(null), n = 0, all = true;
   ds.rows.forEach(function (r) { var v = r[j]; if (v == null) return; n++; if (u[v]) all = false; u[v] = 1; });
-  return n > 20 && all && (c.type === "category" || c.type === "text" || ds.rows.every(function (r) { return r[j] == null || r[j] === Math.round(r[j]); }));
+  return n > 20 && all && (c.type === "category" || c.type === "text");
 }
 function initCols(ds, key, defs, ok) { if (!Array.isArray(A.sel[key])) A.sel[key] = defs.map(function (c) { return c.name || c; }); return selCols(ds, key, ok); }
 function selCols(ds, key, ok) { A.sel[key] = (Array.isArray(A.sel[key]) ? A.sel[key] : []).filter(function (n) { var j = idxOf(ds, n); return j >= 0 && (!ok || ok(ds.cols[j])); }); return A.sel[key]; }

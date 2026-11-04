@@ -12,7 +12,7 @@ node tests/check_trust.js         # versioning, time gaps, fidelity, ranges and 
 node tests/check_new_features.js  # browser checks for Plan, new analyses, editing, workflow, connectors, exports
 ```
 
-Open `dist/index.html` in a browser to use it. Run the stats check after any change to `src/stats.js` or `src/stats2.js`; all 102 values (including the original 30) must match SciPy. Run the methods check after any change to `src/stats3.js` or `src/ml.js`; all 44 groups must match (it needs `pip install numpy scipy pandas statsmodels scikit-learn pingouin factor_analyzer`). Browser suites need Playwright (`PLAYWRIGHT_MODULE`, `BROWSER_CHANNEL=chrome`); set `EKM_PYTHON` to a Python with those packages so the new-feature suite also runs the exported Python script and checks it reproduces EKM's numbers.
+Open `dist/index.html` in a browser to use it. Run the stats check after any change to `src/stats.js` or `src/stats2.js`; all 110 values (including the original 30) must match SciPy. Run the methods check after any change to `src/stats3.js` or `src/ml.js`; all 44 groups must match (it needs `pip install numpy scipy pandas statsmodels scikit-learn pingouin factor_analyzer`). Browser suites need Playwright (`PLAYWRIGHT_MODULE`, `BROWSER_CHANNEL=chrome`); set `EKM_PYTHON` to a Python with those packages so the new-feature suite also runs the exported Python script and checks it reproduces EKM's numbers.
 
 ## Layout
 
@@ -101,7 +101,9 @@ Python/R workflow exports embed the actual EKM implementation and call Node.js l
 |---|---|
 | `src/tags.js` | `TAGS`; column tags on `col.tags` (`role`, `level`, `sens`, `topics`, `suggested`), row tags as a `Row tag` / `Row note` column (role `rowtag`, op `rowtag`), dataset tags on `ds.tags`; defaults from roles, Exclude filtering, sensitive-column export rules, project persistence (`p.tags`) |
 | `src/explain.js` | `takeaway(ds, R)` headline and everyday translations per kind, `howSure(ds, R)`, example rows, reading level (`XL.level`), glossary (`GLOSSARY`, `linkTerms`), data overview with suggested questions |
-| `src/discover.js` | `runDiscover` (chunked, cancellable), candidate tests in `testFor`, BH correction, held-out confirmation, clusters, unusual rows, pattern cards |
+| `src/discover.js` | `runDiscover` (local worker, explicit Run/Stop and scope), candidate tests in `testFor`, complete-family BH screening, Bonferroni row-split checks, descriptive clusters/curves, unusual rows, pattern cards |
 | `src/websearch.js` | Query building (sensitive names excluded), the web panel, `/api/search` calls |
 
 When adding an analysis kind, add a case to `takeaway` (headline and everyday lines) and, if it has a special precision measure, to `howSure`. Data-derived names in takeaway HTML must go through `nm()` / `esc()`. New pattern types need a `testFor` case, a `patternText` case and an `openSpec` entry. Web results are untrusted text: render with `esc()` only, never as HTML, and never let them alter a result. `local_ai/server.py` `/api/search` uses `EKM_SEARCH_KEY`, `--search-provider` (brave, tavily, searxng) and the test provider `EKM_SEARCH_MOCK=1`.
+
+Regression gate for tags/interpretation/Discover: `node tests/check_tags_patterns.js` and `node tests/check_interpretation_integrity.js` (same Playwright settings). Restore the browser project only in the page bootstrap, after every schema wrapper is registered. Working CSV redaction does not apply to original-data CSVs or full project backups; keep that distinction visible and never claim that full backups are redacted.

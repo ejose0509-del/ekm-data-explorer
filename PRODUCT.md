@@ -27,3 +27,5 @@ Name open to change (currently "EKM · Every Kid Matters"). Must not look like a
 Keyboard operable, visible focus, WCAG AA contrast on the chalkboard, respects reduced motion.
 
 Data-integrity controls include explicit aggregation choices for duplicate repeated measurements, user-defined inclusive valid ranges, faithful oversized-integer imports, and unit/precision explanations. Import ceilings reflect available browser memory (at most 50 MB text/Parquet or 25 MB spreadsheets); large imports warn before proceeding if portable-project storage may be exceeded.
+
+Discover is opt-in exploratory screening over the current eligible rows, with visible workload limits and a stoppable local worker. A repeated random-row split is not independent replication. Curves and partitions remain descriptive. Plain-language takeaways preserve signed values and the reported metric, and show evidence/limitations rather than assigning an automatic confidence grade. Full project and original-data backups preserve sensitive originals for lossless replay; working CSVs can omit tagged sensitive columns.

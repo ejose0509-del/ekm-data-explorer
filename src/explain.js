@@ -5,6 +5,8 @@ try { XL.level = localStorage.getItem("ekm-level") || "new"; } catch (e) {}
 function nameOf(n) { var c = colMeta(cur(), n); return c && c.label ? c.label : n; }
 function unitOf(n) { var c = colMeta(cur(), n); return c && c.unit ? " " + c.unit : ""; }
 function amt(v, n) { return f3(Math.abs(v)) + un(n); }
+function signedAmt(v, n) { return f3(v) + un(n); }
+function slopeTerms(cs) { return (cs || []).filter(function (c, i) { return !(i === 0 && /^(intercept|\(baseline\)|\(intercept\)|const)$/i.test(c.name)); }); }
 function nm(n) { return esc(nameOf(n)); }
 function un(n) { return esc(unitOf(n)); }
 function pct(x) { return Math.round(x * 100) + "%"; }
@@ -17,54 +19,56 @@ function takeaway(ds, R) {
   var s = R.summary || {}, sel = A.sel, ent = esc(entity(ds)), h = "", ev = [];
   switch (R.kind) {
     case "describe":
-      if (s.mean != null) { var qv = S.nums(getCol(ds, filterRows(ds), A.sel.y)).sort(function (a, b) { return a - b; }), q1 = S.quantile(qv, 0.25), q3 = S.quantile(qv, 0.75); h = "A typical value of " + nm(s.column) + " is about " + amt(s.median, s.column) + "; half of " + ent + " fall between " + f3(q1) + " and " + f3(q3) + un(s.column) + "."; if (Math.abs(s.skew) > 1) ev.push("The values lean " + (s.skew > 0 ? "high: a few large values pull the average (" + f3(s.mean) + ") above the typical value" : "low: a few small values pull the average (" + f3(s.mean) + ") below the typical value") + "."); if (s.missing) ev.push(s.missing + " of " + (s.n + s.missing) + " " + ent + " have no value here."); }
+      if (s.mean != null) { var qv = S.nums(getCol(ds, filterRows(ds), A.sel.y)).sort(function (a, b) { return a - b; }), q1 = S.quantile(qv, 0.25), q3 = S.quantile(qv, 0.75); h = "A typical value of " + nm(s.column) + " is about " + signedAmt(s.median, s.column) + "; half of " + ent + " fall between " + f3(q1) + " and " + f3(q3) + un(s.column) + "."; if (Math.abs(s.skew) > 1) ev.push("The values lean " + (s.skew > 0 ? "high: a few large values pull the average (" + f3(s.mean) + ") above the typical value" : "low: a few small values pull the average (" + f3(s.mean) + ") below the typical value") + "."); if (s.missing) ev.push(s.missing + " of " + (s.n + s.missing) + " " + ent + " have no value here."); }
       else if (s.top && s.top[0]) { h = "The most common " + nm(s.column) + " is “" + esc(s.top[0][0]) + "”: " + s.top[0][1] + " of " + s.n + " " + ent + " (" + pct(s.top[0][1] / s.n) + ")."; ev.push("There are " + s.distinct + " different values in all."); }
       break;
     case "compare":
       if (Array.isArray(s.groups)) { var hi = s.diff >= 0 ? 0 : 1, lo = 1 - hi, ps = phi(Math.abs(s.cohen_d) / Math.SQRT2);
-        h = "“" + esc(s.groups[hi]) + "” tends to have higher " + nm(s.measure) + " than “" + esc(s.groups[lo]) + "”: about " + amt(s.diff, s.measure) + " more on average.";
-        ev.push("Pick one from each group at random: the “" + esc(s.groups[hi]) + "” one has the higher value about " + pct(ps) + " of the time (50% would mean no difference).");
-        ev.push("The real gap is plausibly anywhere from " + f3(Math.min(Math.abs(s.ci95[0]), Math.abs(s.ci95[1]))) + " to " + f3(Math.max(Math.abs(s.ci95[0]), Math.abs(s.ci95[1]))) + un(s.measure) + (s.ci95[0] < 0 && s.ci95[1] > 0 ? ", which includes no difference at all" : "") + ".");
+        h = "“" + esc(s.groups[hi]) + "” has a higher observed mean " + nm(s.measure) + " than “" + esc(s.groups[lo]) + "”: about " + amt(s.diff, s.measure) + " more on average.";
+        ev.push("Under an equal-variance normal model, pick one from each group at random: the “" + esc(s.groups[hi]) + "” one has the higher value about " + pct(ps) + " of the time (50% would mean no difference).");
+        ev.push("The signed mean difference, “" + esc(s.groups[0]) + "” minus “" + esc(s.groups[1]) + "”, has a 95% confidence interval from " + f3(s.ci95[0]) + " to " + f3(s.ci95[1]) + un(s.measure) + (s.ci95[0] <= 0 && s.ci95[1] >= 0 ? ", which includes no difference at all" : "") + ".");
       } else if (s.highest) { h = nm(s.measure) + " differs across the " + s.groups + " groups of " + nm(sel.g) + ": highest in “" + esc(s.highest) + "”, lowest in “" + esc(s.lowest) + "”."; ev.push("Group membership accounts for about " + pct(s.eta2) + " of the differences between " + ent + " (" + sizeWord("eta", s.eta2) + ")."); }
       break;
     case "relate":
       h = (Math.abs(s.r) < 0.1 ? nm(s.x) + " and " + nm(s.y) + " barely move together." : "When " + nm(s.x) + " is higher, " + nm(s.y) + " tends to be " + (s.r > 0 ? "higher" : "lower") + ": about " + amt(s.slope, s.y) + " " + (s.r > 0 ? "more" : "less") + " for each extra" + (un(s.x) || " unit") + " of " + nm(s.x) + ".");
-      ev.push("This is " + sizeWord("r", s.r) + " link: " + nm(s.x) + " accounts for about " + pct(s.r * s.r) + " of the ups and downs in " + nm(s.y) + "; the other " + pct(1 - s.r * s.r) + " comes from other things.");
+      ev.push("This is " + sizeWord("r", s.r) + " link: " + nm(s.x) + " accounts for about " + pct(s.r * s.r) + " of the ups and downs in " + nm(s.y) + "; the other " + pct(1 - s.r * s.r) + " is not accounted for by this fitted straight line.");
       ev.push("It describes a tendency across " + ent + ", not a rule for each one, and it does not show that one causes the other.");
       break;
     case "cross": h = nm(s.rows) + " and " + nm(s.columns) + " are " + (s.p < 0.05 ? "linked" : "not clearly linked") + ": " + sizeWord("v", s.cramers_v) + " association (Cramér's V = " + fz(s.cramers_v) + ")."; ev.push("Compare the percentages across rows of the table: if " + nm(s.rows) + " did not matter, every row would show the same mix of " + nm(s.columns) + "."); break;
-    case "trend": var ser = (s.series || [])[0]; if (ser && ser.slope_per_year != null) { h = nm(s.measure) + " has been " + (Math.abs(ser.slope_per_year) < 1e-9 ? "flat" : ser.slope_per_year > 0 ? "rising" : "falling") + ": about " + amt(ser.slope_per_year, s.measure) + " per year" + (s.series.length > 1 ? " for “" + esc(ser.name) + "”" : "") + "."; ev.push("Over ten years at that pace, that is about " + amt(10 * ser.slope_per_year, s.measure) + "."); } break;
-    case "regress": var cs = (s.coefficients || []).filter(function (c) { return c.name !== "Intercept"; }).sort(function (a, b) { return a.p - b.p; }); if (cs[0]) { h = "Together these columns explain about " + pct(s.r2) + " of the differences in " + nm(s.outcome) + "; the clearest single factor is " + nm(cs[0].name) + "."; cs.slice(0, 3).forEach(function (c) { ev.push("With the others held fixed, one more" + (un(c.name) || " unit") + " of " + nm(c.name) + " goes with " + amt(c.b, s.outcome) + " " + (c.b >= 0 ? "more" : "less") + " " + nm(s.outcome) + "."); }); } break;
+    case "trend": var ser = (s.series || [])[0]; if (ser && ser.slope_per_year != null) { h = nm(s.measure) + " has been " + (Math.abs(ser.slope_per_year) < 1e-9 ? "flat" : ser.slope_per_year > 0 ? "rising" : "falling") + ": about " + amt(ser.slope_per_year, s.measure) + " per year" + (s.series.length > 1 ? " for “" + esc(ser.name) + "”" : "") + "."; ev.push("Ten times this fitted annual change is " + signedAmt(10 * ser.slope_per_year, s.measure) + "; this arithmetic extrapolation is not a forecast."); } break;
+    case "regress": var cs = slopeTerms(s.coefficients); if (cs[0]) { h = "Together these columns explain about " + pct(s.r2) + " of the differences in " + nm(s.outcome) + ". The slopes below describe associations after adjustment; they do not rank predictor importance."; cs.slice(0, 3).forEach(function (c) { ev.push("With the others held fixed, one more" + (un(c.name) || " unit") + " of " + nm(c.name) + " goes with " + amt(c.b, s.outcome) + " " + (c.b >= 0 ? "more" : "less") + " " + nm(s.outcome) + "."); }); } break;
     case "paired": h = "From “" + esc(s.before) + "” to “" + esc(s.after) + "”, " + ent + " changed by about " + amt(s.mean_change, s.after) + " on average (" + (s.mean_change >= 0 ? "up" : "down") + ")."; ev.push("A typical " + ent.replace(/s$/, "") + " moved " + sizeWord("d", s.dz) + " amount relative to how much the changes vary (d<sub>z</sub> = " + fz(s.dz) + ")."); break;
     case "logistic": var or = (s.odds_ratios || []).slice().sort(function (a, b) { return a.p - b.p; })[0]; if (or) { h = "The chance that " + esc(s.outcome) + " " + (or.or >= 1 ? "rises" : "falls") + " with " + nm(or.name) + ": each extra unit multiplies the odds by " + f3(or.or) + "."; ev.push("Put simply: odds of " + f3(or.or) + "× mean that where 10 in 100 had the outcome, about " + Math.round(100 * (or.or * 0.1 / (1 - 0.1)) / (1 + or.or * 0.1 / (1 - 0.1))) + " in 100 would after a one-unit increase (for a group starting at 10%)."); } break;
     case "pivot": if (s.highest) h = "The highest value is “" + esc(s.highest[1]) + "” (" + f3(s.highest[0]) + "), the lowest “" + esc((s.lowest || [])[1]) + "” (" + f3((s.lowest || [])[0]) + ")."; break;
     case "matrix": var st = (s.strongest || [])[0]; if (st) h = "The strongest link is " + esc(st.pair) + " (r = " + fz(st.r) + "); check it with its own analysis before relying on it."; break;
     case "rmanova": h = "The same " + ent + " scored differently across conditions" + (s.p < 0.05 ? "" : ", but not clearly so") + ": condition explains about " + pct(s.partial_eta2) + " of the change within each " + ent.replace(/s$/, "") + "."; break;
-    case "mixed": var mc = (s.coefficients || [])[0]; h = (s.icc != null ? pct(s.icc) + " of the differences in " + nm(A.sel.y) + " lie between groups of " + nm(A.sel.mg) + ", so " + ent + " in the same group are alike." : "Effects are estimated while allowing each group of " + nm(A.sel.mg) + " to differ.") + (mc ? " One more" + (un(mc.name) || " unit") + " of " + nm(mc.name) + " goes with " + amt(mc.b, A.sel.y) + " " + (mc.b >= 0 ? "more" : "less") + " " + nm(A.sel.y) + "." : ""); break;
-    case "reliability": h = "These " + s.items + " items " + (s.alpha >= 0.8 ? "hang together well" : s.alpha >= 0.7 ? "hang together acceptably" : "do not hang together well") + " as one scale (α = " + fz(s.alpha) + ")."; ev.push("Roughly " + pct(Math.max(0, s.alpha)) + " of the differences in the total score reflect consistent differences between " + ent + "; the rest is item-to-item noise."); break;
+    case "mixed": var mc = slopeTerms(s.coefficients)[0]; h = (s.icc != null ? pct(s.icc) + " of the differences in " + nm(A.sel.y) + " lie between groups of " + nm(A.sel.mg) + ", so " + ent + " in the same group are alike." : "Effects are estimated while allowing each group of " + nm(A.sel.mg) + " to differ.") + (mc ? " One more" + (un(mc.name) || " unit") + " of " + nm(mc.name) + " goes with " + amt(mc.b, A.sel.y) + " " + (mc.b >= 0 ? "more" : "less") + " " + nm(A.sel.y) + "." : ""); break;
+    case "reliability": h = "These " + s.items + " items " + (s.alpha >= 0.8 ? "hang together well" : s.alpha >= 0.7 ? "hang together acceptably" : "do not hang together well") + " as one scale (α = " + fz(s.alpha) + ")."; ev.push("Alpha measures internal consistency under model assumptions; it does not establish one dimension, validity, or the proportion of true scores."); break;
     case "factor": h = "The " + s.items + " items group into " + s.factors + " underlying dimension" + (s.factors > 1 ? "s" : "") + ", which together capture " + pct(s.variance_explained.reduce(function (a, b) { return a + b; }, 0)) + " of their variation."; break;
     case "agree": h = s.icc2 != null ? "Raters agree " + (s.icc2 >= 0.9 ? "excellently" : s.icc2 >= 0.75 ? "well" : s.icc2 >= 0.5 ? "moderately" : "poorly") + ": " + pct(s.icc2) + " of the variation in ratings reflects real differences between what was rated." : "Raters agree on " + pct(s.observed_agreement) + " of cases, against " + pct(s.chance_agreement) + " expected by chance (κ = " + fz(s.kappa) + ")."; break;
     case "missing": h = s.missing_cells ? s.complete_rows + " of " + s.n + " " + ent + " are complete; the gaps fall into " + s.patterns + " patterns." : "Nothing is missing in the selected columns."; break;
-    case "model": h = s.task === "regression" ? "On " + ent + " it had not seen, the model explains about " + pct(Math.max(0, s.cv_mean)) + " of the differences in " + nm(A.sel.mt) + "." : "On " + ent + " it had not seen, the model tells the two outcomes apart " + pct(s.cv_mean) + " of the time (AUC; 50% is guessing)."; break;
+    case "model":
+      if (s.task === "regression") h = "Cross-validated R² for " + nm(A.sel.mt) + " is " + f3(s.cv_mean) + (s.cv_mean < 0 ? ": performance is worse than the constant-mean reference." : ": about " + pct(s.cv_mean) + " of variation accounted for on held-out folds.");
+      else if (s.metric === "AUC") h = "On held-out folds, binary AUC is " + f3(s.cv_mean) + ": the model's ranking performance (0.5 is the random-ranking reference).";
+      else h = "On held-out folds, " + esc(s.metric || "classification score") + " is " + pct(s.cv_mean) + (s.metric === "Accuracy" ? ": the fraction of labels predicted correctly. Compare with a class-frequency baseline; this is not AUC." : ".");
+      if (s.cv_sd != null) ev.push("Across-fold standard deviation: " + f3(s.cv_sd) + ". This describes fold variation, not a confidence interval.");
+      break;
   }
   return {headline: h, everyday: ev};
 }
 
 // ---- 2. How sure can I be? ----
 function howSure(ds, R) {
-  var s = R.summary || {}, n = s.n || 0, reasons = [], score = 0, kind = R.kind;
-  if (["describe", "pivot", "missing"].indexOf(kind) >= 0) return {level: "Descriptive", cls: "q-reported", reasons: ["This describes these " + (n || "") + " rows; it makes no claim beyond them."]};
-  var p = s.p != null ? s.p : s.p_model, ci = s.ci95;
-  if (n >= 200) { score += 2; reasons.push(n + " rows is a solid sample."); } else if (n >= 50) { score += 1; reasons.push(n + " rows is a moderate sample."); } else if (n) { score -= 1; reasons.push("Only " + n + " rows: one or two changed values could change the picture."); }
-  if (typeof p === "number" && isFinite(p)) { if (p < 0.001) { score += 2; reasons.push("A pattern this strong would be very unusual by chance alone."); } else if (p < 0.05) { score += 1; reasons.push("Unlikely to be chance alone, but not overwhelmingly so (p " + (p < 0.01 ? "< .01" : "= " + fz(p, 3)) + ")."); } else { score -= 2; reasons.push("Could easily be chance (p = " + fz(p, 3) + ")."); } }
-  if (Array.isArray(ci) && ci.length === 2 && isFinite(ci[0]) && isFinite(ci[1]) && kind !== "reliability" && kind !== "agree") { if (ci[0] < 0 && ci[1] > 0) { score -= 1; reasons.push("The plausible range includes zero (no effect)."); } }
-  if (kind === "reliability" || kind === "agree") { var w = ci ? ci[1] - ci[0] : 0.5; if (w < 0.1) { score += 2; reasons.push("The estimate is precise (interval width " + fz(w) + ")."); } else if (w < 0.25) { score += 1; reasons.push("The estimate is reasonably precise."); } else { score -= 1; reasons.push("The estimate is imprecise (interval " + fz(ci ? ci[0] : 0) + " to " + fz(ci ? ci[1] : 1) + ")."); } }
-  if (kind === "model") { var rel = s.cv_sd != null ? s.cv_sd / Math.max(0.05, Math.abs(s.cv_mean)) : 1; if (rel < 0.1) { score += 1; reasons.push("Performance is steady across validation folds."); } else if (rel > 0.3) { score -= 1; reasons.push("Performance varies a lot between validation folds."); } if (s.task === "classification" && s.cv_mean < 0.6) score -= 1; }
-  try { var diag = localDiagnostics(ds, R); if (diag.failed) { score -= 1; reasons.push("The data break a normality assumption; check that the rank-based result agrees."); } } catch (e) {}
-  var cav = (R.caveats || []).join(" ");
-  if (/few groups|Only \d+ groups|Heywood|singular|unstable/i.test(cav)) { score -= 1; reasons.push("A warning below limits how far to trust this."); }
-  var level = score >= 3 ? "Strong" : score >= 1 ? "Moderate" : "Weak";
-  return {level: level, cls: level === "Strong" ? "q-verified" : level === "Moderate" ? "q-estimated" : "q-excluded", reasons: reasons.slice(0, 4)};
+  var s = R.summary || {}, reasons = [], p = s.p != null ? s.p : s.p_model, ci = s.ci95;
+  if (["describe", "pivot", "missing"].indexOf(R.kind) >= 0) return {level: "Descriptive", cls: "q-reported", reasons: ["This describes the eligible rows; it makes no claim beyond them."]};
+  if (s.n) reasons.push(s.n + " rows used. Sample size alone does not establish independence or representativeness.");
+  if (typeof p === "number" && isFinite(p)) reasons.push("p = " + f3(p) + ": compatibility with the null model under its assumptions, not the probability that the finding is true or due to chance.");
+  if (Array.isArray(ci) && ci.length === 2) reasons.push("95% confidence interval: " + f3(ci[0]) + " to " + f3(ci[1]) + ". Interpret with the effect size and study design.");
+  if (R.kind === "model") reasons.push("Cross-validation estimates held-out performance. Folds must respect people, sites and time; fold variation is not a confidence interval.");
+  try { if (localDiagnostics(ds, R).failed) reasons.push("Normality check failed: compare the rank-based alternative before reporting."); } catch (e) {}
+  if ((R.caveats || []).length) reasons.push("Read the result's caveats and assumption checks below.");
+  reasons.push("No automatic confidence rating: these calculations cannot verify study design, selection bias or causation.");
+  return {level: "Review evidence", cls: "q-reported", reasons: reasons};
 }
 
 // ---- 3. Example rows behind the result ----
@@ -88,9 +92,9 @@ function exampleRows(ds, R) {
 function takeawayPanel(ds, R) {
   if (!R || R.valid === false || !R.reading || !R.reading.length) return "";
   var t = takeaway(ds, R), sure = howSure(ds, R); if (!t.headline) return "";
-  return '<section class="takeaway" aria-labelledby="tk-h"><div class="tk-top"><h2 id="tk-h" class="tk-head">' + t.headline + '</h2><span class="chip ' + sure.cls + ' sure">' + (sure.level === "Descriptive" ? "Describes these rows" : "How sure: " + sure.level) + "</span></div>" +
+  return '<section class="takeaway" aria-labelledby="tk-h"><div class="tk-top"><h2 id="tk-h" class="tk-head">' + t.headline + '</h2><span class="chip ' + sure.cls + ' sure">' + (sure.level === "Descriptive" ? "Describes these rows" : "Evidence: " + sure.level) + "</span></div>" +
     (t.everyday.length ? '<ul class="plain tk-every">' + t.everyday.map(function (x) { return "<li>" + x + "</li>"; }).join("") + "</ul>" : "") +
-    '<details class="tk-why"><summary>Why “' + sure.level.toLowerCase() + "”?</summary><ul class=\"plain\">" + sure.reasons.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul></details>" +
+    '<details class="tk-why"><summary>Evidence and limitations</summary><ul class="plain">' + sure.reasons.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul></details>" +
     '<div class="slot"><button type="button" class="linkbtn" data-xlex="1" aria-expanded="' + XL.examples + '">' + (XL.examples ? "Hide example rows" : "Show example rows") + '</button><span class="tk-level" role="group" aria-label="Reading level"><button type="button" class="pill' + (XL.level === "new" ? " on" : "") + '" aria-pressed="' + (XL.level === "new") + '" data-xlvl="new">New to statistics</button><button type="button" class="pill' + (XL.level === "researcher" ? " on" : "") + '" aria-pressed="' + (XL.level === "researcher") + '" data-xlvl="researcher">Researcher</button></span></div>' +
     (XL.examples ? exampleRows(ds, R) : "") + "</section>";
 }
@@ -151,7 +155,7 @@ function overview(ds) {
   var miss = ds.cols.map(function (c, j) { return [c.name, colVals(ds, j).filter(function (v) { return v == null; }).length]; }).filter(function (m) { return m[1]; }).sort(function (a, b) { return b[1] - a[1]; });
   parts.push(miss.length ? miss.length + " column" + (miss.length > 1 ? "s have" : " has") + " gaps; most in " + nameOf(miss[0][0]) + " (" + miss[0][1] + " missing)." : "No values are missing.");
   var items = by("item"), raters = by("rater"); if (items.length >= 3) parts.push(items.length + " columns look like questionnaire items from one scale."); if (raters.length >= 2) parts.push(raters.length + " columns look like ratings of the same thing by different raters.");
-  var sens = ds.cols.filter(sensitive); if (sens.length) parts.push(sens.length + " column" + (sens.length > 1 ? "s are" : " is") + " tagged personal or sensitive and stay out of exports.");
+  var sens = ds.cols.filter(sensitive); if (sens.length) parts.push(sens.length + " column" + (sens.length > 1 ? "s are" : " is") + " tagged personal or sensitive. Working CSV exports omit them unless included; full backups retain them.");
   // Suggested questions
   var q = [], y = o && isNum(o) ? o : nums[0];
   if (y && g) q.push(["Does " + nameOf(y.name) + " differ between groups of " + nameOf(g.name) + "?", nums.length > 1 ? "mixed" : "compare", {y: y.name, mg: g.name, g: g.name, mx: nums.filter(function (c) { return c !== y; }).slice(0, 2).map(function (c) { return c.name; })}]);

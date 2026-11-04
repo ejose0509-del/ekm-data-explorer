@@ -22,7 +22,7 @@ const nav = (t) => page.locator('#tabs a[href="#' + t + '"]').click();
 const select = async (id, v) => { if (await page.locator("#" + id).count()) await page.locator("#" + id).selectOption(v); };
 async function upload(text = csv, name = "Study.csv") { await nav("data"); await page.locator("#afile").setInputFiles({name, mimeType: "text/csv", buffer: Buffer.from(text)}); await page.waitForFunction(() => !A.busy && cur()); }
 async function setChecks(key, want) { for (let g = 0; g < 60; g++) { const vals = await page.$$eval('[data-msel="' + key + '"]', (els) => els.map((e) => [e.value, e.checked])); const bad = vals.find(([v, c]) => c !== want.includes(v)); if (!bad) return; await page.locator('[data-msel="' + key + '"][value="' + bad[0] + '"]').click(); } throw Error("could not set " + key); }
-async function kind(k) { await nav("analyze"); await page.locator('[data-akind="' + k + '"]').click(); }
+async function kind(k) { await nav("analyze"); await selectAnalysis(page, '[data-akind="' + k + '"]'); }
 const R = () => page.evaluate(() => ({valid: LAST_R.valid !== false, reading: LAST_R.reading.length, summary: LAST_R.summary}));
 async function finite() { const bad = await page.evaluate(() => [].slice.call(view.querySelectorAll("svg *")).some((el) => [].slice.call(el.attributes).some((a) => /NaN|Infinity/.test(a.value)))); assert(!bad, "non-finite SVG geometry"); }
 async function download(sel) { const p = page.waitForEvent("download", {timeout: 20000}); await page.locator(sel).first().click(); const d = await p; const file = path.join(TMP, d.suggestedFilename()); await d.saveAs(file); return file; }
@@ -151,3 +151,9 @@ async function download(sel) { const p = page.waitForEvent("download", {timeout:
   } finally { await browser.close(); child.kill(); }
   console.log(count + " new-feature checks passed" + (fails ? ", " + fails + " failed" : "")); process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error(e); child.kill(); process.exit(1); });
+
+async function selectAnalysis(page, selector) {
+  var picker = page.locator('.analysis-picker');
+  if (await picker.count() && !(await picker.evaluate(function (el) { return el.open; }))) await picker.locator('summary').click();
+  await page.locator(selector).click();
+}
