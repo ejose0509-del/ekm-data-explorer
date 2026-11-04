@@ -78,12 +78,13 @@ function runRM(ds) {
     if (idxOf(ds, s.rmsub) < 0) s.rmsub = (any.filter(function (c) { return /id|subject|participant|person|student/i.test(c.name); })[0] || any[0]).name;
     if (idxOf(ds, s.rmcond) < 0) s.rmcond = (cats.filter(function (c) { return c.name !== s.rmsub; })[0] || cats[0]).name;
     if (idxOf(ds, s.y) < 0 || !isNum(ds.cols[idxOf(ds, s.y)])) s.y = nums[0].name;
-    R.controls = fmt + pick("rmsub", "Subject", any, s.rmsub) + pick("rmcond", "Condition", cats, s.rmcond) + pick("y", "Measure", nums, s.y);
-    var si = idxOf(ds, s.rmsub), ci = idxOf(ds, s.rmcond), yi = idxOf(ds, s.y), cell = Object.create(null), conds = [], subs = [], dup = 0;
-    rows.forEach(function (r) { if (r[si] == null || r[ci] == null || typeof r[yi] !== "number") return; var a = String(r[si]), c = String(r[ci]); if (conds.indexOf(c) < 0) conds.push(c); if (!cell[a]) { cell[a] = Object.create(null); subs.push(a); } if (cell[a][c] != null) dup++; cell[a][c] = r[yi]; });
+    R.controls = fmt + choice("rmdup", "Repeated subject–condition pairs", [["", "Stop and ask me"], ["mean", "Average repeated trials"], ["last", "Use the last observation"]], s.rmdup || "") + pick("rmsub", "Subject", any, s.rmsub) + pick("rmcond", "Condition", cats, s.rmcond) + pick("y", "Measure", nums, s.y);
+    var si = idxOf(ds, s.rmsub), ci = idxOf(ds, s.rmcond), yi = idxOf(ds, s.y), cell = Object.create(null), counts = Object.create(null), conds = [], subs = [], dup = 0;
+    rows.forEach(function (r) { if (r[si] == null || r[ci] == null || typeof r[yi] !== "number") return; var a = String(r[si]), c = String(r[ci]); if (conds.indexOf(c) < 0) conds.push(c); if (!cell[a]) { cell[a] = Object.create(null); counts[a] = Object.create(null); subs.push(a); } if (cell[a][c] != null) { dup++; if (s.rmdup === "mean") cell[a][c] += (r[yi] - cell[a][c]) / (++counts[a][c]); else cell[a][c] = r[yi]; } else { cell[a][c] = r[yi]; counts[a][c] = 1; } });
     conds.sort(function (a, b) { return isFinite(+a) && isFinite(+b) ? +a - +b : a < b ? -1 : 1; });
     names = conds; Y = []; subs.forEach(function (a) { var v = conds.map(function (c) { return cell[a][c]; }); if (v.every(function (x) { return x != null; })) Y.push(v); else dropped++; });
-    if (dup) R.caveats.push(dup + " subject–condition pairs appear more than once; the last value was used. Average repeated trials first if they are meant to be combined.");
+    if (dup && !s.rmdup) return need(R, "an explicit choice for " + dup + " repeated subject–condition pairs: average repeated trials or use the last observation");
+    if (dup) R.caveats.push(dup + " repeated subject–condition pairs: " + (s.rmdup === "mean" ? "averaged repeated trials" : "last observation selected") + " by your explicit choice.");
   }
   if (names.length < 2 || Y.length < 3) return need(R, "at least three subjects measured in every condition");
   if (names.length > 12) return need(R, "at most 12 conditions");
@@ -145,10 +146,10 @@ function runMixed(ds) {
     var D = designMatrix(ds, rows, s.y, preds), gi = idxOf(ds, s.mg), g = [], X = [], y = [];
     D.keep.forEach(function (i, t) { var gv = rows[i][gi]; if (gv == null) return; g.push(String(gv)); X.push(D.X[t]); y.push(D.y[t]); });
     if (y.length < 10) return {err: "at least ten complete rows"};
-    var nG = Object.keys(g.reduce(function (o, v) { o[v] = 1; return o; }, {})).length; if (nG < 3) return {err: "at least three groups with complete rows"};
+    var nG = Object.keys(g.reduce(function (o, v) { o[v] = 1; return o; }, Object.create(null))).length; if (nG < 3) return {err: "at least three groups with complete rows"};
     var si = s.mslope ? D.names.indexOf(s.mslope) : -1, Z = X.map(function (x) { return si > 0 ? [1, x[si]] : [1]; });
     var m = S3.mixed(y, X, Z, g, D.names), cl = S3.clusterOLS(y, X, g, D.names), ols = S.ols(y, X.map(function (x) { return x.slice(1); }), D.names.slice(1));
-    return {m: m, cl: cl, ols: ols, n: y.length, G: nG, names: D.names, sizes: g.reduce(function (o, v) { o[v] = (o[v] || 0) + 1; return o; }, {})};
+    return {m: m, cl: cl, ols: ols, n: y.length, G: nG, names: D.names, sizes: g.reduce(function (o, v) { o[v] = (o[v] || 0) + 1; return o; }, Object.create(null))};
   });
   if (res.err) return need(R, res.err);
   var m = res.m; if (m.Psi[0][0] < 1e-10 * m.scale) { m.Psi[0][0] = 0; if (m.icc != null) m.icc = 0; }
@@ -334,6 +335,7 @@ function runAgree(ds) {
 }
 
 // ---- Missing data ----
+function miInputKey(ds) { var s = A.sel; return JSON.stringify([ds.id, ds.rows.length, s.miy, s.mix || [], s.miaux || [], s.mim, s.f, s.fv, s.where || null, dataVersion(ds)]); }
 var MI = {res: null, key: ""};
 function runMissing(ds) {
   var R = mkR("missing"), s = A.sel, all = ds.cols.filter(function (c) { return c.type !== "empty"; }), rows = filterRows(ds);
@@ -380,7 +382,7 @@ function miPanel(ds, rows) {
   var preds = initCols(ds, "mix", nums.filter(function (c) { return c.name !== s.miy && !likelyId(ds, c); }).slice(0, 2), function (c) { return isNum(c) && c.name !== s.miy; });
   var aux = selCols(ds, "miaux", function (c) { return isNum(c) && c.name !== s.miy && preds.indexOf(c.name) < 0; });
   s.mim = s.mim || "20";
-  var key = JSON.stringify([ds.id, ds.rows.length, s.miy, preds, aux, s.mim, s.f, s.fv]), r = MI.key === key && MI.ds === ds.rows ? MI.res : null;
+  var key = miInputKey(ds), r = MI.key === key && MI.ds === ds.rows ? MI.res : null;
   var out = '<h3 class="sub-h">Multiple imputation</h3><p class="count">Fills each gap many times with plausible values (chained equations, predictive mean matching), fits the regression on each completed dataset, and pools the results with Rubin\'s rules.</p><div class="toolbar">' +
     pick("miy", "Outcome", nums, s.miy) + choice("mim", "Imputations", [["5", "5"], ["20", "20"], ["50", "50"]], s.mim) + "</div>" + mselList("mix", nums.filter(function (c) { return c.name !== s.miy; }), "Predictors") +
     (nums.length > preds.length + 1 ? mselList("miaux", nums.filter(function (c) { return c.name !== s.miy && preds.indexOf(c.name) < 0; }), "Extra columns that help predict the gaps (not in the model)") : "") +
@@ -392,7 +394,7 @@ function miPanel(ds, rows) {
 }
 function runMI(ds) {
   var s = A.sel, rows = filterRows(ds), cols = [s.miy].concat(A.sel.mix || [], A.sel.miaux || []), idx = cols.map(function (n) { return idxOf(ds, n); }), m = +s.mim || 20;
-  var key = JSON.stringify([ds.id, ds.rows.length, s.miy, A.sel.mix, A.sel.miaux, s.mim, s.f, s.fv]);
+  var key = miInputKey(ds);
   var X = rows.map(function (r) { return idx.map(function (j) { return typeof r[j] === "number" ? r[j] : null; }); }).filter(function (r) { return r.some(function (v) { return v != null; }); });
   var res;
   try {
@@ -459,7 +461,7 @@ view.addEventListener("click", function (e) {
   var b = e.target.closest("button"); if (!b) return; var d = b.dataset, ds = cur(); if (!ds) return;
   if (d.mscale) { var items = A.sel.items || [], rev = A.sel.rev || []; applyStep(ds, {op: "scale", items: items.slice(), rev: rev.slice(), name: "Scale score", text: "Added the scale score (mean of " + items.length + " items)", unit: "rows scored"}, function () { return opScale(ds, items, rev, "Scale score"); }); return; }
   if (d.mscores) { var r = LAST_R && LAST_R.summary || {}, it = A.sel.fitems || [], meth = A.sel.fmeth, k = r.factors || 1, rot = A.sel.frot, pre = meth === "pca" ? "Component" : "Factor"; applyStep(ds, {op: "scores", items: it.slice(), meth: meth, k: k, rot: rot, prefix: pre, text: "Added " + k + " " + pre.toLowerCase() + " score column" + (k > 1 ? "s" : ""), unit: "rows scored"}, function () { return opScores(ds, it, meth, k, rot, pre); }); return; }
-  if (d.mirun) { b.disabled = true; b.textContent = "Imputing…"; setTimeout(function () { runMI(ds); render(); refocus("[data-mirun]"); }, 20); return; }
+  if (d.mirun) { var inputRows = ds.rows, inputCols = ds.cols, inputSel = JSON.stringify(A.sel); b.disabled = true; b.textContent = "Imputing…"; setTimeout(function () { if (cur() !== ds || ds.rows !== inputRows || ds.cols !== inputCols || A.kind !== "missing" || JSON.stringify(A.sel) !== inputSel) return; runMI(ds); render(); refocus("[data-mirun]"); }, 20); return; }
   if (d.misave && MI.res && MI.res.imps) {
     var cols = MI.res.cols.map(function (n) { return {name: n, type: "number"}; }).concat([{name: ".imp", type: "category"}]), rows2 = [];
     MI.res.imps.forEach(function (D, l) { D.forEach(function (r) { rows2.push(r.concat([String(l + 1)])); }); });

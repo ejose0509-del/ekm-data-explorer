@@ -38,6 +38,8 @@ MODULES = [
     "workflow.js",    # Reproducible workflow, Python/R scripts, audit trail, project metadata
     "publish.js",     # Large files, Parquet, cached column work, Word/PDF export, figure options
     "connect.js",     # Import from links and SQLite, scheduled refresh, team workspace
+    "trust.js",       # Versioned results and explicit data-quality rules
+    "verified-export.js", # Exact model replay and score checks in Python/R
     "layout.js",      # Analysis menu grouped by purpose
 ]
 VENDOR = ["vendor/parquet.js"]  # third-party bundles, each in its own <script> (licences in src/vendor)
@@ -52,6 +54,9 @@ def build():
     page = read("index.template.html")
     js = "\n".join("// ===== %s =====\n%s" % (m, read(m)) for m in MODULES)
     js = "var EKM_STATS_SOURCE = " + json.dumps(read("stats.js")) + ";\n" + js
+    js = "var EKM_METHOD_SOURCE = " + json.dumps("\n".join(read(f) for f in ["stats.js", "stats2.js", "stats3.js", "ml.js"])) + ";\n" + js
+    replay = "\n".join(read(m) for m in MODULES if m not in ["verified-export.js", "layout.js"])
+    js = "var EKM_REPLAY_SOURCE = " + json.dumps(replay) + ";\n" + js
     vendor = "\n".join(read(v).replace("</script", "<\\/script") for v in VENDOR)
     page = page.replace("/*@CSS@*/", read("theme.css")).replace("/*@VENDOR@*/", vendor).replace("/*@JS@*/", js)
     os.makedirs(os.path.join(ROOT, "dist"), exist_ok=True)

@@ -178,6 +178,11 @@ var S3 = (function () {
 
   // ---- Repeated measures: one within-subject factor, complete cases (n subjects × k conditions) ----
   function rmAnova(Y) {
+    // Normalize once: inference and eigenvalue rank must not depend on physical units.
+    var offset = Y[0][0], scale = 0;
+    Y.forEach(function (r) { r.forEach(function (v) { scale = Math.max(scale, Math.abs(v - offset)); }); });
+    scale = scale || 1;
+    Y = Y.map(function (r) { return r.map(function (v) { return (v - offset) / scale; }); });
     var n = Y.length, k = Y[0].length, G = 0, cm = new Array(k).fill(0), sm = Y.map(function (r) { return r.reduce(function (a, b) { return a + b; }, 0) / k; });
     Y.forEach(function (r) { r.forEach(function (v, j) { cm[j] += v / n; G += v / (n * k); }); });
     var sst = 0; Y.forEach(function (r) { r.forEach(function (v) { sst += (v - G) * (v - G); }); });
@@ -188,7 +193,7 @@ var S3 = (function () {
     var Sp = cov.map(function (r, i) { return r.map(function (v, j) { return v - rm[i] - rm[j] + gm; }); });
     var tr = Sp.reduce(function (a, r, i) { return a + r[i]; }, 0), ss2 = Sp.reduce(function (a, r) { return a + r.reduce(function (b, v) { return b + v * v; }, 0); }, 0);
     var gg = tr * tr / ((k - 1) * ss2), hf = Math.min(1, (n * (k - 1) * gg - 2) / ((k - 1) * (n - 1 - (k - 1) * gg)));
-    var eig = eigSym(Sp).values.filter(function (v) { return v > 1e-3; }), d = k - 1, W = NaN, chi = NaN, pW = NaN, dfW = d * (d + 1) / 2 - 1;
+    var eig = eigSym(Sp).values.filter(function (v) { return v > 1e-10 * Math.max(tr, 1e-300); }), d = k - 1, W = NaN, chi = NaN, pW = NaN, dfW = d * (d + 1) / 2 - 1;
     if (k > 2 && eig.length === d && n > k) {
       var se = eig.reduce(function (a, b) { return a + b; }, 0); W = eig.reduce(function (a, b) { return a * b; }, 1) / Math.pow(se / d, d);
       // Chi-square approximation with the second-order term used by R's mauchly.test (and pingouin)
@@ -196,7 +201,7 @@ var S3 = (function () {
       chi = -(n - 1) * fct * Math.log(W); var p1 = 1 - pchisq(chi, dfW); pW = p1 + w2 * ((1 - pchisq(chi, dfW + 4)) - p1);
     }
     if (k === 2) { gg = 1; hf = 1; }
-    return {n: n, k: k, means: cm, ssCond: ssc, ssSubj: sss, ssErr: sse, df1: df1, df2: df2, F: F, p: p,
+    return {n: n, k: k, means: cm.map(function (v) { return offset + v * scale; }), ssCond: ssc * scale * scale, ssSubj: sss * scale * scale, ssErr: sse * scale * scale, df1: df1, df2: df2, F: F, p: p,
       eta2p: ssc / (ssc + sse), eta2g: ssc / (ssc + sss + sse), eps: {gg: gg, hf: Math.max(hf, gg), lb: 1 / (k - 1)},
       pGG: 1 - pf(F, df1 * gg, df2 * gg), pHF: 1 - pf(F, df1 * Math.max(hf, gg), df2 * Math.max(hf, gg)), mauchly: {W: W, chi2: chi, df: dfW, p: pW}};
   }
@@ -220,7 +225,7 @@ var S3 = (function () {
 
   // ---- Linear mixed model (REML), random intercept and optional random slope per group ----
   // y = Xb + Zu + e, u ~ N(0, Psi), e ~ N(0, s2 I). Profiled REML over the relative Cholesky factor of Psi.
-  function mixed(y, X, Z, g, xnames) {
+  function mixedRaw(y, X, Z, g, xnames) {
     var N = y.length, p = X[0].length, q = Z[0].length, groups = Object.create(null), keys = [];
     g.forEach(function (k, i) { if (!groups[k]) { groups[k] = []; keys.push(k); } groups[k].push(i); });
     var blocks = keys.map(function (k) {
@@ -255,10 +260,37 @@ var S3 = (function () {
     // REML deviance at the fitted values and with no random effects, for a boundary-corrected likelihood-ratio test
     var dev = best.f + (N - p) * (1 + Math.log(2 * Math.PI / (N - p))), dev0 = obj(q === 1 ? [0] : [0, 0, 0]) + (N - p) * (1 + Math.log(2 * Math.PI / (N - p)));
     var lr = Math.max(0, dev0 - dev), pLR = q === 1 ? 0.5 * (1 - pchisq(lr, 1)) : 0.5 * (1 - pchisq(lr, 2)) + 0.5 * (1 - pchisq(lr, 3));
-    return {fe: fe, scale: s2, Psi: Psi, groups: keys.length, n: N, icc: q === 1 ? Psi[0][0] / (Psi[0][0] + s2) : null, devREML: dev, lr: lr, pLR: pLR};
+    return {fe: fe, covariance: P.XVXi.map(function (r) { return r.map(function (v) { return v * s2; }); }), scale: s2, Psi: Psi, groups: keys.length, n: N, icc: q === 1 ? Psi[0][0] / (Psi[0][0] + s2) : null, devREML: dev, lr: lr, pLR: pLR};
+  }
+  // Work near zero and unit scale, then transform the entire covariance back.
+  function centeredBasis(X) {
+    var p = X[0].length, mu = new Array(p).fill(0), sd = new Array(p).fill(1);
+    if (!X.every(function (r) { return r[0] === 1; })) throw new Error("An intercept is required for stable mixed-model fitting.");
+    for (var j = 1; j < p; j++) {
+      var base = X[0][j], d = X.map(function (r) { return r[j] - base; }), m = S.mean(d);
+      mu[j] = base + m; sd[j] = Math.sqrt(S.mean(d.map(function (v) { return (v - m) * (v - m); }))) || 1;
+    }
+    var B = zeros(p, p); B[0][0] = 1;
+    for (j = 1; j < p; j++) { B[j][j] = 1 / sd[j]; B[0][j] = -mu[j] / sd[j]; }
+    return {X: X.map(function (r) { return r.map(function (v, j) { return j ? (v - mu[j]) / sd[j] : 1; }); }), B: B, sd: sd};
+  }
+  function mixed(y, X, Z, g, xnames) {
+    var base = y[0], dy = y.map(function (v) { return v - base; }), dm = S.mean(dy), ym = base + dm;
+    var ys = Math.sqrt(S.mean(dy.map(function (v) { return (v - dm) * (v - dm); }))) || 1;
+    var xb = centeredBasis(X), zb = centeredBasis(Z);
+    var r = mixedRaw(dy.map(function (v) { return (v - dm) / ys; }), xb.X, zb.X, g, xnames);
+    var beta = mul(xb.B, r.fe.map(function (c) { return [c.b]; }));
+    var V = mul(mul(xb.B, r.covariance), T(xb.B)).map(function (row) { return row.map(function (v) { return v * ys * ys; }); });
+    r.fe = beta.map(function (row, i) { var b = row[0] * ys + (i ? 0 : ym), se = Math.sqrt(Math.max(0, V[i][i])), z = b / se;
+      return {name: xnames[i], b: b, se: se, z: z, p: 2 * (1 - pnorm(Math.abs(z))), lo: b - 1.959963984540054 * se, hi: b + 1.959963984540054 * se}; });
+    r.covariance = V; r.scale *= ys * ys;
+    r.Psi = mul(mul(zb.B, r.Psi), T(zb.B)).map(function (row) { return row.map(function (v) { return v * ys * ys; }); });
+    if (Z[0].length === 1) r.icc = r.Psi[0][0] / (r.Psi[0][0] + r.scale);
+    r.devREML += 2 * (y.length - X[0].length) * Math.log(ys) + 2 * xb.sd.reduce(function (a, v) { return a + Math.log(v); }, 0);
+    return r;
   }
   // OLS with cluster-robust (CR1) standard errors, t on G − 1 df (Stata/statsmodels use_t convention)
-  function clusterOLS(y, X, g, names) {
+  function clusterOLSRaw(y, X, g, names) {
     var n = y.length, p = X[0].length, XtX = zeros(p, p), Xty = new Array(p).fill(0);
     X.forEach(function (x, i) { for (var a = 0; a < p; a++) { Xty[a] += x[a] * y[i]; for (var b = 0; b < p; b++) XtX[a][b] += x[a] * x[b]; } });
     var Bi = inv(XtX); if (!Bi) return null;
@@ -266,9 +298,19 @@ var S3 = (function () {
     X.forEach(function (x, i) { var e = y[i] - x.reduce(function (s, v, j) { return s + v * beta[j]; }, 0); if (!sc[g[i]]) { sc[g[i]] = new Array(p).fill(0); G++; } for (var a = 0; a < p; a++) sc[g[i]][a] += x[a] * e; });
     var meat = zeros(p, p); Object.keys(sc).forEach(function (k) { var s = sc[k]; for (var a = 0; a < p; a++) for (var b = 0; b < p; b++) meat[a][b] += s[a] * s[b]; });
     var V = mul(mul(Bi, meat), Bi), adj = G / (G - 1) * (n - 1) / (n - p), tc = qt(0.975, G - 1);
-    return {G: G, coefs: beta.map(function (b, i) { var se = Math.sqrt(V[i][i] * adj), t = b / se; return {name: names[i], b: b, se: se, t: t, p: 2 * (1 - pt(Math.abs(t), G - 1)), lo: b - tc * se, hi: b + tc * se}; })};
+    return {G: G, covariance: V.map(function (r) { return r.map(function (v) { return v * adj; }); }), coefs: beta.map(function (b, i) { var se = Math.sqrt(V[i][i] * adj), t = b / se; return {name: names[i], b: b, se: se, t: t, p: 2 * (1 - pt(Math.abs(t), G - 1)), lo: b - tc * se, hi: b + tc * se}; })};
   }
 
+  function clusterOLS(y, X, g, names) {
+    var base = y[0], d = y.map(function (v) { return v - base; }), dm = S.mean(d), ym = base + dm;
+    var ys = Math.sqrt(S.mean(d.map(function (v) { return (v - dm) * (v - dm); }))) || 1, xb = centeredBasis(X);
+    var r = clusterOLSRaw(d.map(function (v) { return (v - dm) / ys; }), xb.X, g, names); if (!r) return null;
+    var b = mul(xb.B, r.coefs.map(function (c) { return [c.b]; })), V = mul(mul(xb.B, r.covariance), T(xb.B));
+    var tc = qt(0.975, r.G - 1);
+    r.coefs = b.map(function (row, i) { var v = row[0] * ys + (i ? 0 : ym), se = Math.sqrt(Math.max(0, V[i][i])) * ys, t = v / se;
+      return {name: names[i], b: v, se: se, t: t, p: 2 * (1 - pt(Math.abs(t), r.G - 1)), lo: v - tc * se, hi: v + tc * se}; });
+    return r;
+  }
   // ---- Measurement: reliability, PCA, factor analysis ----
   function alpha(X) {
     var n = X.length, k = X[0].length, C = corrMatrix(X), cov = C.cov, vs = cov.map(function (r, i) { return r[i]; });

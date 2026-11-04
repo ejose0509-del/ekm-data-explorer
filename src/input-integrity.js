@@ -38,6 +38,7 @@ function importedValue(v, options) {
 }
 var _inputMake = makeSet;
 makeSet = function (name, header, body, origin, extra) {
+  if (body.length > 1000000 || header.length > 2000 || body.length * header.length > 8000000) throw new Error("Table exceeds the browser row/column/cell budget. Filter or split the source.");
   var options = {decimal: IMPORT.decimal, missing: IMPORT.missing};
   var converted = body.map(function (r) { return r.map(function (v) { return importedValue(v, options); }); });
   var ds = _inputMake(name, header, converted, origin, extra);

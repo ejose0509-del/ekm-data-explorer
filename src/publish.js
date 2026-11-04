@@ -1,5 +1,5 @@
 // ---------- Scale and publication: large files, Parquet, cached column work, Word and PDF export, figure options ----------
-var MAX_TEXT = 200e6, MAX_SHEET = 60e6;
+var MAX_TEXT = 50e6, MAX_SHEET = 25e6;
 
 // ---- Column values and summaries are cached per data version, so re-rendering large tables stays fast ----
 var COLCACHE = new WeakMap(), DESCCACHE = new WeakMap();
@@ -25,9 +25,10 @@ function parseInWorker(text) {
 }
 function parquetToTable(buf) {
   var P = window.EKMParquet; if (!P) return Promise.reject(new Error("The Parquet reader is unavailable."));
-  return P.parquetReadObjects({file: buf, compressors: P.compressors}).then(function (objs) {
+  var preflight = P.parquetMetadataAsync ? P.parquetMetadataAsync(buf).then(function (meta) { var n = Number(meta.num_rows), k = Math.max(1, (meta.schema || []).length - 1), values = 0, decoded = 0; (meta.row_groups || []).forEach(function (group) { decoded += Number(group.total_byte_size || 0); (group.columns || []).forEach(function (col) { values += Number((col.meta_data || {}).num_values || 0); }); }); if (values > 8000000 || decoded > 128e6) throw new Error("Decoded Parquet exceeds the browser memory budget. Filter it before importing."); if (!isFinite(n) || n > 1000000 || k > 2000 || n * k > 8000000) throw new Error("Decoded table exceeds the browser row/column/cell budget. Filter it before importing."); }) : Promise.resolve();
+  return preflight.then(function () { return P.parquetReadObjects({file: buf, compressors: P.compressors}); }).then(function (objs) {
     var keys = []; objs.forEach(function (o) { Object.keys(o).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); }); });
-    var body = objs.map(function (o) { return keys.map(function (k) { var v = o[k]; if (v == null) return null; if (typeof v === "bigint") return Number(v); if (v instanceof Date) return isNaN(v) ? null : v.toISOString().slice(0, v.getUTCHours() || v.getUTCMinutes() ? 19 : 10); if (typeof v === "object") return JSON.stringify(v, function (_, x) { return typeof x === "bigint" ? Number(x) : x; }); return v; }); });
+    var body = objs.map(function (o) { return keys.map(function (k) { var v = o[k]; if (v == null) return null; if (typeof v === "bigint") return v <= BigInt("9007199254740991") && v >= BigInt("-9007199254740991") ? Number(v) : String(v); if (v instanceof Date) return isNaN(v) ? null : (v.getUTCHours() || v.getUTCMinutes() || v.getUTCSeconds() || v.getUTCMilliseconds() ? v.toISOString() : v.toISOString().slice(0, 10)); if (typeof v === "object") return JSON.stringify(v, function (_, x) { return typeof x === "bigint" ? (x <= BigInt("9007199254740991") && x >= BigInt("-9007199254740991") ? Number(x) : String(x)) : x; }); return v; }); });
     return {header: keys, body: body};
   });
 }
@@ -37,13 +38,13 @@ readFile = function (file) {
   var done = function (ds) { A.busy = ""; if (!ds.rows.length) { A.msg = file.name + " has no data rows."; render(); return; } A.sets.unshift(ds); A.cur = ds.id; A.sel = Object.create(null); A.ai = Object.create(null); A.msg = ""; render(); saveSet(ds); };
   var fail = function (m) { A.busy = ""; A.msg = m; render(); };
   if (ext === "parquet" || ext === "pq") {
-    if (file.size > MAX_TEXT) return fail(file.name + " is " + (file.size / 1e6).toFixed(0) + " MB. Parquet files up to 200 MB can be opened.");
+    if (file.size > MAX_TEXT) return fail(file.name + " is " + (file.size / 1e6).toFixed(0) + " MB. Parquet files up to 50 MB can be opened.");
     A.busy = "Reading " + file.name + "…"; render();
     return file.arrayBuffer().then(parquetToTable).then(function (t) { if (!t.header.length) throw new Error("No columns were found."); done(makeSet(name, t.header, t.body)); })
       .catch(function (e) { fail("Could not read " + file.name + ": " + (e && e.message || "unsupported Parquet encoding") + ". Export it as CSV and try again."); });
   }
-  if ((ext === "xlsx" || ext === "xls") && file.size > MAX_SHEET) return fail(file.name + " is " + (file.size / 1e6).toFixed(0) + " MB. Spreadsheets up to 60 MB can be opened; save larger ones as CSV or Parquet.");
-  if (file.size > MAX_TEXT) return fail(file.name + " is " + (file.size / 1e6).toFixed(0) + " MB. Files up to 200 MB can be opened; for larger data, filter or aggregate it first, or save it as Parquet.");
+  if ((ext === "xlsx" || ext === "xls") && file.size > MAX_SHEET) return fail(file.name + " is " + (file.size / 1e6).toFixed(0) + " MB. Spreadsheets up to 25 MB can be opened; save larger ones as CSV or Parquet.");
+  if (file.size > MAX_TEXT) return fail(file.name + " is " + (file.size / 1e6).toFixed(0) + " MB. Files up to 50 MB can be opened; for larger data, filter or aggregate it first, or save it as Parquet.");
   if (file.size <= 25e6 || ext === "xlsx" || ext === "xls") {
     if (file.size > 25e6) { var shim = {name: file.name, size: 1, arrayBuffer: function () { return file.arrayBuffer(); }, text: function () { return file.text(); }}; return _readFileP(shim); }
     return _readFileP(file);
@@ -58,7 +59,7 @@ readFile = function (file) {
 var _dataViewP = VIEWS.data;
 VIEWS.data = function () {
   var h = _dataViewP();
-  return h.replace("CSV, TSV, Excel (.xlsx) or JSON, up to 25 MB.", "CSV, TSV, Excel, JSON or Parquet, up to 200 MB (spreadsheets up to 60 MB).").replace('accept=".csv,.tsv,.txt,.json,.xlsx,.xls"', 'accept=".csv,.tsv,.txt,.json,.xlsx,.xls,.parquet,.pq"');
+  return h.replace("CSV, TSV, Excel (.xlsx) or JSON, up to 25 MB.", "CSV, TSV, Excel, JSON or Parquet, up to 50 MB (spreadsheets up to 25 MB). Table limits: 1,000,000 rows, 2,000 columns and 8,000,000 cells.").replace('accept=".csv,.tsv,.txt,.json,.xlsx,.xls"', 'accept=".csv,.tsv,.txt,.json,.xlsx,.xls,.parquet,.pq"');
 };
 // Very large scatter plots are drawn from an even sample of points (the statistics still use every row)
 var _scatterP = scatter;
@@ -240,3 +241,29 @@ view.addEventListener("click", function (e) {
   (kind === "pdf" ? exportPdf() : exportDocx()).then(function (blob) { saveFile(base + (kind === "pdf" ? ".pdf" : ".docx"), blob); XP.msg = (kind === "pdf" ? "PDF" : "Word document") + " ready" + (kind === "pdf" ? ". Symbols such as χ² are spelled out (chi²) because standard PDF fonts lack them." : "."); render(); })
     .catch(function (err) { XP.msg = kind === "pdf" ? "The PDF writer could not load (it comes from cdnjs). Use Word (.docx) instead, or print the web page version." : "The Word document could not be created: " + (err && err.message || "unknown error") + "."; render(); });
 });
+
+// Budget the expanded in-memory table before reading, and warn before unsaveable work.
+var IMPORT_PENDING = null;
+var _budgetRead = readFile;
+function importBudget(file) {
+  var cap = /\.(xlsx|xls)$/i.test(file.name) ? MAX_SHEET : MAX_TEXT;
+  if (navigator.deviceMemory && navigator.deviceMemory <= 4) cap = Math.min(cap, 25e6);
+  var memory = performance.memory;
+  if (memory && memory.jsHeapSizeLimit) cap = Math.min(cap, Math.max(0, (memory.jsHeapSizeLimit - memory.usedJSHeapSize) / 12));
+  return Math.floor(cap);
+}
+readFile = function (file) {
+  IMPORT_PENDING = null;
+  var cap = importBudget(file);
+  if (file.size > cap) { A.busy = ""; A.msg = file.name + " exceeds this browser's import budget (" + Math.floor(cap / 1e6) + " MB). Filter or split the file before importing. The working dataset is unchanged."; render(); return; }
+  if (file.size > 6e6) { IMPORT_PENDING = file; A.busy = ""; A.msg = ""; render(); return; }
+  return _budgetRead(file);
+};
+var _budgetView = VIEWS.data;
+VIEWS.data = function () {
+  var h = _budgetView();
+  h = h.replace("up to 50 MB (spreadsheets up to 25 MB).", "up to 50 MB (spreadsheets up to 25 MB), subject to available memory.");
+  if (IMPORT_PENDING) h = '<section class="card"><h2>Large import: save limits</h2><p class="warn">' + esc(IMPORT_PENDING.name) + ' is ' + (IMPORT_PENDING.size / 1e6).toFixed(1) + ' MB. A project stores both original and working values plus history and may exceed the 50 MB project limit. Browser saving may also be unavailable. Continuing pauses browser autosave for this tab. Continue only if you can keep the source and export working CSV and steps separately; split or reduce the source to retain a portable project.</p><div class="slot"><button type="button" class="btn btn-primary" data-import-continue="1">Continue import</button><button type="button" class="btn" data-import-cancel="1">Cancel import</button></div></section>' + h;
+  return h;
+};
+view.addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; if (b.dataset.importCancel) { IMPORT_PENDING = null; render(); } if (b.dataset.importContinue && IMPORT_PENDING) { var f = IMPORT_PENDING; IMPORT_PENDING = null; PROJECT.remember = false; PROJECT.storageMessage = "Large import: browser autosave paused. Keep the source and download your working data and steps."; return _budgetRead(f); } });

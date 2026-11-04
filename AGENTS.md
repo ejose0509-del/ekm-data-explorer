@@ -8,16 +8,17 @@ EKM is a browser-based statistical analyzer. People add a dataset, check and cle
 python3 build.py                  # src/ -> dist/index.html
 python3 tests/check_stats.py      # statistics vs SciPy (needs node, numpy, scipy)
 python3 tests/check_methods.py    # S3/ML vs statsmodels, scikit-learn, pingouin, factor_analyzer
+node tests/check_trust.js         # versioning, time gaps, fidelity, ranges and verified Python/R replay
 node tests/check_new_features.js  # browser checks for Plan, new analyses, editing, workflow, connectors, exports
 ```
 
-Open `dist/index.html` in a browser to use it. Run the stats check after any change to `src/stats.js` or `src/stats2.js`; all 102 values (including the original 30) must match SciPy. Run the methods check after any change to `src/stats3.js` or `src/ml.js`; all 41 groups must match (it needs `pip install numpy scipy pandas statsmodels scikit-learn pingouin factor_analyzer`). Browser suites need Playwright (`PLAYWRIGHT_MODULE`, `BROWSER_CHANNEL=chrome`); set `EKM_PYTHON` to a Python with those packages so the new-feature suite also runs the exported Python script and checks it reproduces EKM's numbers.
+Open `dist/index.html` in a browser to use it. Run the stats check after any change to `src/stats.js` or `src/stats2.js`; all 102 values (including the original 30) must match SciPy. Run the methods check after any change to `src/stats3.js` or `src/ml.js`; all 44 groups must match (it needs `pip install numpy scipy pandas statsmodels scikit-learn pingouin factor_analyzer`). Browser suites need Playwright (`PLAYWRIGHT_MODULE`, `BROWSER_CHANNEL=chrome`); set `EKM_PYTHON` to a Python with those packages so the new-feature suite also runs the exported Python script and checks it reproduces EKM's numbers.
 
 ## Layout
 
 | File | What it owns |
 |---|---|
-| `src/index.template.html` | Page shell: head, fonts, ledge band with the five tabs, `#view` |
+| `src/index.template.html` | Page shell: head, fonts, ledge band with the six tabs, `#view` |
 | `src/theme.css` | The whole stylesheet: tokens on `:root`, components, layouts |
 | `src/core.js` | Router: `st.tab`, `VIEWS`, `render()`, `nav()`, `esc()`, `go2()`, `refocus()` |
 | `src/stats.js` | `S`: describe, Welch t, ANOVA, chi-square, correlation, OLS, p-value functions |
@@ -44,8 +45,10 @@ Open `dist/index.html` in a browser to use it. Run the stats check after any cha
 | `src/editing.js` | Editable grid, multi-condition filters (`A.sel.where`), variable labels/units/value labels, recoding, appending, typed joins |
 | `src/plan.js` | Plan tab: sample size, power and minimum detectable effect, dropout and design effect, justification text |
 | `src/workflow.js` | Recorded workflow steps, rerun-and-compare, Python and R script export, hash-chained audit trail, project fields for all of these |
-| `src/publish.js` | Large-file import (worker parsing, 200 MB), Parquet, cached column work, native .docx and PDF export, figure options |
+| `src/publish.js` | Large-file import (worker parsing, up to 50 MB subject to memory, spreadsheets 25 MB), Parquet, cached column work, native .docx and PDF export, figure options |
 | `src/connect.js` | Import from links and SQLite, refresh with recipe replay, scheduled refresh, team workspace |
+| `src/trust.js` | Row/column versions, cancellation, explicit valid ranges and project metadata |
+| `src/verified-export.js` | Self-contained Python/R workflow replay using Node, with data fingerprints and numerical comparisons |
 | `src/layout.js` | Analysis menu grouped by purpose |
 | `src/vendor/parquet.js` | hyparquet bundle (MIT, see `src/vendor/LICENSE-hyparquet.txt`), inlined in its own `<script>` |
 
@@ -83,3 +86,11 @@ The look is a lecture-hall chalkboard. Read `DESIGN.md` before UI work. Key rule
 ## Statistics rules
 
 Every new test follows its published definition and gets a case in `tests/stats_harness.js` and `tests/check_stats.py` against SciPy. Interpretations must never overstate: say "associated with", not "causes"; report effect sizes and uncertainty; give the rank-based alternative when normality fails.
+
+## Result integrity and portable workflows
+
+Models and imputations must use `dataVersion(ds)` plus all selections/filters in their keys. Background training must check its captured version before every fold and before publishing. Time validation splits distinct timestamps, with an optional gap measured in distinct periods; invalid dates are errors. Duplicate subject–condition observations require an explicit policy.
+
+Tables are capped at 1,000,000 rows, 2,000 columns and 8,000,000 cells; CSV parsing and Parquet metadata enforce this before expanding the working table. Text/Parquet imports are capped at 50 MB, spreadsheets at 25 MB, and may be capped lower by memory. Before an import over 6 MB, the user sees the 50 MB portable-project limit and can cancel. Browser storage is smaller and cannot replace a downloaded project. No claim that every file below a byte limit fits memory.
+
+Python/R workflow exports embed the actual EKM implementation and call Node.js locally, with network disabled. Python uses its standard library; R uses jsonlite. Save Original data (CSV) next to the script. Replay checks the full working-data fingerprint and every recorded summary value, not just process success. Keep the replay kernel self-contained: it is built from src, never fetched. Native reference templates remain available internally for comparing published methods, but the downloadable workflow uses verified replay.

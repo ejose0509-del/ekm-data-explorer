@@ -26,17 +26,38 @@ function modelSetup(ds) {
     if (!ok) { dropped++; return; }
     X.push(x); y.push(task === "reg" ? t : classes.indexOf(String(t))); keep.push(i);
   });
+  var orderError = "";
   var groups = s.mv === "group" ? keep.map(function (i) { return String(rows[i][gi]); }) : null, order = null;
   if (s.mv === "time") {   // sort rows by the time column so folds run past → future
-    var tk = keep.map(function (i, t) { var v = rows[i][oi]; return [typeof v === "number" ? v : Date.parse(String(v)) || 0, t]; }).sort(function (a, b) { return a[0] - b[0]; }).map(function (p) { return p[1]; });
-    X = tk.map(function (t) { return X[t]; }); y = tk.map(function (t) { return y[t]; }); keep = tk.map(function (t) { return keep[t]; });
+    order = keep.map(function (i) { var v = rows[i][oi];
+      if (typeof v === "number" && isFinite(v)) return v;
+      var t = String(v), valid = typeof validDateValue === "function" && validDateValue(t);
+      // ISO timestamps require an explicit timezone and a real calendar date.
+      if (!valid && /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(t)) valid = validDateValue(t.slice(0, 10)) && isFinite(Date.parse(t));
+      if (!valid) { orderError = "Time order needs valid ISO dates/timestamps or finite numbers. Correct invalid or missing order values first."; return NaN; }
+      return Date.parse(t.length === 7 ? t + "-01" : t);
+    });
+    if (oi < 0 || rows.some(function (r) { return r[oi] == null; })) orderError = "Choose a time column with valid ordering values for every row.";
+    var tk = order.map(function (v, i) { return [v, i]; }).sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; }).map(function (p) { return p[1]; });
+    X = tk.map(function (t) { return X[t]; }); y = tk.map(function (t) { return y[t]; }); keep = tk.map(function (t) { return keep[t]; }); order = tk.map(function (t) { return order[t]; });
   }
-  return {task: task, X: X, y: y, names: names, group: group, parts: parts, classes: classes, groups: groups, keep: keep, dropped: dropped, rows: rows};
+  return {settings: JSON.parse(JSON.stringify(s)), order: order, gap: Math.max(0, Math.floor(+s.mgap || 0)), err: orderError, task: task, X: X, y: y, names: names, group: group, parts: parts, classes: classes, groups: groups, keep: keep, dropped: dropped, rows: rows};
 }
 function foldsFor(st, scheme, seed) {
   var n = st.y.length, rnd = ML.rng(seed || 31);
-  if (scheme === "group") return ML.groupKFold(st.groups, Math.min(5, Object.keys(st.groups.reduce(function (o, g) { o[g] = 1; return o; }, {})).length));
-  if (scheme === "time") return ML.timeSplit(n, 5);
+  if (scheme === "group") return ML.groupKFold(st.groups, Math.min(5, Object.keys(st.groups.reduce(function (o, g) { o[g] = 1; return o; }, Object.create(null))).length));
+  if (scheme === "time") {
+    if (st.err || !st.order) return [];
+    var times = [], buckets = []; st.order.forEach(function (v, i) { if (!times.length || times[times.length - 1] !== v) { times.push(v); buckets.push([]); } buckets[buckets.length - 1].push(i); });
+    var kTime = Math.min(5, times.length - 1);
+    if (kTime < 1) return [];
+    return ML.timeSplit(times.length, kTime).map(function (f) {
+      var last = f.test[0] - st.gap, train = [], test = [];
+      f.train.forEach(function (j) { if (j < last) train = train.concat(buckets[j]); });
+      f.test.forEach(function (j) { test = test.concat(buckets[j]); });
+      return {train: train, test: test};
+    }).filter(function (f) { return f.train.length >= 3 && f.test.length > 0; });
+  }
   if (scheme === "holdout") { var f = st.task === "reg" ? ML.kfold(n, 5, rnd) : ML.stratified(st.y, 5, rnd); return [f[0]]; }
   var k = scheme === "k10" ? 10 : 5;
   return st.task === "reg" ? ML.kfold(n, k, rnd) : ML.stratified(st.y, k, rnd);
@@ -63,7 +84,7 @@ function fitModel(model, X, y, st, seed) {
   if (model === "linear") { var m0 = ML.enet(X, y, 0, 0); return {predict: m0.predict, coef: m0.coef, intercept: m0.intercept, std: m0.std}; }
   if (model === "ridge" || model === "lasso" || model === "enet") { var a = tune(model, X, y, "reg"), m = ML.enet(X, y, a, model === "lasso" ? 1 : model === "enet" ? 0.5 : 0); return {predict: m.predict, coef: m.coef, intercept: m.intercept, std: m.std, alpha: a}; }
   if (model === "logistic") { var lam = tune(model, X, y, "cls"), lg = ML.logit(X, y, lam); return {predict: lg.predict, coef: lg.coef, intercept: lg.intercept, std: lg.std, alpha: lam}; }
-  var depth = +A.sel.mdepth || (model === "tree" ? 4 : 0);
+  var depth = +(st.settings || A.sel).mdepth || (model === "tree" ? 4 : 0);
   if (model === "tree") { var t = ML.tree(X, y, {classes: K, maxDepth: depth, minLeaf: 5}); return {predict: function (x) { var v = ML.treePredict(t, x); return K === 2 ? v[1] : v; }, tree: t, importance: t.importance}; }
   var F = ML.forest(X, y, {trees: X.length > 4000 ? 60 : 100, classes: K, maxDepth: depth || undefined, minLeaf: 2, maxFeatures: K ? Math.max(1, Math.round(Math.sqrt(p))) : p, rnd: rnd});
   return {predict: function (x) { var v = ML.forestPredict(F, x); return K === 2 ? v[1] : v; }, forest: F, importance: F.importance, oob: F.oob};
@@ -76,9 +97,11 @@ function scoreOf(st, y, pred) {
 function mainMetric(st) { return st.task === "reg" ? ["r2", "R² (out of sample)"] : st.task === "cls" ? ["auc", "AUC"] : ["accuracy", "Accuracy"]; }
 // Cross-validate one model, a fold at a time so the page stays responsive
 function crossValidate(st, model, scheme, done, progress) {
+  if (st.err) { done({err: st.err}); return; }
   var folds = foldsFor(st, scheme), oof = new Array(st.y.length), out = [], fi = 0, imp = null, rnd = ML.rng(5);
   if (!folds || !folds.length) { done({err: scheme === "group" ? "Grouped folds need at least two groups." : "Not enough rows to validate."}); return; }
   function step() {
+    if (st.active && !st.active()) { done({cancelled: true, err: "Inputs changed; validation discarded."}); return; }
     try {
       var f = folds[fi], Xt = pickRows(st.X, f.train), yt = pickRows(st.y, f.train), Xs = pickRows(st.X, f.test), ys = pickRows(st.y, f.test);
       if (st.task !== "reg" && Object.keys(yt.reduce(function (o, v) { o[v] = 1; return o; }, {})).length < 2) throw new Error("A training fold contains only one class. Use fewer folds or more rows.");
@@ -107,7 +130,7 @@ function crossValidate(st, model, scheme, done, progress) {
   step();
 }
 function syncCV(st, model, scheme) { var r = null; var _st = setTimeout; try { window.setTimeout = function (f) { f(); }; crossValidate(st, model, scheme, function (x) { r = x; }); } finally { window.setTimeout = _st; } return r; }
-function modelKey(ds, extra) { var s = A.sel; return JSON.stringify([ds.id, ds.rows.length, s.mt, s.mp, s.mm, s.mv, s.mvg, s.mvt, s.mpos, s.mdepth, s.f, s.fv, A.sel.where || null, extra || ""]); }
+function modelKey(ds, extra) { var s = A.sel; return JSON.stringify([ds.id, ds.rows.length, s.mt, s.mp, s.mm, s.mv, s.mvg, s.mvt, s.mpos, s.mdepth, s.mgap, dataVersion(ds), s.f, s.fv, A.sel.where || null, extra || ""]); }
 function costOf(st, model) { var cells = st.y.length * Math.max(1, st.X[0] ? st.X[0].length : 1); return model === "forest" ? cells * 40 : model === "tree" ? cells * 2 : ["ridge", "lasso", "enet", "logistic"].indexOf(model) >= 0 ? cells * 3 : cells; }
 
 function runModel(ds) {
@@ -118,18 +141,20 @@ function runModel(ds) {
   s.mv = s.mv || "k5";
   var st = modelSetup(ds), list = MODELS[st.task];
   if (!s.mm || !list.some(function (m) { return m[0] === s.mm; })) s.mm = list[0][0];
-  var orderCols = ds.cols.filter(function (c) { return c.type === "date" || c.type === "year" || isNum(c); }), grpCols = ds.cols.filter(function (c) { return c.type === "category" || c.type === "text" || c.type === "year"; });
+  var orderCols = ds.cols.filter(function (c) { return c.type !== "empty"; }), grpCols = ds.cols.filter(function (c) { return c.type === "category" || c.type === "text" || c.type === "year"; });
   R.controls = pick("mt", "Predict", cand, s.mt) + choice("mm", "Model", list, s.mm) + choice("mv", "Validation", SCHEMES, s.mv) +
     (s.mv === "group" && grpCols.length ? pick("mvg", "Groups", grpCols, s.mvg || (s.mvg = grpCols[0].name)) : "") + (s.mv === "time" && orderCols.length ? pick("mvt", "Time order", orderCols, s.mvt || (s.mvt = (ds.cols.filter(function (c) { return c.type === "date" || c.type === "year"; })[0] || orderCols[0]).name)) : "") +
     (st.task === "cls" ? choice("mpos", "Positive class", st.classes.slice().reverse().map(function (c) { return [c, c]; }), s.mpos) : "") +
     (s.mm === "tree" || s.mm === "forest" ? choice("mdepth", "Maximum depth", [["", s.mm === "tree" ? "4 (default)" : "Unlimited"], ["2", "2"], ["3", "3"], ["5", "5"], ["8", "8"], ["12", "12"]], s.mdepth || "") : "") +
+    (s.mv === "time" ? choice("mgap", "Gap before testing (distinct time periods)", [["0", "None"], ["1", "1 period"], ["2", "2 periods"], ["5", "5 periods"], ["10", "10 periods"]], s.mgap || "0") : "") +
     mselList("mp", cand.filter(function (c) { return c.name !== s.mt; }), "Predictors", 1);
+  if (st.err) return need(R, st.err);
   if (!st.parts.length) return need(R, "at least one predictor");
   if (st.y.length < 20) return need(R, "at least 20 complete rows");
   if (st.task === "multi" && st.classes.length > 10) return need(R, "an outcome with at most 10 categories (or a number)");
   if (s.mv === "group" && !st.groups) return need(R, "a group column for grouped folds");
   var key = modelKey(ds), res = MOD.key === key ? MOD.res : null;
-  if (!res && (MOD.force || costOf(st, s.mm) * (s.mv === "k10" ? 10 : 5) < 4e6)) { res = syncCV(st, s.mm, s.mv); MOD.key = key; MOD.res = res; }
+  if (!res && !MOD.busy && (MOD.force || costOf(st, s.mm) * (s.mv === "k10" ? 10 : 5) < 4e6)) { res = syncCV(st, s.mm, s.mv); MOD.key = key; MOD.res = res; }
   var run = '<div class="slot"><button type="button" class="btn btn-primary" data-mtrain="1"' + (MOD.busy ? " disabled" : "") + ">" + (res ? "Retrain" : "Train and validate") + '</button><button type="button" class="btn" data-mcompare="1"' + (MOD.busy ? " disabled" : "") + ">Compare all models</button>" + (MOD.busy ? '<span class="count" role="status">' + esc(MOD.busy) + "</span>" : "") + "</div>";
   if (!res) { R.head = '<p class="count">' + st.y.length + " complete rows, " + st.names.length + " predictor columns after encoding categories. This model takes a few seconds to validate.</p>" + run; R.reading = []; return R; }
   if (res.err) { R.head = '<p class="warn">' + esc(res.err) + "</p>" + run; return R; }
@@ -180,16 +205,20 @@ function runModel(ds) {
 }
 function trainAsync(ds, compare) {
   var st = modelSetup(ds), s = A.sel, list = compare ? MODELS[st.task] : [[s.mm, ""]], outs = [], i = 0;
+  var job = {ds: ds, key: modelKey(ds), kind: A.kind}; MOD.job = job;
+  st.active = function () { return MOD.job === job && cur() === ds && A.kind === job.kind && modelKey(ds) === job.key; };
   MOD.busy = "Training…"; render();
   (function next() {
+    if (!st.active()) { if (MOD.job === job) { MOD.job = null; MOD.busy = ""; } return; }
     if (i >= list.length) {
-      MOD.busy = "";
+      MOD.busy = ""; MOD.job = null;
       if (compare) { MOD.compare = outs; MOD.compareKey = modelKey(ds, "compare"); var mine = outs.filter(function (o) { return o.model === s.mm; })[0]; if (mine && mine.raw) { MOD.res = mine.raw; MOD.key = modelKey(ds); } }
       else { MOD.res = outs[0].raw; MOD.key = modelKey(ds); }
       render(); refocus(compare ? "[data-mcompare]" : "[data-mtrain]"); return;
     }
     var m = list[i];
     crossValidate(st, m[0], s.mv, function (r) {
+      if (!st.active() || r.cancelled) return;
       var mmk = mainMetric(st)[0], v = r.err ? [] : r.folds.map(function (f) { return f[mmk]; }), mean = v.length ? S.mean(v) : NaN, sd = v.length > 1 ? Math.sqrt(v.reduce(function (a, x) { return a + (x - mean) * (x - mean); }, 0) / (v.length - 1)) : 0;
       outs.push({model: m[0], label: m[1] || m[0], err: r.err, mean: mean, sd: sd, overall: r.overall, raw: r}); i++; setTimeout(next, 0);
     }, function (f, n) { MOD.busy = (compare ? m[1] + ": " : "") + "fold " + f + " of " + n + "…"; var el = view.querySelector('[role="status"]'); if (el) el.textContent = MOD.busy; });

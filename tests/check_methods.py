@@ -157,6 +157,11 @@ pt_, pp_ = calibration_curve(yt, ps, n_bins=5); ref["calib"] = [[a, b] for a, b 
 D["noise"] = rs.normal(0, 0.5, n).round(5).tolist(); yp = yr + np.array(D["noise"])
 ref["regm"] = [skm.r2_score(yr, yp), math.sqrt(skm.mean_squared_error(yr, yp)), skm.mean_absolute_error(yr, yp)]
 
+# A change of physical units or outcome origin must not change inference.
+ref["rm_units"] = [[ref["rm"][0], ref["rm"][6], ref["rm"][7], ref["rm"][8]]] * 2
+ref["mixed_shift"] = [[ref["mixed"][1], ref["mixed"][3], ref["mixed"][5], ref["mixed"][4]]] * 2
+tol["mixed_shift"] = tol["mixed"]
+ref["cluster_shift"] = [ref["cluster"]] * 2
 ekm = json.loads(subprocess.run(["node", os.path.join(HERE, "methods_harness.js")], input=json.dumps(D), capture_output=True, text=True, check=True).stdout)
 
 def flat(v): return [x for y in v for x in flat(y)] if isinstance(v, (list, tuple, np.ndarray)) else [float(v)]

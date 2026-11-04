@@ -43,7 +43,7 @@ if (typeof nativeDownload === "function") { var _nativeA = nativeDownload; nativ
 // ---- Workflow steps ----
 function wfAdd(ds, R) {
   if (!R || R.valid === false || !R.reading.length) { XP.msg = "Only a valid result can be added to the workflow."; render(); return; }
-  WF.steps.push({id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), at: new Date().toISOString(), dsId: ds.id, dsName: ds.name, fp: dataFingerprint(ds), recipe: clone(ds.recipe || []), kind: A.kind, sel: clone(A.sel), summary: clone(R.summary), title: caption(ds), test: R.summary.test || KIND_HELP[A.kind].split(" (")[0]});
+  WF.steps.push({id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), at: new Date().toISOString(), dsId: ds.id, dsName: ds.name, fp: dataFingerprint(ds), recipe: clone(ds.recipe || []), kind: A.kind, cols: clone(ds.cols), sourceCols: clone((E.orig[ds.id] || ds).cols), sel: clone(A.sel), summary: clone(R.summary), title: caption(ds), test: R.summary.test || KIND_HELP[A.kind].split(" (")[0]});
   WF.results = null; auditLog("Recorded analysis", ds, R.summary.test || A.kind);
   XP.msg = "Recorded in the workflow (" + WF.steps.length + " step" + (WF.steps.length === 1 ? "" : "s") + "). See Write-up → Reproducible workflow."; render();
 }
@@ -182,19 +182,8 @@ function pyAnalysis(stp) {
   }
   return L.filter(Boolean).join("\n");
 }
-function pyModel(s) {
-  var reg = (LAST_R && LAST_R.kind === "model" ? LAST_R.summary.task : null) !== "classification";
-  var est = {linear: "LinearRegression()", ridge: "RidgeCV(alphas=np.logspace(-3, 3, 13))", lasso: "LassoCV(cv=3)", enet: "ElasticNetCV(l1_ratio=0.5, cv=3)", logistic: "LogisticRegressionCV(Cs=[1e4, 100, 10, 1, 0.1], cv=3, max_iter=5000)", tree: (reg ? "DecisionTreeRegressor" : "DecisionTreeClassifier") + "(max_depth=" + (+s.mdepth || 4) + ", min_samples_leaf=5)", forest: (reg ? "RandomForestRegressor" : "RandomForestClassifier") + "(n_estimators=100, min_samples_leaf=2" + (+s.mdepth ? ", max_depth=" + s.mdepth : "") + ", random_state=0)"}[s.mm] || "LinearRegression()";
-  var cv = {k5: "KFold(5, shuffle=True, random_state=0)", k10: "KFold(10, shuffle=True, random_state=0)", group: "GroupKFold(5)", time: "TimeSeriesSplit(5)", holdout: "ShuffleSplit(1, test_size=0.2, random_state=0)"}[s.mv] || "KFold(5)";
-  if (!reg && (s.mv === "k5" || s.mv === "k10")) cv = "StratifiedKFold(" + (s.mv === "k10" ? 10 : 5) + ", shuffle=True, random_state=0)";
-  return ["from sklearn.compose import make_column_transformer", "from sklearn.pipeline import make_pipeline", "from sklearn.preprocessing import OneHotEncoder, StandardScaler", "from sklearn.linear_model import LinearRegression, RidgeCV, LassoCV, ElasticNetCV, LogisticRegressionCV", "from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier", "from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier", "from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold, TimeSeriesSplit, ShuffleSplit, cross_validate, cross_val_predict",
-    "cols = " + JSON.stringify(s.mp || []), "m = d.dropna(subset=cols + [" + q(s.mt) + "]" + (s.mv === "group" ? " + [" + q(s.mvg) + "]" : "") + ")" + (s.mv === "time" ? ".sort_values(" + q(s.mvt) + ")" : ""),
-    "X, y = m[cols], " + (reg ? "m[" + q(s.mt) + "]" : "(m[" + q(s.mt) + "].astype(str) == " + q(s.mpos || "") + ").astype(int)"),
-    "cats = [c for c in cols if not pd.api.types.is_numeric_dtype(m[c])]", "pre = make_column_transformer((OneHotEncoder(drop=\"first\", handle_unknown=\"ignore\"), cats), remainder=StandardScaler())",
-    "pipe = make_pipeline(pre, " + est + ")", "cv = " + cv,
-    "scores = cross_validate(pipe, X, y, cv=cv" + (s.mv === "group" ? ", groups=m[" + q(s.mvg) + "]" : "") + ", scoring=" + (reg ? "[\"r2\", \"neg_root_mean_squared_error\", \"neg_mean_absolute_error\"]" : "[\"roc_auc\", \"accuracy\", \"balanced_accuracy\", \"neg_brier_score\"]") + ")",
-    "print({k: (v.mean(), v.std(ddof=1)) for k, v in scores.items() if k.startswith(\"test_\")})"].join("\n");
-}
+function pyModel(s) { return exactModelScript({kind: "model", sel: s, summary: LAST_R && LAST_R.kind === "model" ? LAST_R.summary : {}}, "py"); }
+
 function rAnalysis(stp) {
   var s = stp.sel, L = [rMask(s)], P = (s.preds || []).filter(function (p) { return p !== s.y; });
   switch (stp.kind) {
@@ -215,7 +204,7 @@ function rAnalysis(stp) {
     case "factor": L.push("X <- na.omit(d[c(" + (s.fitems || []).map(q).join(", ") + ")])", "psych::KMO(X); psych::cortest.bartlett(cor(X), n = nrow(X))", "psych::fa.parallel(X, fa = \"fa\")", "psych::" + (s.fmeth === "pca" ? "principal(X, nfactors = " + ((stp.summary || {}).factors || 2) + ", rotate = " + q(s.frot || "promax") + ")" : "fa(X, nfactors = " + ((stp.summary || {}).factors || 2) + ", fm = \"pa\", rotate = " + q(s.frot || "promax") + ")")); break;
     case "agree": L.push("r <- na.omit(d[c(" + (s.raters || []).map(q).join(", ") + ")])", s.agmode === "icc" ? "psych::ICC(r)" : (s.raters || []).length === 2 ? "irr::kappa2(r, weight = " + q(s.agw === "linear" ? "equal" : s.agw === "quadratic" ? "squared" : "unweighted") + ")" : "irr::kappam.fleiss(r)"); break;
     case "missing": L.push("mice::md.pattern(d[c(" + (s.mcols || []).map(q).join(", ") + ")])", "naniar::mcar_test(Filter(is.numeric, d[c(" + (s.mcols || []).map(q).join(", ") + ")]))", "imp <- mice::mice(d[c(" + [s.miy].concat(s.mix || [], s.miaux || []).filter(Boolean).map(q).join(", ") + ")], m = " + (s.mim || 20) + ", method = \"pmm\", seed = 4242, printFlag = FALSE)", "summary(mice::pool(with(imp, lm(" + rTick(s.miy) + " ~ " + (s.mix || []).map(rTick).join(" + ") + "))), conf.int = TRUE)"); break;
-    case "model": L.push("# Cross-validated " + (s.mm || "model") + " predicting " + s.mt + " (see the Python script for the exact scikit-learn equivalent)", "library(rsample); library(yardstick)", "m <- na.omit(d[c(" + [s.mt].concat(s.mp || []).map(q).join(", ") + ")])", "folds <- " + (s.mv === "group" ? "group_vfold_cv(m, group = " + rTick(s.mvg) + ", v = 5)" : s.mv === "time" ? "rolling_origin(m[order(m[[" + q(s.mvt) + "]]), ], cumulative = TRUE)" : "vfold_cv(m, v = " + (s.mv === "k10" ? 10 : 5) + ")"), "# fit lm/glmnet/rpart/ranger on analysis(fold) and score assessment(fold) for each split"); break;
+    case "model": L.push(exactModelScript(stp, "r")); break;
   }
   return L.filter(Boolean).join("\n");
 }
@@ -256,7 +245,7 @@ if (typeof projectSnapshot === "function") {
     var out = _validA(p); Object.assign(out.selection, extra);
     var metaById = Object.create(null); (Array.isArray(p.meta) ? p.meta : []).forEach(function (m) { if (m && typeof m.id === "string" && Array.isArray(m.cols)) metaById[m.id] = m; });
     out.datasets.forEach(function (ds) { var m = metaById[ds.id]; if (!m) return; ds.cols = ds.cols.map(function (c) { var mc = m.cols.filter(function (x) { return x && x.name === c.name; })[0]; if (!mc) return c; var nc = Object.assign({}, c); if (typeof mc.label === "string" && mc.label) nc.label = mc.label.slice(0, 80); if (typeof mc.unit === "string" && mc.unit) nc.unit = mc.unit.slice(0, 24); if (mc.values && typeof mc.values === "object") { var vv = {}; Object.keys(mc.values).slice(0, 200).forEach(function (k) { if (typeof mc.values[k] === "string") vv[String(k)] = mc.values[k].slice(0, 80); }); nc.values = vv; } return nc; }); if (m.source && typeof m.source === "object" && typeof m.source.kind === "string") ds.sourceSpec = {kind: m.source.kind, url: typeof m.source.url === "string" ? m.source.url : "", path: typeof m.source.path === "string" ? m.source.path : "", query: typeof m.source.query === "string" ? m.source.query : ""}; });
-    out.workflow = Array.isArray(p.workflow) ? p.workflow.filter(function (s) { return s && typeof s.kind === "string" && typeof s.dsName === "string" && s.sel && typeof s.sel === "object"; }).map(function (s) { return {id: String(s.id || ""), at: String(s.at || ""), dsId: String(s.dsId || ""), dsName: s.dsName, fp: String(s.fp || ""), recipe: Array.isArray(s.recipe) ? s.recipe : [], kind: s.kind, sel: s.sel, summary: s.summary && typeof s.summary === "object" ? s.summary : {}, title: esc(String(s.title || "")), test: esc(String(s.test || ""))}; }) : [];
+    out.workflow = Array.isArray(p.workflow) ? p.workflow.filter(function (s) { return s && typeof s.kind === "string" && typeof s.dsName === "string" && s.sel && typeof s.sel === "object"; }).map(function (s) { return {id: String(s.id || ""), at: String(s.at || ""), dsId: String(s.dsId || ""), dsName: s.dsName, fp: String(s.fp || ""), recipe: Array.isArray(s.recipe) ? s.recipe : [], kind: s.kind, sourceCols: Array.isArray(s.sourceCols) ? s.sourceCols.map(function (c) { if (!c || typeof c.name !== "string" || ["number","year","date","category","text","empty"].indexOf(c.type) < 0) throw new Error("Invalid source column."); return {name: c.name, type: c.type}; }) : undefined, cols: Array.isArray(s.cols) ? s.cols.map(function (c) { if (!c || typeof c.name !== "string" || ["number","year","date","category","text","empty"].indexOf(c.type) < 0) throw new Error("Invalid recorded column."); return {name: c.name, type: c.type}; }) : undefined, sel: s.sel, summary: s.summary && typeof s.summary === "object" ? s.summary : {}, title: esc(String(s.title || "")), test: esc(String(s.test || ""))}; }) : [];
     out.audit = Array.isArray(p.audit) ? p.audit.filter(function (e) { return e && typeof e.hash === "string"; }).map(function (e) { return {at: String(e.at), who: String(e.who), action: String(e.action), dataset: String(e.dataset), fp: String(e.fp), detail: String(e.detail), prev: String(e.prev), hash: String(e.hash)}; }) : [];
     return out;
   };
@@ -306,7 +295,7 @@ view.addEventListener("click", function (e) {
   if (d.wfexp) {
     if (d.wfexp === "json") saveFile("ekm-workflow-" + today() + ".json", JSON.stringify({format: "ekm-workflow", version: 1, created: new Date().toISOString(), steps: WF.steps}, null, 2));
     else saveFile("ekm-workflow-" + today() + (d.wfexp === "py" ? ".py" : ".R"), wfScript(d.wfexp));
-    WF.msg = "Scripts start from the original data: save it with Original data (CSV) into the same folder. The Python script reproduces EKM's numbers with the same methods; package defaults can differ slightly for imputation and forests."; render(); return;
+    WF.msg = "Save Original data (CSV) beside the script. Exact replay uses the embedded EKM engine through Node.js, with the recorded cleaning steps, filters and seeds. Python needs its standard library; R also needs jsonlite. Every reported summary is checked against the recorded result."; render(); return;
   }
   if (d.wfdata) {
     var seen = Object.create(null);

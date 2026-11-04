@@ -26,17 +26,18 @@ function splitCSV(text) {
     else if (!quoted) { var at = seps.indexOf(c); if (at >= 0) counts[at]++; if (/\S/.test(c)) started = true; }
   }
   var d = seps[counts.indexOf(amax(counts))];
-  var rows = [], row = [], cell = "", q = false;
+  var rows = [], row = [], cell = "", q = false, cells = 0;
+  function acceptRow(r) { cells += r.length; if (r.length > 2000 || rows.length >= 1000001 || cells > 8002000) throw new Error("Table exceeds the browser budget: at most 1,000,000 rows, 2,000 columns and 8,000,000 cells. Filter or split the source."); rows.push(r); }
   for (var i = 0; i < text.length; i++) {
     var ch = text[i];
     if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
     else if (ch === '"') q = true;
     else if (ch === d) { row.push(cell); cell = ""; }
-    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cell); acceptRow(row); row = []; cell = ""; }
     else cell += ch;
   }
   if (q) throw new Error("A quoted cell is not closed. Close the quote and try again.");
-  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+  if (cell !== "" || row.length) { row.push(cell); acceptRow(row); }
   return rows.filter(function (r) { return r.some(function (c) { return String(c).trim() !== ""; }); });
 }
 function typeColumn(vals, name) {
@@ -54,6 +55,7 @@ function typeColumn(vals, name) {
   return u <= 40 || u / present.length < 0.3 ? "category" : "text";
 }
 function makeSet(name, header, body, origin, extra) {
+  if (body.length > 1000000 || header.length > 2000 || body.length * header.length > 8000000) throw new Error("Table exceeds the browser budget: at most 1,000,000 rows, 2,000 columns and 8,000,000 cells. Filter or split the source.");
   header = header.map(function (h, i) { h = String(h == null ? "" : h).trim(); return h || "Column " + (i + 1); });
   var seen = Object.create(null), reserved = Object.create(null);
   header.forEach(function (h) { reserved[h] = true; });

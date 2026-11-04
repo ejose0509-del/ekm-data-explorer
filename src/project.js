@@ -61,6 +61,7 @@ function validateProject(p) {
   }
   function dataset(ds) {
     if (!ds || typeof ds.id !== 'string' || !/^[\w-]{1,100}$/.test(ds.id) || ['__proto__','constructor','prototype'].indexOf(ds.id) >= 0 || typeof ds.name !== 'string' || !Array.isArray(ds.cols) || !ds.cols.length || !Array.isArray(ds.rows)) throw new Error('Invalid dataset.');
+    if (ds.rows.length > 1000000 || ds.cols.length > 2000 || ds.rows.length * ds.cols.length > 8000000) throw new Error("Project table exceeds the browser row/column/cell budget.");
     var names = Object.create(null);
     var cols = ds.cols.map(function (c) { if (!c || typeof c.name !== 'string' || names[c.name] || ['number','year','date','category','text','empty'].indexOf(c.type) < 0) throw new Error('Invalid columns.'); names[c.name] = true; return {name: c.name, type: c.type}; });
     var rows = ds.rows.map(function (r) { if (!Array.isArray(r) || r.length !== cols.length) throw new Error('Invalid data row.'); return r.map(function (v,j) { if (v !== null && typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') throw new Error('Invalid cell.'); if (v !== null && isNum(cols[j]) && typeof v !== 'number') throw new Error('Numeric cells must contain numbers.'); return v; }); });
@@ -127,7 +128,7 @@ view.addEventListener('click', function (e) {
   var b = e.target.closest('button'); if (!b) return;
   if (b.dataset.projectLatest || b.dataset.projectDraft) { try { var text = localStorage.getItem(b.dataset.projectDraft ? document.getElementById('project-draft').value : PROJECT.key), p = JSON.parse(text); restoreProject(b.dataset.projectDraft ? p.project : p); PROJECT.base = localStorage.getItem(PROJECT.key); PROJECT.conflict = false; PROJECT.message = 'Project restored; other tab drafts remain available.'; } catch(err) { PROJECT.message = 'Could not restore project: ' + err.message; } render(); return; }
   if (b.dataset.projectOpen) { document.getElementById('project-file').value = ''; document.getElementById('project-file').click(); }
-  if (b.dataset.projectSave) { try { var snapshot = projectSnapshot(); validateProject(snapshot); var projectText = JSON.stringify(snapshot, null, 2); if (new Blob([projectText]).size > 50e6) throw new Error('Project exceeds the 50 MB opening limit. Export your datasets separately or reduce cleaning history.'); nativeDownload('ekm-project.json', projectText); PROJECT.message = 'Project download started.'; } catch (err) { PROJECT.message = err.message; } render(); }
+  if (b.dataset.projectSave) { try { var snapshot = projectSnapshot(); validateProject(snapshot); var projectText = JSON.stringify(snapshot); if (new Blob([projectText]).size > 50e6) throw new Error('Project exceeds the 50 MB opening limit. Export your datasets separately or reduce cleaning history.'); nativeDownload('ekm-project.json', projectText); PROJECT.message = 'Project download started.'; } catch (err) { PROJECT.message = err.message; } render(); }
   if (b.dataset.projectClear) { PROJECT.remember = false; try { localStorage.setItem('ekm-remember', 'off'); localStorage.removeItem(PROJECT.key); Object.keys(localStorage).filter(function (k) { return k.indexOf(PROJECT.key + '-draft-') === 0; }).forEach(function (k) { localStorage.removeItem(k); }); } catch (err) {} PROJECT.base = null; PROJECT.conflict = false; PROJECT.storageMessage = ''; PROJECT.last = ''; PROJECT.message = 'Browser copy and preserved drafts removed. Your current tab is unchanged; save a project file before closing it.'; render(); }
 });
 view.addEventListener('change', function (e) {
@@ -137,7 +138,9 @@ view.addEventListener('change', function (e) {
     f.text().then(function (text) { restoreProject(JSON.parse(text)); PROJECT.message = 'Project opened. Review imported results before using them.'; nav('data'); }).catch(function (err) { PROJECT.message = 'Project not opened. ' + err.message; render(); });
   }
 });
+function restoreBrowserProject() {
 try { var pref = localStorage.getItem('ekm-remember'); if (pref) PROJECT.remember = pref === 'on'; var cached = localStorage.getItem(PROJECT.key); PROJECT.base = cached; if (cached) { restoreProject(JSON.parse(cached)); PROJECT.remember = true; } } catch (err) { PROJECT.remember = false; PROJECT.message = 'Saved browser project could not be restored. Open a project backup.'; }
+}
 
 PROJECT.owner = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
 window.addEventListener('storage', function (e) { if (e.key === 'ekm-remember' && e.newValue === 'off') { PROJECT.remember = false; PROJECT.base = null; PROJECT.conflict = false; PROJECT.storageMessage = 'Browser saving was switched off in another tab. Save a project file to keep your work.'; render(); return; } if (e.key === PROJECT.key && PROJECT.remember && e.newValue !== PROJECT.base) { PROJECT.conflict = true; render(); } });

@@ -69,4 +69,8 @@ out.metrics = [cm.auc, cm.f1, cm.precision, cm.recall, cm.logloss, cm.brier, cm.
 out.calib = ML.calibration(D.yt, D.ps, 5).bins.map((b) => [b.obs, b.pred]);
 const rmm = ML.regMetrics(D.yr, D.yr.map((v, i) => v + D.noise[i]));
 out.regm = [rmm.r2, rmm.rmse, rmm.mae];
+// Unit and origin invariance: reference values come from the same published tests.
+out.rm_units = [1e-3, 1e3].map((scale) => { const r = S3.rmAnova(D.rm.map((row) => row.map((v) => v * scale))); return [r.F, r.pGG, r.mauchly.W, r.mauchly.p]; });
+out.mixed_shift = [1e6, 1e9].map((shift) => { const r = S3.mixed(D.mm.y.map((v) => v + shift), D.mm.X, D.mm.X.map(() => [1]), D.mm.g, ["Intercept", "x"]); return [r.fe[1].b, r.fe[1].se, r.scale, r.Psi[0][0]]; });
+out.cluster_shift = [1e6, 1e9].map((shift) => { const r = S3.clusterOLS(D.mm.y.map((v) => v + shift), D.mm.X, D.mm.g, ["Intercept", "x"]); return [r.coefs[1].b, r.coefs[1].se, r.coefs[1].p]; });
 console.log(JSON.stringify(out));

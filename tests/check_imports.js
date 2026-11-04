@@ -28,7 +28,7 @@ var tests=[
  {name:'Ragged CSV rejects surplus values',file:'ragged.csv',data:'Score,Group\n10,A,LOST\n20,B',reject:true},
  {name:'Unclosed CSV quote rejection',file:'unclosed.csv',data:'Score,Group\n10,"A\n20,B',reject:true},
  {name:'Corrupt Excel rejection',file:'broken.xlsx',data:Buffer.from([0x50,0x4b,0x03,0x04,0xff,0,0xff]),reject:true},
- {name:'Oversized file rejection',file:'large.csv',data:Buffer.alloc(25000001,32),reject:true}
+ {name:'Oversized file rejection',file:'large.csv',data:Buffer.alloc(50000001,32),reject:true}
 ];
 (async function () {
   var browser = await chromium.launch({headless: true, channel: process.env.BROWSER_CHANNEL || undefined});

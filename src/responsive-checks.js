@@ -1,5 +1,5 @@
 // All relationship pairs are screened off the UI thread, with a yielding fallback.
-var REL = {cache: new WeakMap(), current: null};
+var REL = {cache: new WeakMap(), baseline: new WeakMap(), current: null};
 function relationshipScan(rows, indices, emit, cancelled) {
   var columns = indices.map(function (j) { return rows.map(function (r) { return r[j]; }); }), a = 0, b = 1, done = 0, total = indices.length * (indices.length - 1) / 2, matches = [], count = 0;
   function chunk() {
@@ -42,10 +42,17 @@ function startRelationships(ds, job) {
 }
 var _baseChecks = checks;
 checks = function (ds) {
+  // A metadata-only step can share rows with the baseline. Never replace the live
+  // scan with that baseline's different columns, which otherwise restarts forever.
+  if (cur() !== ds) {
+    var base = REL.baseline.get(ds.rows);
+    if (!base || base.cols !== ds.cols) { base = {cols: ds.cols, findings: _baseChecks(ds)}; REL.baseline.set(ds.rows, base); }
+    return base.findings;
+  }
   var job = REL.cache.get(ds.rows);
   if (!job || job.cols !== ds.cols) { job = {cols:ds.cols, findings:[], base:_baseChecks(ds), state:'ready', done:0, total:0, worker:null}; REL.cache.set(ds.rows, job); }
   // Baseline comparisons reuse their base checks; only the current table starts a scan.
-  if (cur() === ds && st.tab === 'enhance' && job.state === 'ready') setTimeout(function () { if (cur() === ds && st.tab === 'enhance' && job.state === 'ready') startRelationships(ds, job); }, 0);
+  if (cur() === ds && st.tab === 'enhance' && job.state === 'ready') setTimeout(function () { if (cur() === ds && st.tab === 'enhance' && job.state === 'ready' && REL.cache.get(ds.rows) === job && ds.cols === job.cols) startRelationships(ds, job); }, 0);
   return job.base.concat(job.findings);
 };
 var _responsiveEnhance = VIEWS.enhance;

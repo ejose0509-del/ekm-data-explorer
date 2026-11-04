@@ -105,7 +105,7 @@ async function download(sel) { const p = page.waitForEvent("download", {timeout:
         await page.evaluate(() => { var ds = cur(); applyStep(ds, {op: "edit", row: 1, col: "Score", value: 10, text: "Edited"}, function () { return opEdit(ds, 1, "Score", 10); }); }); await nav("writeup"); await page.locator("[data-wfrun]").click();
         assert(await page.locator("text=Data changed since recorded").count());
         const py = fs.readFileSync(await download('[data-wfexp="py"]'), "utf8"), r = fs.readFileSync(await download('[data-wfexp="r"]'), "utf8");
-        assert(py.includes("pg.cronbach_alpha") && py.includes("smf.mixedlm") && py.includes("df = pd.read_csv")); assert(r.includes("lmer(") && r.includes("psych::alpha"));
+        assert(py.includes("csv.reader") && py.includes("subprocess.run") && py.includes("Replay differs")); assert(r.includes("system2") && r.includes("Replay differs"));
         await page.evaluate(() => { var ds = cur(); E.undo[ds.id] = []; });
       });
       await check("exported Python script reproduces EKM's numbers", async () => {
