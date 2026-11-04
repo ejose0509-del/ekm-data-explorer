@@ -7,13 +7,14 @@ var MAX_SAVE = 4e6, CHUNK = 180000;
 function parseNum(v) {
   if (typeof v === "number") return isFinite(v) ? v : null;
   var s = String(v == null ? "" : v).trim();
-  if (!s || /^(na|n\/a|nan|null|none|-|—|\.|no data( found)?)$/i.test(s)) return null;
+  if (!s) return null;
   var pct = /%$/.test(s); s = s.replace(/[%$€£¥\s]/g, "");
   if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, "");
   if (!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(s)) return undefined;
-  return isFinite(+s) ? +s : null;
+  if (/^[-+]?\d+$/.test(s) && Math.abs(+s) > 9007199254740991) return undefined;
+  return isFinite(+s) ? +s : undefined;
 }
-function isMissing(v) { return v == null || v === "" || parseNum(v) === null && !/\S/.test(String(v)) || /^(na|n\/a|nan|null|none|no data( found)?)$/i.test(String(v).trim()); }
+function isMissing(v) { return v == null || typeof v === 'string' && !/\S/.test(v); }
 function splitCSV(text) {
   text = String(text).replace(/^\uFEFF/, "");
   // Count separators only outside quoted cells in the first nonblank record.
@@ -42,25 +43,25 @@ function typeColumn(vals, name) {
   var present = vals.filter(function (v) { return !isMissing(v); });
   if (!present.length) return "empty";
   var numeric = present.filter(function (v) { return typeof parseNum(v) === "number"; }).length / present.length;
-  if (numeric >= 0.9) {
+  if (numeric === 1 && !present.some(function (v) { return typeof v === 'string' && /^[-+]?0\d/.test(v.trim()); })) {
     var ns = present.map(parseNum).filter(function (v) { return typeof v === "number"; });
     if (/year|año|ano|yr|anio/i.test(name) && ns.every(function (v) { return v === Math.round(v) && v >= 1800 && v <= 2200; })) return "year";
     return "number";
   }
-  if (present.filter(function (v) { return /^\d{4}-\d{2}(-\d{2})?/.test(String(v)); }).length / present.length >= 0.9) return "date";
-  var uniq = {}; present.forEach(function (v) { uniq[String(v).trim()] = 1; });
+  if (present.every(function (v) { var t = String(v), m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(t); if (!m) return false; var d = new Date(t + (m[3] ? '' : '-01') + 'T00:00:00Z'); return !isNaN(d.getTime()) && d.toISOString().slice(0, m[3] ? 10 : 7) === t; })) return "date";
+  var uniq = Object.create(null); present.forEach(function (v) { uniq[String(v).trim()] = 1; });
   var u = Object.keys(uniq).length;
   return u <= 40 || u / present.length < 0.3 ? "category" : "text";
 }
 function makeSet(name, header, body, origin, extra) {
-  header = header.map(function (h, i) { h = String(h || "").trim(); return h || "Column " + (i + 1); });
+  header = header.map(function (h, i) { h = String(h == null ? "" : h).trim(); return h || "Column " + (i + 1); });
   var seen = Object.create(null), reserved = Object.create(null);
   header.forEach(function (h) { reserved[h] = true; });
   header = header.map(function (h) { var n = h, i = 2; if (seen[n]) { do { n = h + " (" + i++ + ")"; } while (seen[n] || reserved[n]); } seen[n] = true; return n; });
   if (!header.length) throw new Error("No columns were found. Add a header row and try again.");
   body.forEach(function (r, i) { if (r.length > header.length) throw new Error("Data row " + (i + 1) + " has more values than the header. Add the missing column names or remove the extra values."); });
   var cols = header.map(function (h, j) { return {name: h, type: typeColumn(body.map(function (r) { return r[j]; }), h)}; });
-  var rows = body.map(function (r) { return cols.map(function (c, j) { var v = r[j]; if (isMissing(v)) return null; if (c.type === "number" || c.type === "year") { var n = parseNum(v); return typeof n === "number" ? n : null; } return String(v).trim(); }); });
+  var rows = body.map(function (r) { return cols.map(function (c, j) { var v = r[j]; if (isMissing(v)) return null; if (c.type === "number" || c.type === "year") { var n = parseNum(v); return typeof n === "number" ? n : null; } return String(v); }); });
   return Object.assign({id: "d" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: name, origin: origin || "file", source: "", note: "", added: new Date().toISOString().slice(0, 10), cols: cols, rows: rows, saved: false}, extra || {});
 }
 function colVals(ds, j) { return ds.rows.map(function (r) { return r[j]; }); }
@@ -103,15 +104,16 @@ function loadRows(ds) {
     .then(function (snaps) { ds.rows = JSON.parse(snaps.map(function (s) { return s.data().part; }).join("")); return ds; });
 }
 function deleteSet(ds) {
-  A.sets = A.sets.filter(function (s) { return s.id !== ds.id; }); A.cur = A.sets[0] && A.sets[0].id; A.sel = {}; A.ai = {};
+  A.sets = A.sets.filter(function (s) { return s.id !== ds.id; }); A.cur = A.sets[0] && A.sets[0].id; A.sel = Object.create(null); A.ai = Object.create(null);
   if (ST.on && ds.saved) { var n = ds.parts || 0; col().doc(ds.id).delete().catch(function () {}); for (var i = 0; i < n; i++) col().doc(ds.id + "_p" + i).delete().catch(function () {}); }
 }
 
 // --- reading files ---
 function readFile(file) {
+  if (typeof IMPORT !== "undefined") IMPORT.workbook = null;
   var name = file.name.replace(/\.[^.]+$/, ""), ext = (file.name.split(".").pop() || "").toLowerCase();
   A.busy = "Reading " + file.name + "…"; render();
-  var done = function (ds) { A.busy = ""; if (!ds.rows.length) { A.msg = file.name + " has no data rows."; render(); return; } A.sets.unshift(ds); A.cur = ds.id; A.sel = {}; A.ai = {}; A.msg = ""; render(); saveSet(ds); };
+  var done = function (ds) { A.busy = ""; if (!ds.rows.length) { A.msg = file.name + " has no data rows."; render(); return; } A.sets.unshift(ds); A.cur = ds.id; A.sel = Object.create(null); A.ai = Object.create(null); A.msg = ""; render(); saveSet(ds); };
   var fail = function (m) { A.busy = ""; A.msg = m; render(); };
   if (file.size > 25e6) return fail(file.name + " is " + (file.size / 1e6).toFixed(0) + " MB. Files up to 25 MB can be opened.");
   if (ext === "xlsx" || ext === "xls") {
@@ -119,6 +121,7 @@ function readFile(file) {
       return file.arrayBuffer().then(function (buf) {
         var wb = X.read(buf, {type: "array"}), sh = wb.Sheets[wb.SheetNames[0]];
         if (!sh) throw new Error("No worksheets were found.");
+        IMPORT.workbook = wb.SheetNames.length > 1 ? {reader: X, book: wb, names: wb.SheetNames, name: name} : null;
         var aoa = X.utils.sheet_to_json(sh, {header: 1, raw: true, defval: ""});
         aoa = aoa.filter(function (r) { return r.some(function (c) { return String(c).trim() !== ""; }); });
         done(makeSet(name + (wb.SheetNames.length > 1 ? " (" + wb.SheetNames[0] + ")" : ""), aoa[0] || [], aoa.slice(1)));
@@ -128,7 +131,7 @@ function readFile(file) {
   return file.text().then(function (t) {
     if (ext === "json" || /^\s*[\[{]/.test(t)) {
       var j;
-      try { j = JSON.parse(t); } catch (e) { return fail(file.name + " is not valid JSON. Check its commas, quotes and brackets, then try again."); }
+      try { j = losslessJSONParse(t); } catch (e) { return fail(file.name + " is not valid JSON. Check its commas, quotes and brackets, then try again."); }
       if (j && !Array.isArray(j) && typeof j === "object") j = j.data || j.rows || Object.values(j).filter(Array.isArray)[0];
       if (!Array.isArray(j) || j.some(function (o) { return !o || typeof o !== "object" || Array.isArray(o); }))
         return fail(file.name + " needs a JSON array of row objects, optionally inside data or rows. Export the table as CSV if needed.");
@@ -149,13 +152,13 @@ function loadXLSX() {
 }
 
 // --- formatting ---
-function f3(v) { if (v == null || !isFinite(v)) return "—"; var a = Math.abs(v); return a >= 1e6 ? (v / 1e6).toFixed(2) + "M" : a >= 1000 ? Math.round(v).toLocaleString("en-US") : a >= 100 ? v.toFixed(1) : a >= 1 ? v.toFixed(2) : a === 0 ? "0" : v.toPrecision(3); }
+function f3(v) { if (v == null || !isFinite(v)) return "—"; var a = Math.abs(v); if (a >= 1e9 || a > 0 && a < .001) return v.toExponential(2); return a >= 1e6 ? (v / 1e6).toFixed(2) + "M" : a >= 1000 ? Math.round(v).toLocaleString("en-US") : a >= 100 ? v.toFixed(1) : a >= 1 ? v.toFixed(2) : a === 0 ? "0" : v.toPrecision(3); }
 function fp(p) { return p == null || !isFinite(p) ? "—" : p < 0.001 ? "< 0.001" : p.toFixed(3); }
 var TYPE_LABEL = {number: "Number", year: "Year", date: "Date", category: "Category", text: "Text", empty: "Empty"};
 
 // --- built-in interpreter: plain-language reading of each result ---
 function rWord(r) { var a = Math.abs(r); return a < 0.1 ? "almost no" : a < 0.3 ? "a weak" : a < 0.5 ? "a moderate" : a < 0.7 ? "a strong" : "a very strong"; }
-function pWord(p) { return p < 0.001 ? "very unlikely to be chance alone (p < 0.001)" : p < 0.01 ? "unlikely to be chance alone (p = " + fp(p) + ")" : p < 0.05 ? "probably not chance alone, though the evidence is modest (p = " + fp(p) + ")" : "could easily be chance (p = " + fp(p) + ")"; }
+function pWord(p) { return (p < .05 ? 'inconsistent with the null model at the conventional .05 threshold' : 'not clearly inconsistent with the null model at the conventional .05 threshold') + ' (p ' + (p < .001 ? '< .001' : '= ' + fp(p)) + ', assuming the test conditions hold)'; }
 function nCaveat(n) { return n < 10 ? "With only " + n + " data points, any pattern here is fragile; one changed row could flip it." : n < 30 ? "The sample is small (" + n + " rows), so treat exact numbers as rough." : ""; }
 
 // --- analyses ---
@@ -172,7 +175,7 @@ function defaults(ds) {
   if (!has(s.y)) s.y = (nums[0] || {}).name; if (!has(s.x)) s.x = (nums[1] || nums[0] || {}).name;
   if (!has(s.g)) s.g = (cats[0] || {}).name; if (!has(s.g2)) s.g2 = (cats[1] || cats[0] || {}).name;
   if (!has(s.t)) s.t = (time[0] || {}).name; if (s.f && !has(s.f)) s.f = "";
-  if (!s.preds) s.preds = nums.slice(1, 4).map(function (c) { return c.name; });
+  if (!Array.isArray(s.preds)) s.preds = nums.slice(1, 4).map(function (c) { return c.name; });
   s.preds = s.preds.filter(has);
   return {nums: nums, cats: cats, time: time};
 }
@@ -192,14 +195,14 @@ function runAnalysis(ds) {
       var d = S.describe(vals); R.summary = {column: s.y, n: d.n, mean: d.mean, sd: d.sd, median: d.median, min: d.min, max: d.max, skew: d.skew, outliers: d.outliers, missing: miss};
       R.head = figs([["Typical (median)", f3(d.median)], ["Average", f3(d.mean)], ["Spread (SD)", f3(d.sd)], ["Range", f3(d.min) + " to " + f3(d.max)], ["Rows", d.n + (miss ? " · " + miss + " missing" : "")]]);
       R.chart = histogram(S.nums(vals), s.y);
-      R.reading.push("Half the rows are below " + f3(d.median) + " and half above. The middle half sits between " + f3(d.q1) + " and " + f3(d.q3) + ".");
+      R.reading.push("The median (middle value) is " + f3(d.median) + ". The middle half sits between " + f3(d.q1) + " and " + f3(d.q3) + ".");
       if (Math.abs(d.skew) > 1) R.reading.push("The values are lopsided (" + (d.skew > 0 ? "a long tail of high values" : "a long tail of low values") + "), so the median describes a typical row better than the average.");
       else R.reading.push("The values are roughly balanced around the middle, so the average and median tell a similar story.");
       if (d.outliers) R.caveats.push(d.outliers + " value" + (d.outliers > 1 ? "s sit" : " sits") + " far from the rest (beyond 1.5× the middle range). Check whether they are real or entry errors.");
       if (miss / vals.length > 0.2) R.caveats.push(Math.round(miss / vals.length * 100) + "% of rows have no value here. If they are missing for a reason, the summary may be biased.");
       if (nCaveat(d.n)) R.caveats.push(nCaveat(d.n));
     } else {
-      var counts = {}; vals.forEach(function (v) { if (v != null) counts[v] = (counts[v] || 0) + 1; });
+      var counts = Object.create(null); vals.forEach(function (v) { if (v != null) counts[v] = (counts[v] || 0) + 1; });
       var top = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; }), n = vals.length - miss;
       R.summary = {column: s.y, n: n, distinct: top.length, top: top.slice(0, 5).map(function (k) { return [k, counts[k]]; }), missing: miss};
       R.head = figs([["Distinct values", top.length], ["Most common", esc(top[0] || "—")], ["Its share", n ? Math.round(counts[top[0]] / n * 100) + "%" : "—"], ["Rows", n + (miss ? " · " + miss + " missing" : "")]]);
@@ -210,7 +213,7 @@ function runAnalysis(ds) {
   } else if (A.kind === "compare") {
     if (!c.nums.length || !c.cats.length) return need(R, "a number column and a category column");
     R.controls = pick("y", "Measure", c.nums, s.y) + pick("g", "Group by", c.cats, s.g);
-    var y = get(s.y), g = get(s.g), groups = {};
+    var y = get(s.y), g = get(s.g), groups = Object.create(null);
     y.forEach(function (v, i) { if (typeof v === "number" && g[i] != null) (groups[g[i]] = groups[g[i]] || []).push(v); });
     var names = Object.keys(groups).filter(function (k) { return groups[k].length >= 2; }).sort(function (a, b) { return S.mean(groups[b]) - S.mean(groups[a]); });
     if (names.length < 2) return need(R, "at least two groups with two or more values each");
@@ -222,7 +225,7 @@ function runAnalysis(ds) {
       var t = S.ttest(groups[names[0]], groups[names[1]]);
       R.summary = {test: "Welch t-test", measure: s.y, groups: names, means: [t.A.mean, t.B.mean], diff: t.diff, ci95: [t.ciLo, t.ciHi], t: t.t, df: t.df, p: t.p, cohen_d: t.d};
       R.head = figs([["Difference in averages", f3(t.diff)], ["95% range for it", f3(t.ciLo) + " to " + f3(t.ciHi)], ["p-value", fp(t.p)], ["Effect size (d)", f3(t.d)]], true) + tbl;
-      R.reading.push("“" + esc(names[0]) + "” averages " + f3(t.A.mean) + " against " + f3(t.B.mean) + " for “" + esc(names[1]) + "”, a difference of " + f3(t.diff) + ". That gap " + pWord(t.p) + ".");
+      R.reading.push("“" + esc(names[0]) + "” averages " + f3(t.A.mean) + " against " + f3(t.B.mean) + " for “" + esc(names[1]) + "”, a difference of " + f3(t.diff) + ". That gap is " + pWord(t.p) + ".");
       R.reading.push("The effect is " + (Math.abs(t.d) < 0.2 ? "negligible" : Math.abs(t.d) < 0.5 ? "small" : Math.abs(t.d) < 0.8 ? "medium" : "large") + " (Cohen's d = " + f3(t.d) + "). The true difference most plausibly lies between " + f3(t.ciLo) + " and " + f3(t.ciHi) + ".");
     } else {
       var an = S.anova(names.map(function (k) { return groups[k]; }));
@@ -244,16 +247,17 @@ function runAnalysis(ds) {
     R.summary = {test: "Pearson and Spearman correlation", x: s.x, y: s.y, n: co.n, r: co.r, ci95: [co.ciLo, co.ciHi], p: co.p, spearman: co.rho, slope: co.slope, r2: co.r2};
     R.head = figs([["Correlation (r)", f3(co.r)], ["95% range for r", f3(co.ciLo) + " to " + f3(co.ciHi)], ["p-value", fp(co.p)], ["Rows used", co.n]], true);
     R.chart = scatter(co.x, co.y, s.x, s.y, co);
-    R.reading.push("There is " + rWord(co.r) + " " + (co.r >= 0 ? "positive" : "negative") + " link: when " + esc(s.x) + " is higher, " + esc(s.y) + " tends to be " + (co.r >= 0 ? "higher" : "lower") + ". It is " + pWord(co.p) + ".");
+    R.reading.push("In these rows, there is an estimated " + rWord(co.r) + " " + (co.r >= 0 ? "positive" : "negative") + " link: when " + esc(s.x) + " is higher, " + esc(s.y) + " tends to be " + (co.r >= 0 ? "higher" : "lower") + ". It is " + pWord(co.p) + ".");
     R.reading.push("On the fitted line, each 1-unit rise in " + esc(s.x) + " goes with a change of " + f3(co.slope) + " in " + esc(s.y) + ". " + esc(s.x) + " accounts for about " + Math.round(co.r2 * 100) + "% of the variation in " + esc(s.y) + ".");
+    if (co.ciLo <= 0 && co.ciHi >= 0) R.caveats.push('The 95% interval includes zero; these data do not establish the direction of the population correlation.');
     if (Math.abs(co.rho - co.r) > 0.2) R.caveats.push("The rank-based correlation (" + f3(co.rho) + ") differs from r, so a few extreme points or a curved pattern may be driving the result. Look at the chart.");
     R.caveats.push("Correlation is not causation: a third factor can drive both numbers.");
     if (nCaveat(co.n)) R.caveats.push(nCaveat(co.n));
   } else if (A.kind === "cross") {
     if (c.cats.length < 2) return need(R, "two category columns");
     R.controls = pick("g", "Rows", c.cats, s.g) + pick("g2", "Columns", c.cats, s.g2);
-    var a = get(s.g), b = get(s.g2), ra = {}, cb = {}, cells = {};
-    a.forEach(function (v, i) { if (v == null || b[i] == null) return; ra[v] = (ra[v] || 0) + 1; cb[b[i]] = (cb[b[i]] || 0) + 1; cells[v + "\u0000" + b[i]] = (cells[v + "\u0000" + b[i]] || 0) + 1; });
+    var a = get(s.g), b = get(s.g2), ra = Object.create(null), cb = Object.create(null), cells = Object.create(null);
+    a.forEach(function (v, i) { if (v == null || b[i] == null) return; ra[v] = (ra[v] || 0) + 1; cb[b[i]] = (cb[b[i]] || 0) + 1; cells[JSON.stringify([String(v), String(b[i])])] = (cells[JSON.stringify([String(v), String(b[i])])] || 0) + 1; });
     var rk = Object.keys(ra).sort(function (p, q) { return ra[q] - ra[p]; }).slice(0, 12), ck = Object.keys(cb).sort(function (p, q) { return cb[q] - cb[p]; }).slice(0, 8);
     if (rk.length < 2 || ck.length < 2 || s.g === s.g2) return need(R, "two different category columns with at least two values each");
     var table = rk.map(function (r) { return ck.map(function (k) { return cells[r + "\u0000" + k] || 0; }); }), ch = S.chisq(table);
@@ -268,8 +272,8 @@ function runAnalysis(ds) {
   } else if (A.kind === "trend") {
     if (!c.time.length || !c.nums.length) return need(R, "a year or date column and a number column");
     R.controls = pick("t", "Time", c.time, s.t) + pick("y", "Measure", c.nums, s.y) + pick("g", "Separate lines by", c.cats, s.g, true);
-    var tcol = ds.cols[idxOf(ds, s.t)], tv = get(s.t).map(function (v) { return tcol.type === "year" ? v : v ? Date.parse(String(v).slice(0, 10)) / (365.25 * 864e5) + 1970 : null; }), yv = get(s.y), gv = s.g ? get(s.g) : null, series = {};
-    tv.forEach(function (t2, i) { if (t2 == null || typeof yv[i] !== "number") return; var k = gv ? (gv[i] == null ? "(none)" : gv[i]) : s.y; (series[k] = series[k] || {}); (series[k][t2] = series[k][t2] || []).push(yv[i]); });
+    var tcol = ds.cols[idxOf(ds, s.t)], tv = get(s.t).map(function (v) { return tcol.type === "year" ? v : v ? Date.parse(String(v).slice(0, 10)) / (365.25 * 864e5) + 1970 : null; }), yv = get(s.y), gv = s.g ? get(s.g) : null, series = Object.create(null);
+    tv.forEach(function (t2, i) { if (t2 == null || typeof yv[i] !== "number") return; var k = gv ? (gv[i] == null ? "(none)" : gv[i]) : s.y; (series[k] = series[k] || Object.create(null)); (series[k][t2] = series[k][t2] || []).push(yv[i]); });
     var keys = Object.keys(series).slice(0, 7);
     if (!keys.length) return need(R, "rows with both a time and a value");
     var lines = keys.map(function (k) { return {name: k, pts: Object.keys(series[k]).map(Number).sort(function (p, q) { return p - q; }).map(function (t3) { return [t3, S.mean(series[k][t3])]; })}; });
@@ -309,7 +313,7 @@ function runAnalysis(ds) {
 }
 function flatTail(name, byYear) { var ys = Object.keys(byYear).map(Number).sort(function (a, b) { return a - b; }), v = ys.map(function (y) { return S.mean(byYear[y]); }), n = v.length, i = n - 1; while (i > 0 && v[i - 1] === v[n - 1]) i--; return n - i >= 4 ? Math.round(ys[i]) + " to " + Math.round(ys[n - 1]) : ""; }
 function need(R, what) { R.head = '<p class="nd">This analysis needs ' + what + ". Pick another analysis or change column types under Your data.</p>"; return R; }
-var FIGPREV = {};
+var FIGPREV = Object.create(null);
 function rewrite(key, val) { var c = FIGPREV[key] != null && FIGPREV[key] !== String(val) ? " rewrite" : ""; FIGPREV[key] = String(val); return c; }
 function figs(list, keyFirst) { return '<div class="figs afigs">' + list.map(function (x, i) { return '<div class="fig' + (keyFirst && !i ? " key" : "") + '"><span class="label">' + x[0] + '</span><b class="num' + rewrite(A.kind + x[0], x[1]) + '">' + x[1] + "</b></div>"; }).join("") + "</div>"; }
 
@@ -317,12 +321,30 @@ function figs(list, keyFirst) { return '<div class="figs afigs">' + list.map(fun
 function CW() { return window.matchMedia && matchMedia("(max-width: 600px)").matches ? 360 : 640; }
 function LW(W) { return W < 400 ? 112 : 196; }
 var PAL = ["var(--blue)", "var(--yellow)", "var(--pink)", "var(--green)", "var(--orange)", "var(--violet)", "var(--chalk-2)"];
-function ticks(lo, hi, n) { if (lo === hi) { lo -= 1; hi += 1; } var span = hi - lo, step = Math.pow(10, Math.floor(Math.log10(span / n))), err = n / span * step; step *= err <= 0.15 ? 10 : err <= 0.35 ? 5 : err <= 0.75 ? 2 : 1; var t = [], s = Math.ceil(lo / step) * step; for (var v = s; v <= hi + step * 1e-9; v += step) t.push(+v.toPrecision(12)); return t; }
+function ticks(lo, hi, n) {
+  if (!isFinite(lo) || !isFinite(hi) || hi < lo) return [];
+  var scale = Math.max(Math.abs(lo), Math.abs(hi), 1e-300);
+  if (lo === hi) { var pad = Math.max(scale * .05, 1e-300); lo = isFinite(lo - pad) ? lo - pad : lo; hi = isFinite(hi + pad) ? hi + pad : hi; }
+  var span = hi / scale - lo / scale, unit = Math.pow(10, Math.floor(Math.log10(span / Math.max(1, n)))), err = n / span * unit;
+  unit *= err <= .15 ? 10 : err <= .35 ? 5 : err <= .75 ? 2 : 1;
+  var step = unit * scale; if (!(step > 0) || !isFinite(step)) return [lo, hi];
+  var start = Math.ceil(lo / step), count = Math.min(100, Math.max(0, Math.floor(hi / step - start + 1e-8) + 1)), out = [];
+  for (var i = 0; i < count; i++) { var v = (start + i) * step; if (isFinite(v) && (!out.length || v > out[out.length - 1])) out.push(v); }
+  return out.length ? out : [lo, hi];
+}
+function chartAxis(values) {
+  var max = 0, lo = Infinity, hi = -Infinity;
+  values.forEach(function (v) { max = Math.max(max, Math.abs(v)); lo = Math.min(lo, v); hi = Math.max(hi,v); });
+  var range = hi - lo, offset = range > 0 && isFinite(range) && max / range > 1000 ? lo : 0, size = offset ? range : max;
+  var exponent = size && (size >= 1e9 || size < .001) ? Math.max(-323, Math.min(308, Math.floor(Math.log10(size)))) : 0, unit = Math.pow(10, exponent);
+  return {suffix: offset ? ' (offset ' + String(offset) + (exponent ? '; ×10^' + exponent : '') + ')' : exponent ? ' · ×10^' + exponent : '', scaled: !!exponent || !!offset, format: function (v) { return f3((v - offset) / unit); }};
+}
 function frame(W, H, x, y, xt, yt, xl, yl, body, xfmt) {
+  var xa = chartAxis(xt), ya = chartAxis(yt);
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="' + esc(yl + " by " + xl) + '">';
-  yt.forEach(function (v) { g += '<line x1="56" x2="' + (W - 12) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)"/><text x="50" y="' + (y(v) + 4) + '" text-anchor="end" class="tk">' + f3(v) + "</text>"; });
-  xt.forEach(function (v) { g += '<text x="' + x(v) + '" y="' + (H - 26) + '" text-anchor="middle" class="tk">' + (xfmt ? xfmt(v) : f3(v)) + "</text>"; });
-  return g + body + '<text x="' + ((W + 56) / 2) + '" y="' + (H - 6) + '" text-anchor="middle" class="ax">' + esc(xl) + '</text>' + (W < 400 ? '<text x="60" y="11" text-anchor="start" class="ax">' + esc(yl) + "</text>" : '<text x="14" y="' + (H / 2) + '" text-anchor="middle" class="ax" transform="rotate(-90 14 ' + (H / 2) + ')">' + esc(yl) + "</text>") + "</svg>";
+  yt.forEach(function (v) { g += '<line x1="56" x2="' + (W - 12) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)"/><text x="50" y="' + (y(v) + 4) + '" text-anchor="end" class="tk">' + ya.format(v) + "</text>"; });
+  xt.forEach(function (v) { g += '<text x="' + x(v) + '" y="' + (H - 26) + '" text-anchor="' + (x(v) > W - 40 ? 'end' : 'middle') + '" class="tk">' + (xa.scaled ? xa.format(v) : xfmt ? xfmt(v) : xa.format(v)) + "</text>"; });
+  return g + body + '<text x="' + ((W + 56) / 2) + '" y="' + (H - 6) + '" text-anchor="middle" class="ax">' + esc(xl + xa.suffix) + '</text>' + (W < 400 ? '<text x="60" y="11" text-anchor="start" class="ax">' + esc(yl + ya.suffix) + "</text>" : '<text x="14" y="' + (H / 2) + '" text-anchor="middle" class="ax" transform="rotate(-90 14 ' + (H / 2) + ')">' + esc(yl + ya.suffix) + "</text>") + "</svg>";
 }
 function histogram(v, label) {
   if (v.length < 2) return "";
@@ -334,18 +356,18 @@ function histogram(v, label) {
   return frame(W, H, x, y, xt, yt, label, "Rows", body);
 }
 function bars(items, yl) {
-  var W = CW(), rowH = 26, H = items.length * rowH + 30, mx = Math.max.apply(null, items.map(function (i) { return i[1]; })) || 1;
+  var ba = chartAxis(items.map(function (item) { return item[1]; })), W = CW(), rowH = 26, H = items.length * rowH + 30, mx = Math.max.apply(null, items.map(function (i) { return i[1]; })) || 1;
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="' + esc(yl) + '">';
-  items.forEach(function (it, i) { var L = LW(W), w = it[1] / mx * (W - L - 64), yy = 10 + i * rowH; g += '<text x="' + (L - 6) + '" y="' + (yy + 15) + '" text-anchor="end" class="tk">' + esc(String(it[0]).slice(0, W < 400 ? 14 : 28)) + '</text><rect x="' + L + '" y="' + (yy + 3) + '" width="' + Math.max(1, w) + '" height="16" rx="2" fill="var(--accent)"/><text x="' + (L + 4 + w) + '" y="' + (yy + 15) + '" class="tk">' + f3(it[1]) + "</text>"; });
-  return g + "</svg>";
+  items.forEach(function (it, i) { var L = LW(W), w = it[1] / mx * (W - L - 64), yy = 10 + i * rowH; g += '<text x="' + (L - 6) + '" y="' + (yy + 15) + '" text-anchor="end" class="tk">' + esc(String(it[0]).slice(0, W < 400 ? 14 : 28)) + '</text><rect x="' + L + '" y="' + (yy + 3) + '" width="' + Math.max(1, w) + '" height="16" rx="2" fill="var(--accent)"/><text x="' + (L + 4 + w) + '" y="' + (yy + 15) + '" class="tk">' + ba.format(it[1]) + "</text>"; });
+  return g + (ba.scaled ? '<text x="56" y="' + (H - 4) + '" class="ax">' + esc(yl + ba.suffix) + '</text>' : '') + "</svg>";
 }
 function boxplot(names, ds2, yl) {
-  var W = CW(), rowH = 30, H = names.length * rowH + 44, lo = Math.min.apply(null, ds2.map(function (d) { return d.min; })), hi = Math.max.apply(null, ds2.map(function (d) { return d.max; })), xt = ticks(lo, hi, 6).filter(function (t) { return t >= lo && t <= hi; });
-  var L = LW(W), x = function (v) { return L + (v - lo) / ((hi - lo) || 1) * (W - L - 16); };
+  var W = CW(), rowH = 30, H = names.length * rowH + 44, lo = Math.min.apply(null, ds2.map(function (d) { return d.min; })), hi = Math.max.apply(null, ds2.map(function (d) { return d.max; })), xt = ticks(lo, hi, W < 400 ? 3 : 6).filter(function (t) { return t >= lo && t <= hi; });
+  var xa = chartAxis(xt), L = LW(W), x = function (v) { return L + (v - lo) / ((hi - lo) || 1) * (W - L - 16); };
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="' + esc(yl) + ' by group">';
-  xt.forEach(function (t) { g += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="6" y2="' + (H - 34) + '" stroke="var(--line)"/><text x="' + x(t) + '" y="' + (H - 20) + '" text-anchor="middle" class="tk">' + f3(t) + "</text>"; });
+  xt.forEach(function (t) { g += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="6" y2="' + (H - 34) + '" stroke="var(--line)"/><text x="' + x(t) + '" y="' + (H - 20) + '" text-anchor="middle" class="tk">' + xa.format(t) + "</text>"; });
   names.forEach(function (n, i) { var d = ds2[i], yy = 10 + i * rowH; g += '<text x="' + (L - 6) + '" y="' + (yy + 14) + '" text-anchor="end" class="tk">' + esc(String(n).slice(0, W < 400 ? 14 : 28)) + '</text><line x1="' + x(d.min) + '" x2="' + x(d.max) + '" y1="' + (yy + 10) + '" y2="' + (yy + 10) + '" stroke="var(--muted)"/><rect x="' + x(d.q1) + '" y="' + (yy + 2) + '" width="' + Math.max(2, x(d.q3) - x(d.q1)) + '" height="16" fill="var(--accent-soft)" stroke="var(--accent)"/><line x1="' + x(d.median) + '" x2="' + x(d.median) + '" y1="' + (yy + 2) + '" y2="' + (yy + 18) + '" stroke="var(--accent)" stroke-width="2.5"/><circle cx="' + x(d.mean) + '" cy="' + (yy + 10) + '" r="3" fill="var(--ink)"><title>Average ' + f3(d.mean) + "</title></circle>"; });
-  return g + '<text x="' + ((W + L) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="ax">' + esc(yl) + " (box = middle half, line = median, dot = average)</text></svg>";
+  return g + '<text x="' + ((W + L) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="ax">' + esc(yl + xa.suffix) + "</text></svg><p class=\"count\">Box = middle half; line = median; dot = average.</p>";
 }
 function scatter(xs, ys, xl, yl, co) {
   var W = CW(), H = 340, xlo = Math.min.apply(null, xs), xhi = Math.max.apply(null, xs), ylo = Math.min.apply(null, ys), yhi = Math.max.apply(null, ys), xt = ticks(xlo, xhi, W < 400 ? 4 : 6), yt = ticks(ylo, yhi, 5);
@@ -366,11 +388,11 @@ function lineChart(lines, xl, yl) {
 function coefChart(coefs) {
   if (!coefs.length) return "";
   var W = CW(), rowH = 30, H = coefs.length * rowH + 44, lo = Math.min(0, Math.min.apply(null, coefs.map(function (c) { return c.lo; }))), hi = Math.max(0, Math.max.apply(null, coefs.map(function (c) { return c.hi; }))), xt = ticks(lo, hi, 5).filter(function (t) { return t >= lo && t <= hi; });
-  var L = LW(W), x = function (v) { return L + (v - lo) / ((hi - lo) || 1) * (W - L - 16); };
+  var xa = chartAxis(xt), L = LW(W), x = function (v) { return L + (v - lo) / ((hi - lo) || 1) * (W - L - 16); };
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="Effect of each predictor with 95% range">';
-  xt.forEach(function (t) { g += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="6" y2="' + (H - 34) + '" stroke="' + (t === 0 ? "var(--muted)" : "var(--line)") + '"/><text x="' + x(t) + '" y="' + (H - 20) + '" text-anchor="middle" class="tk">' + f3(t) + "</text>"; });
+  xt.forEach(function (t) { g += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="6" y2="' + (H - 34) + '" stroke="' + (t === 0 ? "var(--muted)" : "var(--line)") + '"/><text x="' + x(t) + '" y="' + (H - 20) + '" text-anchor="middle" class="tk">' + xa.format(t) + "</text>"; });
   coefs.forEach(function (c, i) { var yy = 10 + i * rowH + 10, col = c.p < 0.05 ? "var(--accent)" : "var(--neutral)"; g += '<text x="' + (L - 6) + '" y="' + (yy + 4) + '" text-anchor="end" class="tk">' + esc(String(c.name).slice(0, W < 400 ? 14 : 28)) + '</text><line x1="' + x(c.lo) + '" x2="' + x(c.hi) + '" y1="' + yy + '" y2="' + yy + '" stroke="' + col + '" stroke-width="2"/><circle cx="' + x(c.b) + '" cy="' + yy + '" r="4.5" fill="' + col + '"/>'; });
-  return g + '<text x="' + ((W + L) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="ax">Effect per 1-unit rise, with 95% range (grey = not clearly different from zero)</text></svg>';
+  return g + '<text x="' + ((W + L) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="ax">Effect per 1-unit rise' + esc(xa.suffix) + '</text></svg><p class="count">95% range; grey = not clearly different from zero.</p>';
 }
 
 // --- views ---
@@ -390,7 +412,7 @@ function dataView() {
   var prof = '<div class="tablewrap"><table class="nosort"><thead><tr><th>Column</th><th>Type</th><th>Missing</th><th>Summary</th><th>Check</th></tr></thead><tbody>' + ds.cols.map(function (c, j) {
     var v = colVals(ds, j), miss = v.filter(function (x) { return x == null; }).length, sum = "", flag = [];
     if (isNum(c)) { var d = S.describe(v); sum = "median " + f3(d.median) + " · " + f3(d.min) + " to " + f3(d.max); if (d.outliers) flag.push(d.outliers + " unusual"); if (d.sd === 0) flag.push("never changes"); }
-    else { var u = {}; v.forEach(function (x) { if (x != null) u[x] = (u[x] || 0) + 1; }); var k = Object.keys(u).sort(function (a, b) { return u[b] - u[a]; }); sum = k.length + " distinct" + (k[0] ? " · most often “" + esc(String(k[0]).slice(0, 24)) + "”" : ""); if (k.length === 1) flag.push("one value only"); }
+    else { var u = Object.create(null); v.forEach(function (x) { if (x != null) u[x] = (u[x] || 0) + 1; }); var k = Object.keys(u).sort(function (a, b) { return u[b] - u[a]; }); sum = k.length + " distinct" + (k[0] ? " · most often “" + esc(String(k[0]).slice(0, 24)) + "”" : ""); if (k.length === 1) flag.push("one value only"); }
     if (miss / v.length > 0.5) flag.push("mostly empty");
     return "<tr><td><b>" + esc(c.name) + '</b></td><td><select data-atype="' + j + '" aria-label="Type of ' + esc(c.name) + '">' + ["number", "year", "date", "category", "text"].map(function (t) { return '<option value="' + t + '"' + (c.type === t ? " selected" : "") + ">" + TYPE_LABEL[t] + "</option>"; }).join("") + '</select></td><td class="num">' + (miss ? Math.round(miss / v.length * 100) + "%" : "—") + "</td><td>" + sum + "</td><td>" + flag.map(function (f) { return '<span class="chip q-estimated">' + f + "</span>"; }).join(" ") + "</td></tr>";
   }).join("") + "</tbody></table></div>";
@@ -414,7 +436,7 @@ function analyzeView() {
   if (!ds.rows) { loadRows(ds).then(render); return '<p class="count" role="status">Loading…</p>'; }
   var R = runAnalysis(ds);
   var cats = ds.cols.filter(function (c) { return c.type === "category"; }), fcol = A.sel.f ? ds.cols[idxOf(ds, A.sel.f)] : null, fvals = [];
-  if (fcol) { var u = {}; colVals(ds, idxOf(ds, A.sel.f)).forEach(function (v) { if (v != null) u[v] = 1; }); fvals = Object.keys(u).sort(); }
+  if (fcol) { var u = Object.create(null); colVals(ds, idxOf(ds, A.sel.f)).forEach(function (v) { if (v != null) u[v] = 1; }); fvals = Object.keys(u).sort(); }
   var filter = cats.length ? '<details class="subset"' + (A.sel.f ? " open" : "") + '><summary>Use only some rows</summary><div class="toolbar">' + pick("f", "Where", cats, A.sel.f, true) +
     (fcol ? '<label class="field" for="fv">is<select id="fv" data-asel="fv"><option value="">Choose…</option>' + fvals.map(function (v) { return "<option" + (v === A.sel.fv ? " selected" : "") + ">" + esc(v) + "</option>"; }).join("") + "</select></label>" : "") + "</div></details>" : "";
   var aiBox = explanationPanel(ds, R);
@@ -462,21 +484,21 @@ function chartsView() {
   else if (ch.type === "bar") {
     ch.agg = ch.agg || "count";
     ctr = pick("g", "Category", c.cats, A.sel.g) + '<label class="field" for="cagg">Show<select id="cagg" data-cagg="1">' + [["count", "Number of rows"], ["mean", "Average of…"], ["sum", "Total of…"], ["median", "Median of…"]].map(function (o) { return '<option value="' + o[0] + '"' + (ch.agg === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></label>" + (ch.agg !== "count" ? pick("y", "Number", c.nums, A.sel.y) : "");
-    var gv = get(A.sel.g), yv = get(A.sel.y), m = {};
+    var gv = get(A.sel.g), yv = get(A.sel.y), m = Object.create(null);
     gv.forEach(function (g, i) { if (g == null) return; (m[g] = m[g] || []).push(yv[i]); });
     var items = Object.keys(m).map(function (k) { var v = S.nums(m[k]); return [k, ch.agg === "count" ? m[k].length : ch.agg === "sum" ? v.reduce(function (a, b) { return a + b; }, 0) : ch.agg === "mean" ? S.mean(v) : S.quantile(v.sort(function (a, b) { return a - b; }), 0.5)]; }).filter(function (i) { return isFinite(i[1]); }).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 20);
     svg = items.length ? bars(items, ch.agg) : "";
   } else if (ch.type === "box") {
     ctr = pick("y", "Number", c.nums, A.sel.y) + pick("g", "Group by", c.cats, A.sel.g);
-    var y2 = get(A.sel.y), g2 = get(A.sel.g), grp = {}; y2.forEach(function (v, i) { if (typeof v === "number" && g2[i] != null) (grp[g2[i]] = grp[g2[i]] || []).push(v); });
+    var y2 = get(A.sel.y), g2 = get(A.sel.g), grp = Object.create(null); y2.forEach(function (v, i) { if (typeof v === "number" && g2[i] != null) (grp[g2[i]] = grp[g2[i]] || []).push(v); });
     var nm = Object.keys(grp).filter(function (k) { return grp[k].length >= 2; }).slice(0, 15); svg = nm.length ? boxplot(nm, nm.map(function (k) { return S.describe(grp[k]); }), A.sel.y) : "";
   } else if (ch.type === "scatter") {
     ctr = pick("x", "Across", nums, A.sel.x) + pick("y", "Up", c.nums, A.sel.y) + '<label class="chk"><input type="checkbox" data-cfit="1"' + (ch.fit !== false ? " checked" : "") + "> Fitted line</label>";
     var co = S.correlate(get(A.sel.x), get(A.sel.y)); svg = co.n >= 2 ? scatter(co.x, co.y, A.sel.x, A.sel.y, ch.fit !== false && co.n >= 3 ? co : null) : "";
   } else {
     ctr = pick("t", "Time", c.time.length ? c.time : nums, A.sel.t || (c.time[0] || nums[0] || {}).name) + pick("y", "Number", c.nums, A.sel.y) + pick("g", "Lines by", c.cats, A.sel.g, true);
-    var tn = A.sel.t || (c.time[0] || nums[0] || {}).name, tdate = (ds.cols[idxOf(ds, tn)] || {}).type === "date", tv = get(tn).map(function (v) { return tdate ? (v ? Date.parse(String(v).slice(0, 10)) / (365.25 * 864e5) + 1970 : null) : v; }), yy = get(A.sel.y), gg = A.sel.g ? get(A.sel.g) : null, ser = {};
-    tv.forEach(function (t, i) { if (typeof t !== "number" || typeof yy[i] !== "number") return; var k = gg ? gg[i] || "(none)" : A.sel.y; ser[k] = ser[k] || {}; (ser[k][t] = ser[k][t] || []).push(yy[i]); });
+    var tn = A.sel.t || (c.time[0] || nums[0] || {}).name, tdate = (ds.cols[idxOf(ds, tn)] || {}).type === "date", tv = get(tn).map(function (v) { return tdate ? (v ? Date.parse(String(v).slice(0, 10)) / (365.25 * 864e5) + 1970 : null) : v; }), yy = get(A.sel.y), gg = A.sel.g ? get(A.sel.g) : null, ser = Object.create(null);
+    tv.forEach(function (t, i) { if (typeof t !== "number" || typeof yy[i] !== "number") return; var k = gg ? gg[i] || "(none)" : A.sel.y; ser[k] = ser[k] || Object.create(null); (ser[k][t] = ser[k][t] || []).push(yy[i]); });
     var ln = Object.keys(ser).slice(0, 7).map(function (k) { return {name: k, pts: Object.keys(ser[k]).map(Number).sort(function (a, b) { return a - b; }).map(function (t) { return [t, S.mean(ser[k][t])]; })}; });
     svg = ln.length ? lineChart(ln, A.sel.t || "", A.sel.y || "") : "";
   }
@@ -489,12 +511,17 @@ function chartsView() {
 GROUPS.data = ["data"]; GROUPS.analyze = ["analyze"]; GROUPS.charts = ["charts"];
 VIEWS.data = dataView; VIEWS.analyze = analyzeView; VIEWS.charts = chartsView;
 A.sets = []; A.cur = null;
-function pickSet(id) { A.cur = id; A.sel = {}; A.ai = {}; A.msg = ""; A.del = null; }
+function pickSet(id) { A.cur = id; A.sel = Object.create(null); A.ai = Object.create(null); A.msg = ""; A.del = null; }
 view.addEventListener("change", function (e) {
   var t = e.target, d = t.dataset || {};
   if (t.id === "afile" && t.files && t.files[0]) { readFile(t.files[0]); return; }
   if (d.asel) { A.sel[d.asel] = t.value; if (d.asel === "f") A.sel.fv = ""; render(); return; }
-  if (d.atype != null) { var ds = cur(), j = +d.atype, c = ds.cols[j]; c.type = t.value; ds.rows.forEach(function (r) { var v = r[j]; if (v == null) return; if (c.type === "number" || c.type === "year") { var n = parseNum(v); r[j] = typeof n === "number" ? n : null; } else r[j] = String(v); }); saveMeta(ds); if (ds.saved) saveSet(ds); render(); return; }
+  if (d.atype != null) {
+    var ds = cur(), j = +d.atype, type = t.value;
+    try { applyStep(ds, {op: 'type', col: ds.cols[j].name, type: type, text: 'Changed type of ' + ds.cols[j].name + ' to ' + type}, function () { return changeColumnType(ds, j, type); }); }
+    catch (err) { A.msg = err.message; render(); }
+    return;
+  }
   if (d.pred != null) { var p = A.sel.preds || []; A.sel.preds = t.checked ? p.concat([d.pred]) : p.filter(function (x) { return x !== d.pred; }); render(); return; }
   if (d.cagg) { A.chart.agg = t.value; render(); return; }
   if (d.cfit) { A.chart.fit = t.checked; render(); return; }

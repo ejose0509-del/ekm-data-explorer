@@ -21,7 +21,7 @@ runAnalysis = function (ds) {
     if (['describe', 'pivot', 'matrix'].indexOf(A.kind) < 0 && nonfinite(R.summary))
       R = invalidResult(A.kind, R.controls, 'This analysis has undefined estimates. Check for constant columns, insufficient observations or a singular model. No statistical conclusion is available.');
     if (R.valid !== false) {
-      var undefinedText = function (text) { return /\b(NaN|Infinity|undefined)\b/.test(localText(text)); };
+      var undefinedText = function (text) { return /\b(NaN|Infinity|undefined)\b/.test(localText(String(text || '').replace(/<[^>]*>/g, ' '))); };
       if (undefinedText(R.head)) R = invalidResult(A.kind, R.controls, 'A required statistic is undefined for this selection. Choose columns with usable variation and enough observations.');
       else {
         if (undefinedText(R.extra)) R.extra = '<p class="count">Some supplementary checks are undefined for this selection.</p>';

@@ -5,6 +5,7 @@ later modules extend earlier ones by wrapping functions (runAnalysis, render,
 formula, caption, toolsBar, VIEWS.*). Add new modules at the end unless they must
 run before something that wraps them.
 """
+import json
 import os
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -26,6 +27,8 @@ MODULES = [
     "local-model.js", # Opt-in loopback Python/Ollama evidence selection
     "reliability.js", # Validity gate for interpretable results
     "project.js",     # Browser downloads, project files and local persistence
+    "input-integrity.js", # Source-preserving import and type settings
+    "responsive-checks.js", # Cancellable relationship scans and focus retention
 ]
 
 
@@ -37,6 +40,7 @@ def read(name):
 def build():
     page = read("index.template.html")
     js = "\n".join("// ===== %s =====\n%s" % (m, read(m)) for m in MODULES)
+    js = "var EKM_STATS_SOURCE = " + json.dumps(read("stats.js")) + ";\n" + js
     page = page.replace("/*@CSS@*/", read("theme.css")).replace("/*@JS@*/", js)
     os.makedirs(os.path.join(ROOT, "dist"), exist_ok=True)
     out = os.path.join(ROOT, "dist", "index.html")

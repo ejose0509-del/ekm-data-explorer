@@ -1,6 +1,6 @@
 // ---------- Page core: one view at a time, chosen by the tab strip ----------
 var st = {tab: "data"};
-var GROUPS = {}, VIEWS = {};
+var GROUPS = Object.create(null), VIEWS = Object.create(null);
 var view = document.getElementById("view");
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]; }); }
 function go2(t, label) { return '<a class="more-link" href="#' + t + '" data-go="' + t + '">' + label + " →</a>"; }

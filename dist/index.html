@@ -270,10 +270,11 @@ input[type=range] { accent-color: var(--yellow); width: min(320px, 70vw) }
 </div></header>
 <main class="wrap"><div id="view"></div></main>
 <script>
+var EKM_STATS_SOURCE = "// ---------- Statistics engine (runs in the browser; same formulas as SciPy) ----------\nvar S = (function () {\n  function lgamma(x) {\n    var c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];\n    var y = x, t = x + 5.5; t -= (x + 0.5) * Math.log(t);\n    var s = 1.000000000190015; for (var j = 0; j < 6; j++) s += c[j] / ++y;\n    return -t + Math.log(2.5066282746310005 * s / x);\n  }\n  function betacf(a, b, x) {\n    var qab = a + b, qap = a + 1, qam = a - 1, c = 1, d = 1 - qab * x / qap;\n    if (Math.abs(d) < 1e-300) d = 1e-300; d = 1 / d; var h = d;\n    for (var m = 1; m <= 300; m++) {\n      var m2 = 2 * m, aa = m * (b - m) * x / ((qam + m2) * (a + m2));\n      d = 1 + aa * d; if (Math.abs(d) < 1e-300) d = 1e-300; c = 1 + aa / c; if (Math.abs(c) < 1e-300) c = 1e-300; d = 1 / d; h *= d * c;\n      aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));\n      d = 1 + aa * d; if (Math.abs(d) < 1e-300) d = 1e-300; c = 1 + aa / c; if (Math.abs(c) < 1e-300) c = 1e-300; d = 1 / d;\n      var del = d * c; h *= del; if (Math.abs(del - 1) < 3e-14) break;\n    }\n    return h;\n  }\n  function ibeta(x, a, b) {   // regularized incomplete beta I_x(a, b)\n    if (x <= 0) return 0; if (x >= 1) return 1;\n    var bt = Math.exp(lgamma(a + b) - lgamma(a) - lgamma(b) + a * Math.log(x) + b * Math.log(1 - x));\n    return x < (a + 1) / (a + b + 2) ? bt * betacf(a, b, x) / a : 1 - bt * betacf(b, a, 1 - x) / b;\n  }\n  function gammaQ(a, x) {     // regularized upper incomplete gamma Q(a, x)\n    if (x <= 0) return 1;\n    var gln = lgamma(a);\n    if (x < a + 1) { var ap = a, sum = 1 / a, del = sum; for (var n = 0; n < 500; n++) { ap++; del *= x / ap; sum += del; if (Math.abs(del) < Math.abs(sum) * 3e-14) break; } return 1 - sum * Math.exp(-x + a * Math.log(x) - gln); }\n    var b = x + 1 - a, c = 1e300, d = 1 / b, h = d;\n    for (var i = 1; i <= 500; i++) { var an = -i * (i - a); b += 2; d = an * d + b; if (Math.abs(d) < 1e-300) d = 1e-300; c = b + an / c; if (Math.abs(c) < 1e-300) c = 1e-300; d = 1 / d; var dl = d * c; h *= dl; if (Math.abs(dl - 1) < 3e-14) break; }\n    return Math.exp(-x + a * Math.log(x) - gln) * h;\n  }\n  var pT = function (t, df) { return ibeta(df / (df + t * t), df / 2, 0.5); };            // two-sided\n  var pF = function (f, d1, d2) { return f <= 0 ? 1 : ibeta(d2 / (d2 + d1 * f), d2 / 2, d1 / 2); };   // upper tail\n  var pChi = function (x, k) { return gammaQ(k / 2, x / 2); };\n  function tCrit(df) { var lo = 0, hi = 50; for (var i = 0; i < 80; i++) { var m = (lo + hi) / 2; if (pT(m, df) > 0.05) lo = m; else hi = m; } return (lo + hi) / 2; }\n\n  function nums(a) { return a.filter(function (v) { return typeof v === \"number\" && isFinite(v); }); }\n  function sum(a) { var s = 0; for (var i = 0; i < a.length; i++) s += a[i]; return s; }\n  function mean(a) {\n    if (!a.length) return NaN;\n    var scale = 0; a.forEach(function (v) { scale = Math.max(scale, Math.abs(v)); }); if (!isFinite(scale)) return NaN; if (!scale) return 0;\n    var total = 0, correction = 0;\n    a.forEach(function (v) { var adjusted = v / scale - correction, next = total + adjusted; correction = (next - total) - adjusted; total = next; });\n    return total / a.length * scale;\n  }\n  function variance(a) { var m = mean(a), s = 0; for (var i = 0; i < a.length; i++) s += (a[i] - m) * (a[i] - m); return a.length > 1 ? s / (a.length - 1) : NaN; }\n  function quantile(sorted, p) { if (!sorted.length) return NaN; var i = (sorted.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i); return lo === hi ? sorted[lo] : sorted[lo] * (hi - i) + sorted[hi] * (i - lo); }\n  function describe(a) {\n    var x = nums(a), s = x.slice().sort(function (p, q) { return p - q; }), n = x.length, m = mean(x), c = centered(x), unit = c.values, um = mean(unit), usd = Math.sqrt(variance(unit)), sd = (usd * c.scale) * (c.half ? 2 : 1);\n    var q1 = quantile(s, 0.25), q3 = quantile(s, 0.75), iqr = q3 - q1, skew = 0;\n    for (var i = 0; i < n; i++) skew += Math.pow((unit[i] - um) / usd, 3);\n    skew = n > 2 && sd > 0 ? skew * n / ((n - 1) * (n - 2)) : 0;\n    var out = x.filter(function (v) { return v < q1 - 1.5 * iqr || v > q3 + 1.5 * iqr; }).length;\n    return {n: n, mean: m, sd: sd, min: s[0], q1: q1, median: quantile(s, 0.5), q3: q3, max: s[n - 1], skew: skew, outliers: out, se: sd / Math.sqrt(n)};\n  }\n  function ranks(a) {\n    var idx = a.map(function (v, i) { return [v, i]; }).sort(function (p, q) { return p[0] - q[0]; }), r = new Array(a.length);\n    for (var i = 0; i < idx.length;) { var j = i; while (j + 1 < idx.length && idx[j + 1][0] === idx[i][0]) j++; var avg = (i + j) / 2 + 1; for (var k = i; k <= j; k++) r[idx[k][1]] = avg; i = j + 1; }\n    return r;\n  }\n  function pairs(xs, ys) { var x = [], y = []; for (var i = 0; i < xs.length; i++) if (typeof xs[i] === \"number\" && isFinite(xs[i]) && typeof ys[i] === \"number\" && isFinite(ys[i])) { x.push(xs[i]); y.push(ys[i]); } return [x, y]; }\n  function centered(a) {\n    var m = mean(a), half = a.some(function (v) { return !isFinite(v - m); }), scale = 0;\n    var values = a.map(function (v) { var d = half ? v / 2 - m / 2 : v - m; scale = Math.max(scale, Math.abs(d)); return d; });\n    return {values: values.map(function (v) { return scale ? v / scale : 0; }), scale: scale, half: half};\n  }\n  function scaledPair(x, y) {\n    var cx = centered(x), cy = centered(y), ux = cx.values, uy = cy.values, mx = mean(ux), my = mean(uy), xx = 0, yy = 0, xy = 0;\n    for (var i = 0; i < x.length; i++) { var dx = ux[i] - mx, dy = uy[i] - my; xx += dx * dx; yy += dy * dy; xy += dx * dy; }\n    return {r: Math.max(-1, Math.min(1, xy / Math.sqrt(xx) / Math.sqrt(yy))), sx: cx.scale, sy: cy.scale, factor: (cy.half ? 2 : 1) / (cx.half ? 2 : 1), xx: xx, yy: yy, xy: xy};\n  }\n  function pearsonRaw(x, y) { return scaledPair(x, y).r; }\n  function correlate(xs, ys) {\n    var p = pairs(xs, ys), x = p[0], y = p[1], n = x.length;\n    if (n < 3) return {n: n};\n    var co = scaledPair(x, y), r = co.r, rho = pearsonRaw(ranks(x), ranks(y));\n    function prob(v) { return Math.abs(v) === 1 ? 0 : pT(v * Math.sqrt((n - 2) / (1 - v * v)), n - 2); }\n    var slope = (co.xy / co.xx) * (co.sy / co.sx) * co.factor, icpt = mean(y) - slope * mean(x), lo = -1, hi = 1;\n    if (n > 3) { if (Math.abs(r) === 1) lo = hi = r; else { var z = Math.atanh(r), zs = 1.959964 / Math.sqrt(n - 3); lo = Math.tanh(z - zs); hi = Math.tanh(z + zs); } }\n    return {n: n, r: r, p: prob(r), rho: rho, prho: prob(rho), slope: slope, intercept: icpt, r2: r * r, ciLo: lo, ciHi: hi, calculation: {xy: co.xy, xx: co.xx, yy: co.yy}, x: x, y: y};\n  }\n  function ttest(a, b) {   // Welch\n    a = nums(a); b = nums(b);\n    var scale = 0; a.concat(b).forEach(function (v) { scale = Math.max(scale, Math.abs(v)); }); scale = scale || 1;\n    var A = describe(a.map(function (v) { return v / scale; })), B = describe(b.map(function (v) { return v / scale; })), va = A.sd * A.sd / A.n, vb = B.sd * B.sd / B.n, t = (A.mean - B.mean) / Math.sqrt(va + vb);\n    var df = (va + vb) * (va + vb) / (va * va / (A.n - 1) + vb * vb / (B.n - 1)), sp = Math.sqrt(((A.n - 1) * A.sd * A.sd + (B.n - 1) * B.sd * B.sd) / (A.n + B.n - 2));\n    var tc = tCrit(df), diff = A.mean - B.mean, se = Math.sqrt(va + vb);\n    return {t: t, df: df, p: pT(t, df), d: diff / sp, diff: diff * scale, ciLo: (diff - tc * se) * scale, ciHi: (diff + tc * se) * scale, A: describe(a), B: describe(b)};\n  }\n  function anova(groups) {   // groups: [[values]]\n    groups = groups.map(nums);\n    var scale = 0; groups.forEach(function (g) { g.forEach(function (v) { scale = Math.max(scale, Math.abs(v)); }); }); scale = scale || 1;\n    groups = groups.map(function (g) { return g.map(function (v) { return v / scale; }); });\n    var all = [].concat.apply([], groups), gm = mean(all), ssb = 0, ssw = 0, k = groups.length, n = all.length;\n    groups.forEach(function (g) { var m = mean(g); ssb += g.length * (m - gm) * (m - gm); g.forEach(function (v) { ssw += (v - m) * (v - m); }); });\n    var df1 = k - 1, df2 = n - k, F = (ssb / df1) / (ssw / df2);\n    return {F: F, df1: df1, df2: df2, p: pF(F, df1, df2), eta2: ssb / (ssb + ssw), n: n, k: k};\n  }\n  function chisq(table) {   // table: rows of counts\n    var R = table.length, C = table[0].length, rt = table.map(sum), ct = [], N = sum(rt), x2 = 0, low = 0;\n    for (var j = 0; j < C; j++) { var s = 0; for (var i = 0; i < R; i++) s += table[i][j]; ct.push(s); }\n    for (var i2 = 0; i2 < R; i2++) for (var j2 = 0; j2 < C; j2++) { var e = rt[i2] * ct[j2] / N; if (e < 5) low++; if (e > 0) x2 += (table[i2][j2] - e) * (table[i2][j2] - e) / e; }\n    var df = (R - 1) * (C - 1);\n    return {x2: x2, df: df, p: pChi(x2, df), v: Math.sqrt(x2 / (N * Math.max(1, Math.min(R, C) - 1))), n: N, lowExpected: low / (R * C)};\n  }\n  function invert(M) {\n    var n = M.length, A = M.map(function (r, i) { return r.concat(M.map(function (_, j) { return i === j ? 1 : 0; })); });\n    for (var c = 0; c < n; c++) {\n      var p = c; for (var r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;\n      if (Math.abs(A[p][c]) < 1e-12) return null;\n      var tmp = A[c]; A[c] = A[p]; A[p] = tmp;\n      var d = A[c][c]; for (var k = 0; k < 2 * n; k++) A[c][k] /= d;\n      for (var r2 = 0; r2 < n; r2++) if (r2 !== c) { var f = A[r2][c]; for (var k2 = 0; k2 < 2 * n; k2++) A[r2][k2] -= f * A[c][k2]; }\n    }\n    return A.map(function (r) { return r.slice(n); });\n  }\n  function ols(y, X, names) {   // X: rows of predictor values (no intercept column)\n    var rows = []; for (var i = 0; i < y.length; i++) { var ok = typeof y[i] === \"number\" && isFinite(y[i]) && X[i].every(function (v) { return typeof v === \"number\" && isFinite(v); }); if (ok) rows.push(i); }\n    var n = rows.length, k = names.length + 1;\n    if (n <= k + 1) return {n: n, error: \"Too few complete rows for this many predictors.\"};\n    var Xm = rows.map(function (i) { return [1].concat(X[i]); }), Y = rows.map(function (i) { return y[i]; });\n    var XtX = []; for (var a = 0; a < k; a++) { XtX.push([]); for (var b = 0; b < k; b++) { var s = 0; for (var r = 0; r < n; r++) s += Xm[r][a] * Xm[r][b]; XtX[a].push(s); } }\n    var inv = invert(XtX); if (!inv) return {n: n, error: \"Two or more predictors carry the same information (perfectly collinear). Remove one.\"};\n    var Xty = []; for (var a2 = 0; a2 < k; a2++) { var s2 = 0; for (var r2 = 0; r2 < n; r2++) s2 += Xm[r2][a2] * Y[r2]; Xty.push(s2); }\n    var beta = inv.map(function (row) { return sum(row.map(function (v, j) { return v * Xty[j]; })); });\n    var my = mean(Y), sse = 0, sst = 0; for (var r3 = 0; r3 < n; r3++) { var fit = sum(Xm[r3].map(function (v, j) { return v * beta[j]; })); sse += (Y[r3] - fit) * (Y[r3] - fit); sst += (Y[r3] - my) * (Y[r3] - my); }\n    var df = n - k, s2e = sse / df, tc = tCrit(df);\n    var coefs = beta.map(function (b, j) { var se = Math.sqrt(inv[j][j] * s2e), t = b / se; return {name: j ? names[j - 1] : \"(baseline)\", b: b, se: se, t: t, p: pT(t, df), lo: b - tc * se, hi: b + tc * se}; });\n    var r2 = 1 - sse / sst, adj = 1 - (1 - r2) * (n - 1) / df, F = ((sst - sse) / (k - 1)) / s2e;\n    return {n: n, coefs: coefs, r2: r2, adj: adj, F: F, pF: pF(F, k - 1, df), df: df};\n  }\n  return {normalize: function (a) { return centered(a).values; }, screenPair: function (xs, ys) { var p = pairs(xs, ys); return {n: p[0].length, r: pearsonRaw(p[0], p[1])}; }, describe: describe, correlate: correlate, ttest: ttest, anova: anova, chisq: chisq, ols: ols, mean: mean, quantile: quantile, nums: nums, pT: pT, pF: pF, pChi: pChi, ibeta: ibeta, gammaQ: gammaQ};\n})();\n";
 // ===== core.js =====
 // ---------- Page core: one view at a time, chosen by the tab strip ----------
 var st = {tab: "data"};
-var GROUPS = {}, VIEWS = {};
+var GROUPS = Object.create(null), VIEWS = Object.create(null);
 var view = document.getElementById("view");
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]; }); }
 function go2(t, label) { return '<a class="more-link" href="#' + t + '" data-go="' + t + '">' + label + " →</a>"; }
@@ -327,13 +328,19 @@ var S = (function () {
 
   function nums(a) { return a.filter(function (v) { return typeof v === "number" && isFinite(v); }); }
   function sum(a) { var s = 0; for (var i = 0; i < a.length; i++) s += a[i]; return s; }
-  function mean(a) { return a.length ? sum(a) / a.length : NaN; }
+  function mean(a) {
+    if (!a.length) return NaN;
+    var scale = 0; a.forEach(function (v) { scale = Math.max(scale, Math.abs(v)); }); if (!isFinite(scale)) return NaN; if (!scale) return 0;
+    var total = 0, correction = 0;
+    a.forEach(function (v) { var adjusted = v / scale - correction, next = total + adjusted; correction = (next - total) - adjusted; total = next; });
+    return total / a.length * scale;
+  }
   function variance(a) { var m = mean(a), s = 0; for (var i = 0; i < a.length; i++) s += (a[i] - m) * (a[i] - m); return a.length > 1 ? s / (a.length - 1) : NaN; }
-  function quantile(sorted, p) { if (!sorted.length) return NaN; var i = (sorted.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i); return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo); }
+  function quantile(sorted, p) { if (!sorted.length) return NaN; var i = (sorted.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i); return lo === hi ? sorted[lo] : sorted[lo] * (hi - i) + sorted[hi] * (i - lo); }
   function describe(a) {
-    var x = nums(a), s = x.slice().sort(function (p, q) { return p - q; }), n = x.length, m = mean(x), sd = Math.sqrt(variance(x));
+    var x = nums(a), s = x.slice().sort(function (p, q) { return p - q; }), n = x.length, m = mean(x), c = centered(x), unit = c.values, um = mean(unit), usd = Math.sqrt(variance(unit)), sd = (usd * c.scale) * (c.half ? 2 : 1);
     var q1 = quantile(s, 0.25), q3 = quantile(s, 0.75), iqr = q3 - q1, skew = 0;
-    for (var i = 0; i < n; i++) skew += Math.pow((x[i] - m) / sd, 3);
+    for (var i = 0; i < n; i++) skew += Math.pow((unit[i] - um) / usd, 3);
     skew = n > 2 && sd > 0 ? skew * n / ((n - 1) * (n - 2)) : 0;
     var out = x.filter(function (v) { return v < q1 - 1.5 * iqr || v > q3 + 1.5 * iqr; }).length;
     return {n: n, mean: m, sd: sd, min: s[0], q1: q1, median: quantile(s, 0.5), q3: q3, max: s[n - 1], skew: skew, outliers: out, se: sd / Math.sqrt(n)};
@@ -344,22 +351,38 @@ var S = (function () {
     return r;
   }
   function pairs(xs, ys) { var x = [], y = []; for (var i = 0; i < xs.length; i++) if (typeof xs[i] === "number" && isFinite(xs[i]) && typeof ys[i] === "number" && isFinite(ys[i])) { x.push(xs[i]); y.push(ys[i]); } return [x, y]; }
-  function pearsonRaw(x, y) { var mx = mean(x), my = mean(y), sxy = 0, sxx = 0, syy = 0; for (var i = 0; i < x.length; i++) { sxy += (x[i] - mx) * (y[i] - my); sxx += (x[i] - mx) * (x[i] - mx); syy += (y[i] - my) * (y[i] - my); } return sxy / Math.sqrt(sxx * syy); }
+  function centered(a) {
+    var m = mean(a), half = a.some(function (v) { return !isFinite(v - m); }), scale = 0;
+    var values = a.map(function (v) { var d = half ? v / 2 - m / 2 : v - m; scale = Math.max(scale, Math.abs(d)); return d; });
+    return {values: values.map(function (v) { return scale ? v / scale : 0; }), scale: scale, half: half};
+  }
+  function scaledPair(x, y) {
+    var cx = centered(x), cy = centered(y), ux = cx.values, uy = cy.values, mx = mean(ux), my = mean(uy), xx = 0, yy = 0, xy = 0;
+    for (var i = 0; i < x.length; i++) { var dx = ux[i] - mx, dy = uy[i] - my; xx += dx * dx; yy += dy * dy; xy += dx * dy; }
+    return {r: Math.max(-1, Math.min(1, xy / Math.sqrt(xx) / Math.sqrt(yy))), sx: cx.scale, sy: cy.scale, factor: (cy.half ? 2 : 1) / (cx.half ? 2 : 1), xx: xx, yy: yy, xy: xy};
+  }
+  function pearsonRaw(x, y) { return scaledPair(x, y).r; }
   function correlate(xs, ys) {
     var p = pairs(xs, ys), x = p[0], y = p[1], n = x.length;
     if (n < 3) return {n: n};
-    var r = pearsonRaw(x, y), t = r * Math.sqrt((n - 2) / Math.max(1e-12, 1 - r * r)), rho = pearsonRaw(ranks(x), ranks(y)), ts = rho * Math.sqrt((n - 2) / Math.max(1e-12, 1 - rho * rho));
-    var mx = mean(x), my = mean(y), sxx = 0, sxy = 0; for (var i = 0; i < n; i++) { sxx += (x[i] - mx) * (x[i] - mx); sxy += (x[i] - mx) * (y[i] - my); }
-    var slope = sxy / sxx, icpt = my - slope * mx, z = Math.atanh(Math.max(-0.999999, Math.min(0.999999, r))), zs = 1.959964 / Math.sqrt(Math.max(1, n - 3));
-    return {n: n, r: r, p: pT(t, n - 2), rho: rho, prho: pT(ts, n - 2), slope: slope, intercept: icpt, r2: r * r, ciLo: Math.tanh(z - zs), ciHi: Math.tanh(z + zs), x: x, y: y};
+    var co = scaledPair(x, y), r = co.r, rho = pearsonRaw(ranks(x), ranks(y));
+    function prob(v) { return Math.abs(v) === 1 ? 0 : pT(v * Math.sqrt((n - 2) / (1 - v * v)), n - 2); }
+    var slope = (co.xy / co.xx) * (co.sy / co.sx) * co.factor, icpt = mean(y) - slope * mean(x), lo = -1, hi = 1;
+    if (n > 3) { if (Math.abs(r) === 1) lo = hi = r; else { var z = Math.atanh(r), zs = 1.959964 / Math.sqrt(n - 3); lo = Math.tanh(z - zs); hi = Math.tanh(z + zs); } }
+    return {n: n, r: r, p: prob(r), rho: rho, prho: prob(rho), slope: slope, intercept: icpt, r2: r * r, ciLo: lo, ciHi: hi, calculation: {xy: co.xy, xx: co.xx, yy: co.yy}, x: x, y: y};
   }
   function ttest(a, b) {   // Welch
-    var A = describe(a), B = describe(b), va = A.sd * A.sd / A.n, vb = B.sd * B.sd / B.n, t = (A.mean - B.mean) / Math.sqrt(va + vb);
+    a = nums(a); b = nums(b);
+    var scale = 0; a.concat(b).forEach(function (v) { scale = Math.max(scale, Math.abs(v)); }); scale = scale || 1;
+    var A = describe(a.map(function (v) { return v / scale; })), B = describe(b.map(function (v) { return v / scale; })), va = A.sd * A.sd / A.n, vb = B.sd * B.sd / B.n, t = (A.mean - B.mean) / Math.sqrt(va + vb);
     var df = (va + vb) * (va + vb) / (va * va / (A.n - 1) + vb * vb / (B.n - 1)), sp = Math.sqrt(((A.n - 1) * A.sd * A.sd + (B.n - 1) * B.sd * B.sd) / (A.n + B.n - 2));
     var tc = tCrit(df), diff = A.mean - B.mean, se = Math.sqrt(va + vb);
-    return {t: t, df: df, p: pT(t, df), d: diff / sp, diff: diff, ciLo: diff - tc * se, ciHi: diff + tc * se, A: A, B: B};
+    return {t: t, df: df, p: pT(t, df), d: diff / sp, diff: diff * scale, ciLo: (diff - tc * se) * scale, ciHi: (diff + tc * se) * scale, A: describe(a), B: describe(b)};
   }
   function anova(groups) {   // groups: [[values]]
+    groups = groups.map(nums);
+    var scale = 0; groups.forEach(function (g) { g.forEach(function (v) { scale = Math.max(scale, Math.abs(v)); }); }); scale = scale || 1;
+    groups = groups.map(function (g) { return g.map(function (v) { return v / scale; }); });
     var all = [].concat.apply([], groups), gm = mean(all), ssb = 0, ssw = 0, k = groups.length, n = all.length;
     groups.forEach(function (g) { var m = mean(g); ssb += g.length * (m - gm) * (m - gm); g.forEach(function (v) { ssw += (v - m) * (v - m); }); });
     var df1 = k - 1, df2 = n - k, F = (ssb / df1) / (ssw / df2);
@@ -398,7 +421,7 @@ var S = (function () {
     var r2 = 1 - sse / sst, adj = 1 - (1 - r2) * (n - 1) / df, F = ((sst - sse) / (k - 1)) / s2e;
     return {n: n, coefs: coefs, r2: r2, adj: adj, F: F, pF: pF(F, k - 1, df), df: df};
   }
-  return {describe: describe, correlate: correlate, ttest: ttest, anova: anova, chisq: chisq, ols: ols, mean: mean, quantile: quantile, nums: nums, pT: pT, pF: pF, pChi: pChi, ibeta: ibeta, gammaQ: gammaQ};
+  return {normalize: function (a) { return centered(a).values; }, screenPair: function (xs, ys) { var p = pairs(xs, ys); return {n: p[0].length, r: pearsonRaw(p[0], p[1])}; }, describe: describe, correlate: correlate, ttest: ttest, anova: anova, chisq: chisq, ols: ols, mean: mean, quantile: quantile, nums: nums, pT: pT, pF: pF, pChi: pChi, ibeta: ibeta, gammaQ: gammaQ};
 })();
 
 // ===== stats2.js =====
@@ -426,6 +449,7 @@ var S2 = (function () {
   function shapiro(x) {
     x = S.nums(x).slice().sort(function (p, q) { return p - q; }); var n = x.length;
     if (n < 3 || n > 5000) return null;
+    x = S.normalize(x);
     var m = [], mm = 0, a = new Array(n);
     for (var i = 1; i <= n; i++) { var v = qnorm((i - 0.375) / (n + 0.25)); m.push(v); mm += v * v; }
     if (n === 3) { a = [-Math.SQRT1_2, 0, Math.SQRT1_2]; }
@@ -528,13 +552,14 @@ var MAX_SAVE = 4e6, CHUNK = 180000;
 function parseNum(v) {
   if (typeof v === "number") return isFinite(v) ? v : null;
   var s = String(v == null ? "" : v).trim();
-  if (!s || /^(na|n\/a|nan|null|none|-|—|\.|no data( found)?)$/i.test(s)) return null;
+  if (!s) return null;
   var pct = /%$/.test(s); s = s.replace(/[%$€£¥\s]/g, "");
   if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, "");
   if (!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(s)) return undefined;
-  return isFinite(+s) ? +s : null;
+  if (/^[-+]?\d+$/.test(s) && Math.abs(+s) > 9007199254740991) return undefined;
+  return isFinite(+s) ? +s : undefined;
 }
-function isMissing(v) { return v == null || v === "" || parseNum(v) === null && !/\S/.test(String(v)) || /^(na|n\/a|nan|null|none|no data( found)?)$/i.test(String(v).trim()); }
+function isMissing(v) { return v == null || typeof v === 'string' && !/\S/.test(v); }
 function splitCSV(text) {
   text = String(text).replace(/^\uFEFF/, "");
   // Count separators only outside quoted cells in the first nonblank record.
@@ -563,25 +588,25 @@ function typeColumn(vals, name) {
   var present = vals.filter(function (v) { return !isMissing(v); });
   if (!present.length) return "empty";
   var numeric = present.filter(function (v) { return typeof parseNum(v) === "number"; }).length / present.length;
-  if (numeric >= 0.9) {
+  if (numeric === 1 && !present.some(function (v) { return typeof v === 'string' && /^[-+]?0\d/.test(v.trim()); })) {
     var ns = present.map(parseNum).filter(function (v) { return typeof v === "number"; });
     if (/year|año|ano|yr|anio/i.test(name) && ns.every(function (v) { return v === Math.round(v) && v >= 1800 && v <= 2200; })) return "year";
     return "number";
   }
-  if (present.filter(function (v) { return /^\d{4}-\d{2}(-\d{2})?/.test(String(v)); }).length / present.length >= 0.9) return "date";
-  var uniq = {}; present.forEach(function (v) { uniq[String(v).trim()] = 1; });
+  if (present.every(function (v) { var t = String(v), m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(t); if (!m) return false; var d = new Date(t + (m[3] ? '' : '-01') + 'T00:00:00Z'); return !isNaN(d.getTime()) && d.toISOString().slice(0, m[3] ? 10 : 7) === t; })) return "date";
+  var uniq = Object.create(null); present.forEach(function (v) { uniq[String(v).trim()] = 1; });
   var u = Object.keys(uniq).length;
   return u <= 40 || u / present.length < 0.3 ? "category" : "text";
 }
 function makeSet(name, header, body, origin, extra) {
-  header = header.map(function (h, i) { h = String(h || "").trim(); return h || "Column " + (i + 1); });
+  header = header.map(function (h, i) { h = String(h == null ? "" : h).trim(); return h || "Column " + (i + 1); });
   var seen = Object.create(null), reserved = Object.create(null);
   header.forEach(function (h) { reserved[h] = true; });
   header = header.map(function (h) { var n = h, i = 2; if (seen[n]) { do { n = h + " (" + i++ + ")"; } while (seen[n] || reserved[n]); } seen[n] = true; return n; });
   if (!header.length) throw new Error("No columns were found. Add a header row and try again.");
   body.forEach(function (r, i) { if (r.length > header.length) throw new Error("Data row " + (i + 1) + " has more values than the header. Add the missing column names or remove the extra values."); });
   var cols = header.map(function (h, j) { return {name: h, type: typeColumn(body.map(function (r) { return r[j]; }), h)}; });
-  var rows = body.map(function (r) { return cols.map(function (c, j) { var v = r[j]; if (isMissing(v)) return null; if (c.type === "number" || c.type === "year") { var n = parseNum(v); return typeof n === "number" ? n : null; } return String(v).trim(); }); });
+  var rows = body.map(function (r) { return cols.map(function (c, j) { var v = r[j]; if (isMissing(v)) return null; if (c.type === "number" || c.type === "year") { var n = parseNum(v); return typeof n === "number" ? n : null; } return String(v); }); });
   return Object.assign({id: "d" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: name, origin: origin || "file", source: "", note: "", added: new Date().toISOString().slice(0, 10), cols: cols, rows: rows, saved: false}, extra || {});
 }
 function colVals(ds, j) { return ds.rows.map(function (r) { return r[j]; }); }
@@ -624,15 +649,16 @@ function loadRows(ds) {
     .then(function (snaps) { ds.rows = JSON.parse(snaps.map(function (s) { return s.data().part; }).join("")); return ds; });
 }
 function deleteSet(ds) {
-  A.sets = A.sets.filter(function (s) { return s.id !== ds.id; }); A.cur = A.sets[0] && A.sets[0].id; A.sel = {}; A.ai = {};
+  A.sets = A.sets.filter(function (s) { return s.id !== ds.id; }); A.cur = A.sets[0] && A.sets[0].id; A.sel = Object.create(null); A.ai = Object.create(null);
   if (ST.on && ds.saved) { var n = ds.parts || 0; col().doc(ds.id).delete().catch(function () {}); for (var i = 0; i < n; i++) col().doc(ds.id + "_p" + i).delete().catch(function () {}); }
 }
 
 // --- reading files ---
 function readFile(file) {
+  if (typeof IMPORT !== "undefined") IMPORT.workbook = null;
   var name = file.name.replace(/\.[^.]+$/, ""), ext = (file.name.split(".").pop() || "").toLowerCase();
   A.busy = "Reading " + file.name + "…"; render();
-  var done = function (ds) { A.busy = ""; if (!ds.rows.length) { A.msg = file.name + " has no data rows."; render(); return; } A.sets.unshift(ds); A.cur = ds.id; A.sel = {}; A.ai = {}; A.msg = ""; render(); saveSet(ds); };
+  var done = function (ds) { A.busy = ""; if (!ds.rows.length) { A.msg = file.name + " has no data rows."; render(); return; } A.sets.unshift(ds); A.cur = ds.id; A.sel = Object.create(null); A.ai = Object.create(null); A.msg = ""; render(); saveSet(ds); };
   var fail = function (m) { A.busy = ""; A.msg = m; render(); };
   if (file.size > 25e6) return fail(file.name + " is " + (file.size / 1e6).toFixed(0) + " MB. Files up to 25 MB can be opened.");
   if (ext === "xlsx" || ext === "xls") {
@@ -640,6 +666,7 @@ function readFile(file) {
       return file.arrayBuffer().then(function (buf) {
         var wb = X.read(buf, {type: "array"}), sh = wb.Sheets[wb.SheetNames[0]];
         if (!sh) throw new Error("No worksheets were found.");
+        IMPORT.workbook = wb.SheetNames.length > 1 ? {reader: X, book: wb, names: wb.SheetNames, name: name} : null;
         var aoa = X.utils.sheet_to_json(sh, {header: 1, raw: true, defval: ""});
         aoa = aoa.filter(function (r) { return r.some(function (c) { return String(c).trim() !== ""; }); });
         done(makeSet(name + (wb.SheetNames.length > 1 ? " (" + wb.SheetNames[0] + ")" : ""), aoa[0] || [], aoa.slice(1)));
@@ -649,7 +676,7 @@ function readFile(file) {
   return file.text().then(function (t) {
     if (ext === "json" || /^\s*[\[{]/.test(t)) {
       var j;
-      try { j = JSON.parse(t); } catch (e) { return fail(file.name + " is not valid JSON. Check its commas, quotes and brackets, then try again."); }
+      try { j = losslessJSONParse(t); } catch (e) { return fail(file.name + " is not valid JSON. Check its commas, quotes and brackets, then try again."); }
       if (j && !Array.isArray(j) && typeof j === "object") j = j.data || j.rows || Object.values(j).filter(Array.isArray)[0];
       if (!Array.isArray(j) || j.some(function (o) { return !o || typeof o !== "object" || Array.isArray(o); }))
         return fail(file.name + " needs a JSON array of row objects, optionally inside data or rows. Export the table as CSV if needed.");
@@ -670,13 +697,13 @@ function loadXLSX() {
 }
 
 // --- formatting ---
-function f3(v) { if (v == null || !isFinite(v)) return "—"; var a = Math.abs(v); return a >= 1e6 ? (v / 1e6).toFixed(2) + "M" : a >= 1000 ? Math.round(v).toLocaleString("en-US") : a >= 100 ? v.toFixed(1) : a >= 1 ? v.toFixed(2) : a === 0 ? "0" : v.toPrecision(3); }
+function f3(v) { if (v == null || !isFinite(v)) return "—"; var a = Math.abs(v); if (a >= 1e9 || a > 0 && a < .001) return v.toExponential(2); return a >= 1e6 ? (v / 1e6).toFixed(2) + "M" : a >= 1000 ? Math.round(v).toLocaleString("en-US") : a >= 100 ? v.toFixed(1) : a >= 1 ? v.toFixed(2) : a === 0 ? "0" : v.toPrecision(3); }
 function fp(p) { return p == null || !isFinite(p) ? "—" : p < 0.001 ? "< 0.001" : p.toFixed(3); }
 var TYPE_LABEL = {number: "Number", year: "Year", date: "Date", category: "Category", text: "Text", empty: "Empty"};
 
 // --- built-in interpreter: plain-language reading of each result ---
 function rWord(r) { var a = Math.abs(r); return a < 0.1 ? "almost no" : a < 0.3 ? "a weak" : a < 0.5 ? "a moderate" : a < 0.7 ? "a strong" : "a very strong"; }
-function pWord(p) { return p < 0.001 ? "very unlikely to be chance alone (p < 0.001)" : p < 0.01 ? "unlikely to be chance alone (p = " + fp(p) + ")" : p < 0.05 ? "probably not chance alone, though the evidence is modest (p = " + fp(p) + ")" : "could easily be chance (p = " + fp(p) + ")"; }
+function pWord(p) { return (p < .05 ? 'inconsistent with the null model at the conventional .05 threshold' : 'not clearly inconsistent with the null model at the conventional .05 threshold') + ' (p ' + (p < .001 ? '< .001' : '= ' + fp(p)) + ', assuming the test conditions hold)'; }
 function nCaveat(n) { return n < 10 ? "With only " + n + " data points, any pattern here is fragile; one changed row could flip it." : n < 30 ? "The sample is small (" + n + " rows), so treat exact numbers as rough." : ""; }
 
 // --- analyses ---
@@ -693,7 +720,7 @@ function defaults(ds) {
   if (!has(s.y)) s.y = (nums[0] || {}).name; if (!has(s.x)) s.x = (nums[1] || nums[0] || {}).name;
   if (!has(s.g)) s.g = (cats[0] || {}).name; if (!has(s.g2)) s.g2 = (cats[1] || cats[0] || {}).name;
   if (!has(s.t)) s.t = (time[0] || {}).name; if (s.f && !has(s.f)) s.f = "";
-  if (!s.preds) s.preds = nums.slice(1, 4).map(function (c) { return c.name; });
+  if (!Array.isArray(s.preds)) s.preds = nums.slice(1, 4).map(function (c) { return c.name; });
   s.preds = s.preds.filter(has);
   return {nums: nums, cats: cats, time: time};
 }
@@ -713,14 +740,14 @@ function runAnalysis(ds) {
       var d = S.describe(vals); R.summary = {column: s.y, n: d.n, mean: d.mean, sd: d.sd, median: d.median, min: d.min, max: d.max, skew: d.skew, outliers: d.outliers, missing: miss};
       R.head = figs([["Typical (median)", f3(d.median)], ["Average", f3(d.mean)], ["Spread (SD)", f3(d.sd)], ["Range", f3(d.min) + " to " + f3(d.max)], ["Rows", d.n + (miss ? " · " + miss + " missing" : "")]]);
       R.chart = histogram(S.nums(vals), s.y);
-      R.reading.push("Half the rows are below " + f3(d.median) + " and half above. The middle half sits between " + f3(d.q1) + " and " + f3(d.q3) + ".");
+      R.reading.push("The median (middle value) is " + f3(d.median) + ". The middle half sits between " + f3(d.q1) + " and " + f3(d.q3) + ".");
       if (Math.abs(d.skew) > 1) R.reading.push("The values are lopsided (" + (d.skew > 0 ? "a long tail of high values" : "a long tail of low values") + "), so the median describes a typical row better than the average.");
       else R.reading.push("The values are roughly balanced around the middle, so the average and median tell a similar story.");
       if (d.outliers) R.caveats.push(d.outliers + " value" + (d.outliers > 1 ? "s sit" : " sits") + " far from the rest (beyond 1.5× the middle range). Check whether they are real or entry errors.");
       if (miss / vals.length > 0.2) R.caveats.push(Math.round(miss / vals.length * 100) + "% of rows have no value here. If they are missing for a reason, the summary may be biased.");
       if (nCaveat(d.n)) R.caveats.push(nCaveat(d.n));
     } else {
-      var counts = {}; vals.forEach(function (v) { if (v != null) counts[v] = (counts[v] || 0) + 1; });
+      var counts = Object.create(null); vals.forEach(function (v) { if (v != null) counts[v] = (counts[v] || 0) + 1; });
       var top = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; }), n = vals.length - miss;
       R.summary = {column: s.y, n: n, distinct: top.length, top: top.slice(0, 5).map(function (k) { return [k, counts[k]]; }), missing: miss};
       R.head = figs([["Distinct values", top.length], ["Most common", esc(top[0] || "—")], ["Its share", n ? Math.round(counts[top[0]] / n * 100) + "%" : "—"], ["Rows", n + (miss ? " · " + miss + " missing" : "")]]);
@@ -731,7 +758,7 @@ function runAnalysis(ds) {
   } else if (A.kind === "compare") {
     if (!c.nums.length || !c.cats.length) return need(R, "a number column and a category column");
     R.controls = pick("y", "Measure", c.nums, s.y) + pick("g", "Group by", c.cats, s.g);
-    var y = get(s.y), g = get(s.g), groups = {};
+    var y = get(s.y), g = get(s.g), groups = Object.create(null);
     y.forEach(function (v, i) { if (typeof v === "number" && g[i] != null) (groups[g[i]] = groups[g[i]] || []).push(v); });
     var names = Object.keys(groups).filter(function (k) { return groups[k].length >= 2; }).sort(function (a, b) { return S.mean(groups[b]) - S.mean(groups[a]); });
     if (names.length < 2) return need(R, "at least two groups with two or more values each");
@@ -743,7 +770,7 @@ function runAnalysis(ds) {
       var t = S.ttest(groups[names[0]], groups[names[1]]);
       R.summary = {test: "Welch t-test", measure: s.y, groups: names, means: [t.A.mean, t.B.mean], diff: t.diff, ci95: [t.ciLo, t.ciHi], t: t.t, df: t.df, p: t.p, cohen_d: t.d};
       R.head = figs([["Difference in averages", f3(t.diff)], ["95% range for it", f3(t.ciLo) + " to " + f3(t.ciHi)], ["p-value", fp(t.p)], ["Effect size (d)", f3(t.d)]], true) + tbl;
-      R.reading.push("“" + esc(names[0]) + "” averages " + f3(t.A.mean) + " against " + f3(t.B.mean) + " for “" + esc(names[1]) + "”, a difference of " + f3(t.diff) + ". That gap " + pWord(t.p) + ".");
+      R.reading.push("“" + esc(names[0]) + "” averages " + f3(t.A.mean) + " against " + f3(t.B.mean) + " for “" + esc(names[1]) + "”, a difference of " + f3(t.diff) + ". That gap is " + pWord(t.p) + ".");
       R.reading.push("The effect is " + (Math.abs(t.d) < 0.2 ? "negligible" : Math.abs(t.d) < 0.5 ? "small" : Math.abs(t.d) < 0.8 ? "medium" : "large") + " (Cohen's d = " + f3(t.d) + "). The true difference most plausibly lies between " + f3(t.ciLo) + " and " + f3(t.ciHi) + ".");
     } else {
       var an = S.anova(names.map(function (k) { return groups[k]; }));
@@ -765,16 +792,17 @@ function runAnalysis(ds) {
     R.summary = {test: "Pearson and Spearman correlation", x: s.x, y: s.y, n: co.n, r: co.r, ci95: [co.ciLo, co.ciHi], p: co.p, spearman: co.rho, slope: co.slope, r2: co.r2};
     R.head = figs([["Correlation (r)", f3(co.r)], ["95% range for r", f3(co.ciLo) + " to " + f3(co.ciHi)], ["p-value", fp(co.p)], ["Rows used", co.n]], true);
     R.chart = scatter(co.x, co.y, s.x, s.y, co);
-    R.reading.push("There is " + rWord(co.r) + " " + (co.r >= 0 ? "positive" : "negative") + " link: when " + esc(s.x) + " is higher, " + esc(s.y) + " tends to be " + (co.r >= 0 ? "higher" : "lower") + ". It is " + pWord(co.p) + ".");
+    R.reading.push("In these rows, there is an estimated " + rWord(co.r) + " " + (co.r >= 0 ? "positive" : "negative") + " link: when " + esc(s.x) + " is higher, " + esc(s.y) + " tends to be " + (co.r >= 0 ? "higher" : "lower") + ". It is " + pWord(co.p) + ".");
     R.reading.push("On the fitted line, each 1-unit rise in " + esc(s.x) + " goes with a change of " + f3(co.slope) + " in " + esc(s.y) + ". " + esc(s.x) + " accounts for about " + Math.round(co.r2 * 100) + "% of the variation in " + esc(s.y) + ".");
+    if (co.ciLo <= 0 && co.ciHi >= 0) R.caveats.push('The 95% interval includes zero; these data do not establish the direction of the population correlation.');
     if (Math.abs(co.rho - co.r) > 0.2) R.caveats.push("The rank-based correlation (" + f3(co.rho) + ") differs from r, so a few extreme points or a curved pattern may be driving the result. Look at the chart.");
     R.caveats.push("Correlation is not causation: a third factor can drive both numbers.");
     if (nCaveat(co.n)) R.caveats.push(nCaveat(co.n));
   } else if (A.kind === "cross") {
     if (c.cats.length < 2) return need(R, "two category columns");
     R.controls = pick("g", "Rows", c.cats, s.g) + pick("g2", "Columns", c.cats, s.g2);
-    var a = get(s.g), b = get(s.g2), ra = {}, cb = {}, cells = {};
-    a.forEach(function (v, i) { if (v == null || b[i] == null) return; ra[v] = (ra[v] || 0) + 1; cb[b[i]] = (cb[b[i]] || 0) + 1; cells[v + "\u0000" + b[i]] = (cells[v + "\u0000" + b[i]] || 0) + 1; });
+    var a = get(s.g), b = get(s.g2), ra = Object.create(null), cb = Object.create(null), cells = Object.create(null);
+    a.forEach(function (v, i) { if (v == null || b[i] == null) return; ra[v] = (ra[v] || 0) + 1; cb[b[i]] = (cb[b[i]] || 0) + 1; cells[JSON.stringify([String(v), String(b[i])])] = (cells[JSON.stringify([String(v), String(b[i])])] || 0) + 1; });
     var rk = Object.keys(ra).sort(function (p, q) { return ra[q] - ra[p]; }).slice(0, 12), ck = Object.keys(cb).sort(function (p, q) { return cb[q] - cb[p]; }).slice(0, 8);
     if (rk.length < 2 || ck.length < 2 || s.g === s.g2) return need(R, "two different category columns with at least two values each");
     var table = rk.map(function (r) { return ck.map(function (k) { return cells[r + "\u0000" + k] || 0; }); }), ch = S.chisq(table);
@@ -789,8 +817,8 @@ function runAnalysis(ds) {
   } else if (A.kind === "trend") {
     if (!c.time.length || !c.nums.length) return need(R, "a year or date column and a number column");
     R.controls = pick("t", "Time", c.time, s.t) + pick("y", "Measure", c.nums, s.y) + pick("g", "Separate lines by", c.cats, s.g, true);
-    var tcol = ds.cols[idxOf(ds, s.t)], tv = get(s.t).map(function (v) { return tcol.type === "year" ? v : v ? Date.parse(String(v).slice(0, 10)) / (365.25 * 864e5) + 1970 : null; }), yv = get(s.y), gv = s.g ? get(s.g) : null, series = {};
-    tv.forEach(function (t2, i) { if (t2 == null || typeof yv[i] !== "number") return; var k = gv ? (gv[i] == null ? "(none)" : gv[i]) : s.y; (series[k] = series[k] || {}); (series[k][t2] = series[k][t2] || []).push(yv[i]); });
+    var tcol = ds.cols[idxOf(ds, s.t)], tv = get(s.t).map(function (v) { return tcol.type === "year" ? v : v ? Date.parse(String(v).slice(0, 10)) / (365.25 * 864e5) + 1970 : null; }), yv = get(s.y), gv = s.g ? get(s.g) : null, series = Object.create(null);
+    tv.forEach(function (t2, i) { if (t2 == null || typeof yv[i] !== "number") return; var k = gv ? (gv[i] == null ? "(none)" : gv[i]) : s.y; (series[k] = series[k] || Object.create(null)); (series[k][t2] = series[k][t2] || []).push(yv[i]); });
     var keys = Object.keys(series).slice(0, 7);
     if (!keys.length) return need(R, "rows with both a time and a value");
     var lines = keys.map(function (k) { return {name: k, pts: Object.keys(series[k]).map(Number).sort(function (p, q) { return p - q; }).map(function (t3) { return [t3, S.mean(series[k][t3])]; })}; });
@@ -830,7 +858,7 @@ function runAnalysis(ds) {
 }
 function flatTail(name, byYear) { var ys = Object.keys(byYear).map(Number).sort(function (a, b) { return a - b; }), v = ys.map(function (y) { return S.mean(byYear[y]); }), n = v.length, i = n - 1; while (i > 0 && v[i - 1] === v[n - 1]) i--; return n - i >= 4 ? Math.round(ys[i]) + " to " + Math.round(ys[n - 1]) : ""; }
 function need(R, what) { R.head = '<p class="nd">This analysis needs ' + what + ". Pick another analysis or change column types under Your data.</p>"; return R; }
-var FIGPREV = {};
+var FIGPREV = Object.create(null);
 function rewrite(key, val) { var c = FIGPREV[key] != null && FIGPREV[key] !== String(val) ? " rewrite" : ""; FIGPREV[key] = String(val); return c; }
 function figs(list, keyFirst) { return '<div class="figs afigs">' + list.map(function (x, i) { return '<div class="fig' + (keyFirst && !i ? " key" : "") + '"><span class="label">' + x[0] + '</span><b class="num' + rewrite(A.kind + x[0], x[1]) + '">' + x[1] + "</b></div>"; }).join("") + "</div>"; }
 
@@ -838,12 +866,30 @@ function figs(list, keyFirst) { return '<div class="figs afigs">' + list.map(fun
 function CW() { return window.matchMedia && matchMedia("(max-width: 600px)").matches ? 360 : 640; }
 function LW(W) { return W < 400 ? 112 : 196; }
 var PAL = ["var(--blue)", "var(--yellow)", "var(--pink)", "var(--green)", "var(--orange)", "var(--violet)", "var(--chalk-2)"];
-function ticks(lo, hi, n) { if (lo === hi) { lo -= 1; hi += 1; } var span = hi - lo, step = Math.pow(10, Math.floor(Math.log10(span / n))), err = n / span * step; step *= err <= 0.15 ? 10 : err <= 0.35 ? 5 : err <= 0.75 ? 2 : 1; var t = [], s = Math.ceil(lo / step) * step; for (var v = s; v <= hi + step * 1e-9; v += step) t.push(+v.toPrecision(12)); return t; }
+function ticks(lo, hi, n) {
+  if (!isFinite(lo) || !isFinite(hi) || hi < lo) return [];
+  var scale = Math.max(Math.abs(lo), Math.abs(hi), 1e-300);
+  if (lo === hi) { var pad = Math.max(scale * .05, 1e-300); lo = isFinite(lo - pad) ? lo - pad : lo; hi = isFinite(hi + pad) ? hi + pad : hi; }
+  var span = hi / scale - lo / scale, unit = Math.pow(10, Math.floor(Math.log10(span / Math.max(1, n)))), err = n / span * unit;
+  unit *= err <= .15 ? 10 : err <= .35 ? 5 : err <= .75 ? 2 : 1;
+  var step = unit * scale; if (!(step > 0) || !isFinite(step)) return [lo, hi];
+  var start = Math.ceil(lo / step), count = Math.min(100, Math.max(0, Math.floor(hi / step - start + 1e-8) + 1)), out = [];
+  for (var i = 0; i < count; i++) { var v = (start + i) * step; if (isFinite(v) && (!out.length || v > out[out.length - 1])) out.push(v); }
+  return out.length ? out : [lo, hi];
+}
+function chartAxis(values) {
+  var max = 0, lo = Infinity, hi = -Infinity;
+  values.forEach(function (v) { max = Math.max(max, Math.abs(v)); lo = Math.min(lo, v); hi = Math.max(hi,v); });
+  var range = hi - lo, offset = range > 0 && isFinite(range) && max / range > 1000 ? lo : 0, size = offset ? range : max;
+  var exponent = size && (size >= 1e9 || size < .001) ? Math.max(-323, Math.min(308, Math.floor(Math.log10(size)))) : 0, unit = Math.pow(10, exponent);
+  return {suffix: offset ? ' (offset ' + String(offset) + (exponent ? '; ×10^' + exponent : '') + ')' : exponent ? ' · ×10^' + exponent : '', scaled: !!exponent || !!offset, format: function (v) { return f3((v - offset) / unit); }};
+}
 function frame(W, H, x, y, xt, yt, xl, yl, body, xfmt) {
+  var xa = chartAxis(xt), ya = chartAxis(yt);
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="' + esc(yl + " by " + xl) + '">';
-  yt.forEach(function (v) { g += '<line x1="56" x2="' + (W - 12) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)"/><text x="50" y="' + (y(v) + 4) + '" text-anchor="end" class="tk">' + f3(v) + "</text>"; });
-  xt.forEach(function (v) { g += '<text x="' + x(v) + '" y="' + (H - 26) + '" text-anchor="middle" class="tk">' + (xfmt ? xfmt(v) : f3(v)) + "</text>"; });
-  return g + body + '<text x="' + ((W + 56) / 2) + '" y="' + (H - 6) + '" text-anchor="middle" class="ax">' + esc(xl) + '</text>' + (W < 400 ? '<text x="60" y="11" text-anchor="start" class="ax">' + esc(yl) + "</text>" : '<text x="14" y="' + (H / 2) + '" text-anchor="middle" class="ax" transform="rotate(-90 14 ' + (H / 2) + ')">' + esc(yl) + "</text>") + "</svg>";
+  yt.forEach(function (v) { g += '<line x1="56" x2="' + (W - 12) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)"/><text x="50" y="' + (y(v) + 4) + '" text-anchor="end" class="tk">' + ya.format(v) + "</text>"; });
+  xt.forEach(function (v) { g += '<text x="' + x(v) + '" y="' + (H - 26) + '" text-anchor="' + (x(v) > W - 40 ? 'end' : 'middle') + '" class="tk">' + (xa.scaled ? xa.format(v) : xfmt ? xfmt(v) : xa.format(v)) + "</text>"; });
+  return g + body + '<text x="' + ((W + 56) / 2) + '" y="' + (H - 6) + '" text-anchor="middle" class="ax">' + esc(xl + xa.suffix) + '</text>' + (W < 400 ? '<text x="60" y="11" text-anchor="start" class="ax">' + esc(yl + ya.suffix) + "</text>" : '<text x="14" y="' + (H / 2) + '" text-anchor="middle" class="ax" transform="rotate(-90 14 ' + (H / 2) + ')">' + esc(yl + ya.suffix) + "</text>") + "</svg>";
 }
 function histogram(v, label) {
   if (v.length < 2) return "";
@@ -855,18 +901,18 @@ function histogram(v, label) {
   return frame(W, H, x, y, xt, yt, label, "Rows", body);
 }
 function bars(items, yl) {
-  var W = CW(), rowH = 26, H = items.length * rowH + 30, mx = Math.max.apply(null, items.map(function (i) { return i[1]; })) || 1;
+  var ba = chartAxis(items.map(function (item) { return item[1]; })), W = CW(), rowH = 26, H = items.length * rowH + 30, mx = Math.max.apply(null, items.map(function (i) { return i[1]; })) || 1;
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="' + esc(yl) + '">';
-  items.forEach(function (it, i) { var L = LW(W), w = it[1] / mx * (W - L - 64), yy = 10 + i * rowH; g += '<text x="' + (L - 6) + '" y="' + (yy + 15) + '" text-anchor="end" class="tk">' + esc(String(it[0]).slice(0, W < 400 ? 14 : 28)) + '</text><rect x="' + L + '" y="' + (yy + 3) + '" width="' + Math.max(1, w) + '" height="16" rx="2" fill="var(--accent)"/><text x="' + (L + 4 + w) + '" y="' + (yy + 15) + '" class="tk">' + f3(it[1]) + "</text>"; });
-  return g + "</svg>";
+  items.forEach(function (it, i) { var L = LW(W), w = it[1] / mx * (W - L - 64), yy = 10 + i * rowH; g += '<text x="' + (L - 6) + '" y="' + (yy + 15) + '" text-anchor="end" class="tk">' + esc(String(it[0]).slice(0, W < 400 ? 14 : 28)) + '</text><rect x="' + L + '" y="' + (yy + 3) + '" width="' + Math.max(1, w) + '" height="16" rx="2" fill="var(--accent)"/><text x="' + (L + 4 + w) + '" y="' + (yy + 15) + '" class="tk">' + ba.format(it[1]) + "</text>"; });
+  return g + (ba.scaled ? '<text x="56" y="' + (H - 4) + '" class="ax">' + esc(yl + ba.suffix) + '</text>' : '') + "</svg>";
 }
 function boxplot(names, ds2, yl) {
-  var W = CW(), rowH = 30, H = names.length * rowH + 44, lo = Math.min.apply(null, ds2.map(function (d) { return d.min; })), hi = Math.max.apply(null, ds2.map(function (d) { return d.max; })), xt = ticks(lo, hi, 6).filter(function (t) { return t >= lo && t <= hi; });
-  var L = LW(W), x = function (v) { return L + (v - lo) / ((hi - lo) || 1) * (W - L - 16); };
+  var W = CW(), rowH = 30, H = names.length * rowH + 44, lo = Math.min.apply(null, ds2.map(function (d) { return d.min; })), hi = Math.max.apply(null, ds2.map(function (d) { return d.max; })), xt = ticks(lo, hi, W < 400 ? 3 : 6).filter(function (t) { return t >= lo && t <= hi; });
+  var xa = chartAxis(xt), L = LW(W), x = function (v) { return L + (v - lo) / ((hi - lo) || 1) * (W - L - 16); };
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="' + esc(yl) + ' by group">';
-  xt.forEach(function (t) { g += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="6" y2="' + (H - 34) + '" stroke="var(--line)"/><text x="' + x(t) + '" y="' + (H - 20) + '" text-anchor="middle" class="tk">' + f3(t) + "</text>"; });
+  xt.forEach(function (t) { g += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="6" y2="' + (H - 34) + '" stroke="var(--line)"/><text x="' + x(t) + '" y="' + (H - 20) + '" text-anchor="middle" class="tk">' + xa.format(t) + "</text>"; });
   names.forEach(function (n, i) { var d = ds2[i], yy = 10 + i * rowH; g += '<text x="' + (L - 6) + '" y="' + (yy + 14) + '" text-anchor="end" class="tk">' + esc(String(n).slice(0, W < 400 ? 14 : 28)) + '</text><line x1="' + x(d.min) + '" x2="' + x(d.max) + '" y1="' + (yy + 10) + '" y2="' + (yy + 10) + '" stroke="var(--muted)"/><rect x="' + x(d.q1) + '" y="' + (yy + 2) + '" width="' + Math.max(2, x(d.q3) - x(d.q1)) + '" height="16" fill="var(--accent-soft)" stroke="var(--accent)"/><line x1="' + x(d.median) + '" x2="' + x(d.median) + '" y1="' + (yy + 2) + '" y2="' + (yy + 18) + '" stroke="var(--accent)" stroke-width="2.5"/><circle cx="' + x(d.mean) + '" cy="' + (yy + 10) + '" r="3" fill="var(--ink)"><title>Average ' + f3(d.mean) + "</title></circle>"; });
-  return g + '<text x="' + ((W + L) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="ax">' + esc(yl) + " (box = middle half, line = median, dot = average)</text></svg>";
+  return g + '<text x="' + ((W + L) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="ax">' + esc(yl + xa.suffix) + "</text></svg><p class=\"count\">Box = middle half; line = median; dot = average.</p>";
 }
 function scatter(xs, ys, xl, yl, co) {
   var W = CW(), H = 340, xlo = Math.min.apply(null, xs), xhi = Math.max.apply(null, xs), ylo = Math.min.apply(null, ys), yhi = Math.max.apply(null, ys), xt = ticks(xlo, xhi, W < 400 ? 4 : 6), yt = ticks(ylo, yhi, 5);
@@ -887,11 +933,11 @@ function lineChart(lines, xl, yl) {
 function coefChart(coefs) {
   if (!coefs.length) return "";
   var W = CW(), rowH = 30, H = coefs.length * rowH + 44, lo = Math.min(0, Math.min.apply(null, coefs.map(function (c) { return c.lo; }))), hi = Math.max(0, Math.max.apply(null, coefs.map(function (c) { return c.hi; }))), xt = ticks(lo, hi, 5).filter(function (t) { return t >= lo && t <= hi; });
-  var L = LW(W), x = function (v) { return L + (v - lo) / ((hi - lo) || 1) * (W - L - 16); };
+  var xa = chartAxis(xt), L = LW(W), x = function (v) { return L + (v - lo) / ((hi - lo) || 1) * (W - L - 16); };
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="Effect of each predictor with 95% range">';
-  xt.forEach(function (t) { g += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="6" y2="' + (H - 34) + '" stroke="' + (t === 0 ? "var(--muted)" : "var(--line)") + '"/><text x="' + x(t) + '" y="' + (H - 20) + '" text-anchor="middle" class="tk">' + f3(t) + "</text>"; });
+  xt.forEach(function (t) { g += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="6" y2="' + (H - 34) + '" stroke="' + (t === 0 ? "var(--muted)" : "var(--line)") + '"/><text x="' + x(t) + '" y="' + (H - 20) + '" text-anchor="middle" class="tk">' + xa.format(t) + "</text>"; });
   coefs.forEach(function (c, i) { var yy = 10 + i * rowH + 10, col = c.p < 0.05 ? "var(--accent)" : "var(--neutral)"; g += '<text x="' + (L - 6) + '" y="' + (yy + 4) + '" text-anchor="end" class="tk">' + esc(String(c.name).slice(0, W < 400 ? 14 : 28)) + '</text><line x1="' + x(c.lo) + '" x2="' + x(c.hi) + '" y1="' + yy + '" y2="' + yy + '" stroke="' + col + '" stroke-width="2"/><circle cx="' + x(c.b) + '" cy="' + yy + '" r="4.5" fill="' + col + '"/>'; });
-  return g + '<text x="' + ((W + L) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="ax">Effect per 1-unit rise, with 95% range (grey = not clearly different from zero)</text></svg>';
+  return g + '<text x="' + ((W + L) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="ax">Effect per 1-unit rise' + esc(xa.suffix) + '</text></svg><p class="count">95% range; grey = not clearly different from zero.</p>';
 }
 
 // --- views ---
@@ -911,7 +957,7 @@ function dataView() {
   var prof = '<div class="tablewrap"><table class="nosort"><thead><tr><th>Column</th><th>Type</th><th>Missing</th><th>Summary</th><th>Check</th></tr></thead><tbody>' + ds.cols.map(function (c, j) {
     var v = colVals(ds, j), miss = v.filter(function (x) { return x == null; }).length, sum = "", flag = [];
     if (isNum(c)) { var d = S.describe(v); sum = "median " + f3(d.median) + " · " + f3(d.min) + " to " + f3(d.max); if (d.outliers) flag.push(d.outliers + " unusual"); if (d.sd === 0) flag.push("never changes"); }
-    else { var u = {}; v.forEach(function (x) { if (x != null) u[x] = (u[x] || 0) + 1; }); var k = Object.keys(u).sort(function (a, b) { return u[b] - u[a]; }); sum = k.length + " distinct" + (k[0] ? " · most often “" + esc(String(k[0]).slice(0, 24)) + "”" : ""); if (k.length === 1) flag.push("one value only"); }
+    else { var u = Object.create(null); v.forEach(function (x) { if (x != null) u[x] = (u[x] || 0) + 1; }); var k = Object.keys(u).sort(function (a, b) { return u[b] - u[a]; }); sum = k.length + " distinct" + (k[0] ? " · most often “" + esc(String(k[0]).slice(0, 24)) + "”" : ""); if (k.length === 1) flag.push("one value only"); }
     if (miss / v.length > 0.5) flag.push("mostly empty");
     return "<tr><td><b>" + esc(c.name) + '</b></td><td><select data-atype="' + j + '" aria-label="Type of ' + esc(c.name) + '">' + ["number", "year", "date", "category", "text"].map(function (t) { return '<option value="' + t + '"' + (c.type === t ? " selected" : "") + ">" + TYPE_LABEL[t] + "</option>"; }).join("") + '</select></td><td class="num">' + (miss ? Math.round(miss / v.length * 100) + "%" : "—") + "</td><td>" + sum + "</td><td>" + flag.map(function (f) { return '<span class="chip q-estimated">' + f + "</span>"; }).join(" ") + "</td></tr>";
   }).join("") + "</tbody></table></div>";
@@ -935,7 +981,7 @@ function analyzeView() {
   if (!ds.rows) { loadRows(ds).then(render); return '<p class="count" role="status">Loading…</p>'; }
   var R = runAnalysis(ds);
   var cats = ds.cols.filter(function (c) { return c.type === "category"; }), fcol = A.sel.f ? ds.cols[idxOf(ds, A.sel.f)] : null, fvals = [];
-  if (fcol) { var u = {}; colVals(ds, idxOf(ds, A.sel.f)).forEach(function (v) { if (v != null) u[v] = 1; }); fvals = Object.keys(u).sort(); }
+  if (fcol) { var u = Object.create(null); colVals(ds, idxOf(ds, A.sel.f)).forEach(function (v) { if (v != null) u[v] = 1; }); fvals = Object.keys(u).sort(); }
   var filter = cats.length ? '<details class="subset"' + (A.sel.f ? " open" : "") + '><summary>Use only some rows</summary><div class="toolbar">' + pick("f", "Where", cats, A.sel.f, true) +
     (fcol ? '<label class="field" for="fv">is<select id="fv" data-asel="fv"><option value="">Choose…</option>' + fvals.map(function (v) { return "<option" + (v === A.sel.fv ? " selected" : "") + ">" + esc(v) + "</option>"; }).join("") + "</select></label>" : "") + "</div></details>" : "";
   var aiBox = explanationPanel(ds, R);
@@ -983,21 +1029,21 @@ function chartsView() {
   else if (ch.type === "bar") {
     ch.agg = ch.agg || "count";
     ctr = pick("g", "Category", c.cats, A.sel.g) + '<label class="field" for="cagg">Show<select id="cagg" data-cagg="1">' + [["count", "Number of rows"], ["mean", "Average of…"], ["sum", "Total of…"], ["median", "Median of…"]].map(function (o) { return '<option value="' + o[0] + '"' + (ch.agg === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></label>" + (ch.agg !== "count" ? pick("y", "Number", c.nums, A.sel.y) : "");
-    var gv = get(A.sel.g), yv = get(A.sel.y), m = {};
+    var gv = get(A.sel.g), yv = get(A.sel.y), m = Object.create(null);
     gv.forEach(function (g, i) { if (g == null) return; (m[g] = m[g] || []).push(yv[i]); });
     var items = Object.keys(m).map(function (k) { var v = S.nums(m[k]); return [k, ch.agg === "count" ? m[k].length : ch.agg === "sum" ? v.reduce(function (a, b) { return a + b; }, 0) : ch.agg === "mean" ? S.mean(v) : S.quantile(v.sort(function (a, b) { return a - b; }), 0.5)]; }).filter(function (i) { return isFinite(i[1]); }).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 20);
     svg = items.length ? bars(items, ch.agg) : "";
   } else if (ch.type === "box") {
     ctr = pick("y", "Number", c.nums, A.sel.y) + pick("g", "Group by", c.cats, A.sel.g);
-    var y2 = get(A.sel.y), g2 = get(A.sel.g), grp = {}; y2.forEach(function (v, i) { if (typeof v === "number" && g2[i] != null) (grp[g2[i]] = grp[g2[i]] || []).push(v); });
+    var y2 = get(A.sel.y), g2 = get(A.sel.g), grp = Object.create(null); y2.forEach(function (v, i) { if (typeof v === "number" && g2[i] != null) (grp[g2[i]] = grp[g2[i]] || []).push(v); });
     var nm = Object.keys(grp).filter(function (k) { return grp[k].length >= 2; }).slice(0, 15); svg = nm.length ? boxplot(nm, nm.map(function (k) { return S.describe(grp[k]); }), A.sel.y) : "";
   } else if (ch.type === "scatter") {
     ctr = pick("x", "Across", nums, A.sel.x) + pick("y", "Up", c.nums, A.sel.y) + '<label class="chk"><input type="checkbox" data-cfit="1"' + (ch.fit !== false ? " checked" : "") + "> Fitted line</label>";
     var co = S.correlate(get(A.sel.x), get(A.sel.y)); svg = co.n >= 2 ? scatter(co.x, co.y, A.sel.x, A.sel.y, ch.fit !== false && co.n >= 3 ? co : null) : "";
   } else {
     ctr = pick("t", "Time", c.time.length ? c.time : nums, A.sel.t || (c.time[0] || nums[0] || {}).name) + pick("y", "Number", c.nums, A.sel.y) + pick("g", "Lines by", c.cats, A.sel.g, true);
-    var tn = A.sel.t || (c.time[0] || nums[0] || {}).name, tdate = (ds.cols[idxOf(ds, tn)] || {}).type === "date", tv = get(tn).map(function (v) { return tdate ? (v ? Date.parse(String(v).slice(0, 10)) / (365.25 * 864e5) + 1970 : null) : v; }), yy = get(A.sel.y), gg = A.sel.g ? get(A.sel.g) : null, ser = {};
-    tv.forEach(function (t, i) { if (typeof t !== "number" || typeof yy[i] !== "number") return; var k = gg ? gg[i] || "(none)" : A.sel.y; ser[k] = ser[k] || {}; (ser[k][t] = ser[k][t] || []).push(yy[i]); });
+    var tn = A.sel.t || (c.time[0] || nums[0] || {}).name, tdate = (ds.cols[idxOf(ds, tn)] || {}).type === "date", tv = get(tn).map(function (v) { return tdate ? (v ? Date.parse(String(v).slice(0, 10)) / (365.25 * 864e5) + 1970 : null) : v; }), yy = get(A.sel.y), gg = A.sel.g ? get(A.sel.g) : null, ser = Object.create(null);
+    tv.forEach(function (t, i) { if (typeof t !== "number" || typeof yy[i] !== "number") return; var k = gg ? gg[i] || "(none)" : A.sel.y; ser[k] = ser[k] || Object.create(null); (ser[k][t] = ser[k][t] || []).push(yy[i]); });
     var ln = Object.keys(ser).slice(0, 7).map(function (k) { return {name: k, pts: Object.keys(ser[k]).map(Number).sort(function (a, b) { return a - b; }).map(function (t) { return [t, S.mean(ser[k][t])]; })}; });
     svg = ln.length ? lineChart(ln, A.sel.t || "", A.sel.y || "") : "";
   }
@@ -1010,12 +1056,17 @@ function chartsView() {
 GROUPS.data = ["data"]; GROUPS.analyze = ["analyze"]; GROUPS.charts = ["charts"];
 VIEWS.data = dataView; VIEWS.analyze = analyzeView; VIEWS.charts = chartsView;
 A.sets = []; A.cur = null;
-function pickSet(id) { A.cur = id; A.sel = {}; A.ai = {}; A.msg = ""; A.del = null; }
+function pickSet(id) { A.cur = id; A.sel = Object.create(null); A.ai = Object.create(null); A.msg = ""; A.del = null; }
 view.addEventListener("change", function (e) {
   var t = e.target, d = t.dataset || {};
   if (t.id === "afile" && t.files && t.files[0]) { readFile(t.files[0]); return; }
   if (d.asel) { A.sel[d.asel] = t.value; if (d.asel === "f") A.sel.fv = ""; render(); return; }
-  if (d.atype != null) { var ds = cur(), j = +d.atype, c = ds.cols[j]; c.type = t.value; ds.rows.forEach(function (r) { var v = r[j]; if (v == null) return; if (c.type === "number" || c.type === "year") { var n = parseNum(v); r[j] = typeof n === "number" ? n : null; } else r[j] = String(v); }); saveMeta(ds); if (ds.saved) saveSet(ds); render(); return; }
+  if (d.atype != null) {
+    var ds = cur(), j = +d.atype, type = t.value;
+    try { applyStep(ds, {op: 'type', col: ds.cols[j].name, type: type, text: 'Changed type of ' + ds.cols[j].name + ' to ' + type}, function () { return changeColumnType(ds, j, type); }); }
+    catch (err) { A.msg = err.message; render(); }
+    return;
+  }
   if (d.pred != null) { var p = A.sel.preds || []; A.sel.preds = t.checked ? p.concat([d.pred]) : p.filter(function (x) { return x !== d.pred; }); render(); return; }
   if (d.cagg) { A.chart.agg = t.value; render(); return; }
   if (d.cfit) { A.chart.fit = t.checked; render(); return; }
@@ -1044,7 +1095,7 @@ stStart();
 //   ydata-profiling alerts (missing, constant, unique, cardinality, imbalance, skew, zeros, duplicates, correlation)
 //   Palantir Foundry data expectations and health checks (primary key, allowed values, freshness) and its step history
 //   scikit-learn KNNImputer, MissingIndicator and IsolationForest
-var E = {sev: "", openFix: null, clusterCol: null, clusterMethod: "fingerprint", clusters: null, picked: {}, iso: null, undo: {}, orig: {}, msg: ""};
+var E = {sev: "", openFix: null, clusterCol: null, clusterMethod: "fingerprint", clusters: null, picked: Object.create(null), iso: null, undo: Object.create(null), orig: Object.create(null), msg: ""};
 
 // --- OpenRefine key-collision and nearest-neighbour clustering ---
 function asciiFold(s) { return s.normalize("NFKD").replace(/[̀-ͯ]/g, ""); }
@@ -1064,11 +1115,11 @@ function lev(a, b) {
   return prev[n];
 }
 function clusterValues(counts, method) {
-  var vals = Object.keys(counts), groups = {};
+  var vals = Object.keys(counts), groups = Object.create(null);
   if (method === "levenshtein") {
     // Blocking: compare only values that share a 3-character substring (OpenRefine allows lowering its default of 6; 6 misses typos in short words), then join within radius.
     var parent = vals.map(function (_, i) { return i; }), find = function (i) { while (parent[i] !== i) i = parent[i] = parent[parent[i]]; return i; };
-    var blocks = {}; vals.forEach(function (v, i) { var s = v.toLowerCase(), b = Math.min(3, s.length); for (var p = 0; p + b <= s.length; p++) (blocks[s.slice(p, p + b)] = blocks[s.slice(p, p + b)] || []).push(i); });
+    var blocks = Object.create(null); vals.forEach(function (v, i) { var s = v.toLowerCase(), b = Math.min(3, s.length); for (var p = 0; p + b <= s.length; p++) (blocks[s.slice(p, p + b)] = blocks[s.slice(p, p + b)] || []).push(i); });
     Object.keys(blocks).forEach(function (k) { var ids = blocks[k]; if (ids.length > 200) return; for (var a = 0; a < ids.length; a++) for (var b2 = a + 1; b2 < ids.length; b2++) { var x = vals[ids[a]].toLowerCase(), y = vals[ids[b2]].toLowerCase(); if (lev(x, y) <= (Math.min(x.length, y.length) < 6 ? 1 : 2)) parent[find(ids[a])] = find(ids[b2]); } });
     vals.forEach(function (v, i) { var r = find(i); (groups[r] = groups[r] || []).push(v); });
   } else {
@@ -1091,7 +1142,7 @@ function knnFill(ds, j, k) {   // KNNImputer: mean of the k nearest rows (nan-eu
       .filter(function (x) { return isFinite(x[0]); }).sort(function (a, b) { return a[0] - b[0]; }).slice(0, k);
     if (!d.length) return r;
     var v; if (numeric) v = S.mean(d.map(function (x) { return ds.rows[x[1]][j]; }));
-    else { var c = {}; d.forEach(function (x) { var w = ds.rows[x[1]][j]; c[w] = (c[w] || 0) + 1; }); v = Object.keys(c).sort(function (a, b) { return c[b] - c[a]; })[0]; }
+    else { var c = Object.create(null); d.forEach(function (x) { var w = ds.rows[x[1]][j]; c[w] = (c[w] || 0) + 1; }); v = Object.keys(c).sort(function (a, b) { return c[b] - c[a]; })[0]; }
     changed++; var r2 = r.slice(); r2[j] = numeric ? +(+v).toPrecision(6) : v; return r2;
   });
   var left = out.filter(function (r) { return r[j] == null; }).length;
@@ -1118,12 +1169,12 @@ function isoForest(X, trees, sub) {
 // --- health checks ---
 function checks(ds) {
   var out = [], n = ds.rows.length, push = function (sev, col, title, detail, fix, src) { out.push({sev: sev, col: col, title: title, detail: detail, fix: fix, src: src}); };
-  var seen = {}, dup = 0; ds.rows.forEach(function (r) { var k = JSON.stringify(r); if (seen[k]) dup++; seen[k] = 1; });
+  var seen = Object.create(null), dup = 0; ds.rows.forEach(function (r) { var k = JSON.stringify(r); if (seen[k]) dup++; seen[k] = 1; });
   if (dup) push("warn", null, dup + " duplicate row" + (dup > 1 ? "s" : ""), "Rows that repeat another row exactly. They count twice in every statistic.", {op: "dedupe", label: "Remove duplicates"}, "Rule adapted from ydata-profiling");
   var keyCol = null;
   ds.cols.forEach(function (c, j) {
     var v = colVals(ds, j), miss = v.filter(function (x) { return x == null; }).length, present = v.filter(function (x) { return x != null; });
-    var u = {}; present.forEach(function (x) { u[x] = (u[x] || 0) + 1; }); var distinct = Object.keys(u).length;
+    var u = Object.create(null); present.forEach(function (x) { u[x] = (u[x] || 0) + 1; }); var distinct = Object.keys(u).length;
     if (!present.length) { push("high", c.name, "Empty column", "No values at all.", {op: "drop", label: "Remove column"}, "Rule adapted from ydata-profiling"); return; }
     if (miss) push(miss / n > 0.5 ? "high" : miss / n > 0.05 ? "warn" : "info", c.name, Math.round(miss / n * 1000) / 10 + "% missing", miss + " of " + n + " rows have no value.", {op: "fill", label: "Fill missing values"}, "Rule adapted from ydata-profiling");
     if (distinct === 1) push("warn", c.name, "Same value in every row", "“" + present[0] + "” everywhere, so it cannot explain any differences.", {op: "drop", label: "Remove column"}, "Rule adapted from ydata-profiling");
@@ -1148,11 +1199,6 @@ function checks(ds) {
       if (c.type === "date") { var last = present.map(function (x) { return String(x).slice(0, 10); }).sort().pop(), age = Math.round((Date.now() - Date.parse(last)) / 864e5); if (age > 365) push("info", c.name, "Latest date is " + last, "The newest record is " + (age / 365).toFixed(1) + " years old.", null, "Modelled on Foundry's freshness check"); }
     }
   });
-  var nums = ds.cols.map(function (c, j) { return j; }).filter(function (j) { return ds.cols[j].type === "number"; });
-  for (var a = 0; a < nums.length; a++) for (var b = a + 1; b < nums.length; b++) {
-    var co = S.correlate(colVals(ds, nums[a]), colVals(ds, nums[b]));
-    if (co.n > 5 && Math.abs(co.r) > 0.9) push("info", ds.cols[nums[a]].name, "Nearly duplicates " + ds.cols[nums[b]].name, "Correlation " + co.r.toFixed(2) + ". Using both as predictors makes a regression unstable; keep one.", null, "Rule adapted from ydata-profiling");
-  }
   var rank = {high: 0, warn: 1, info: 2};
   return out.sort(function (x, y) { return rank[x.sev] - rank[y.sev]; });
 }
@@ -1161,26 +1207,27 @@ function checks(ds) {
 function applyStep(ds, step, fn) {
   var before = ds.rows, beforeCols = JSON.parse(JSON.stringify(ds.cols));
   if (!E.orig[ds.id]) E.orig[ds.id] = {rows: before, cols: beforeCols, recipe: (ds.recipe || []).slice()};
-  var res = fn();
+  var res; try { res = fn(); } catch (err) { E.msg = err.message || 'This change could not be applied.'; if (st.tab === 'data') A.msg = E.msg; render(); return; }
   if (!res || !res.changed) { E.msg = (res && res.why) || "Nothing needed changing."; render(); return; }
   (E.undo[ds.id] = E.undo[ds.id] || []).push({rows: before, cols: beforeCols});
+  if (st.tab === 'data') A.msg = '';
   ds.rows = res.rows; if (res.cols) ds.cols = res.cols;
   ds.recipe = (ds.recipe || []).concat([Object.assign({at: new Date().toISOString(), changed: res.changed}, step)]);
-  E.msg = step.text + " (" + res.changed + " " + (step.unit || "values") + ")." + (res.why ? " " + res.why : ""); E.openFix = null; E.clusters = null; A.ai = {};
+  E.msg = step.text + " (" + res.changed + " " + (step.unit || "values") + ")." + (res.why ? " " + res.why : ""); E.openFix = null; E.clusters = null; A.ai = Object.create(null);
   render(); saveSet(ds);
 }
 function mapCol(ds, j, f) { var ch = 0; return {rows: ds.rows.map(function (r) { var v = f(r[j]); if (v === r[j]) return r; ch++; var r2 = r.slice(); r2[j] = v; return r2; }), changed: ch}; }
 function opTrim(ds, j) { return mapCol(ds, j, function (v) { return typeof v === "string" ? v.trim().replace(/\s{2,}/g, " ") : v; }); }
 function opToNum(ds, j) { var res = mapCol(ds, j, function (v) { if (v == null) return v; var n = parseNum(v); return typeof n === "number" ? n : null; }); var cols = ds.cols.slice(); cols[j] = Object.assign({}, cols[j], {type: "number"}); res.cols = cols; res.changed = res.changed || 1; return res; }
-function opDedupe(ds) { var seen = {}, rows = ds.rows.filter(function (r) { var k = JSON.stringify(r); if (seen[k]) return false; seen[k] = 1; return true; }); return {rows: rows, changed: ds.rows.length - rows.length}; }
-function opDrop(ds, j) { return {rows: ds.rows.map(function (r) { return r.filter(function (_, i) { return i !== j; }); }), cols: ds.cols.filter(function (_, i) { return i !== j; }), changed: 1}; }
+function opDedupe(ds) { var seen = Object.create(null), rows = ds.rows.filter(function (r) { var k = JSON.stringify(r); if (seen[k]) return false; seen[k] = 1; return true; }); return {rows: rows, changed: ds.rows.length - rows.length}; }
+function opDrop(ds, j) { if (ds.cols.length <= 1) throw new Error('Keep at least one column, or delete the dataset under Your data.'); return {rows: ds.rows.map(function (r) { return r.filter(function (_, i) { return i !== j; }); }), cols: ds.cols.filter(function (_, i) { return i !== j; }), changed: 1}; }
 function opFill(ds, j, how, flag) {
   var v = colVals(ds, j), c = ds.cols[j], res;
   if (how === "knn") res = knnFill(ds, j, 5);
   else {
     var fillv;
     if (how === "median") fillv = S.describe(v).median; else if (how === "mean") fillv = +S.describe(v).mean.toPrecision(6);
-    else { var u = {}; v.forEach(function (x) { if (x != null) u[x] = (u[x] || 0) + 1; }); fillv = Object.keys(u).sort(function (a, b) { return u[b] - u[a]; })[0]; if (isNum(c)) fillv = +fillv; }
+    else { var u = Object.create(null); v.forEach(function (x) { if (x != null) u[x] = (u[x] || 0) + 1; }); fillv = Object.keys(u).sort(function (a, b) { return u[b] - u[a]; })[0]; if (isNum(c)) fillv = +fillv; }
     res = mapCol(ds, j, function (x) { return x == null ? fillv : x; });
   }
   if (flag && res.changed) {   // MissingIndicator: remember which rows were filled
@@ -1203,7 +1250,7 @@ function opDerive(ds, j, how) {
   return {rows: ds.rows.map(function (r) { return r.concat([f(r[j])]); }), cols: ds.cols.concat([{name: name, type: how === "bins" ? "category" : "number"}]), changed: v.filter(function (x) { return x != null; }).length};
 }
 function opMerge(ds, j, clusters) {
-  var map = {}; clusters.forEach(function (cl) { cl.values.forEach(function (v) { if (v !== cl.into) map[v] = cl.into; }); });
+  var map = Object.create(null); clusters.forEach(function (cl) { cl.values.forEach(function (v) { if (v !== cl.into) map[v] = cl.into; }); });
   return mapCol(ds, j, function (v) { return v != null && Object.prototype.hasOwnProperty.call(map, v) ? map[v] : v; });
 }
 function opIso(ds, cols, share) {
@@ -1298,7 +1345,7 @@ view.addEventListener("click", function (e) {
     if (["dedupe", "trim", "tonum", "drop"].indexOf(c.fix.op) >= 0) { var j0 = c.col ? idxOf(ds, c.col) : -1;
       return applyStep(ds, {op: c.fix.op, col: c.col, text: {dedupe: "Removed duplicate rows", trim: "Trimmed spaces in " + c.col, tonum: "Converted " + c.col + " to numbers", drop: "Removed column " + c.col}[c.fix.op], unit: c.fix.op === "dedupe" ? "rows" : c.fix.op === "drop" ? "column" : "values"},
         function () { return c.fix.op === "dedupe" ? opDedupe(ds) : c.fix.op === "trim" ? opTrim(ds, j0) : c.fix.op === "tonum" ? opToNum(ds, j0) : opDrop(ds, j0); }); }
-    if (c.fix.op === "cluster") { E.clusterCol = c.col; E.clusters = clusterValues(countsOf(ds, c.col), E.clusterMethod); E.picked = {}; render(); refocus("[data-emerge]", "[data-efind]"); return; }
+    if (c.fix.op === "cluster") { E.clusterCol = c.col; E.clusters = clusterValues(countsOf(ds, c.col), E.clusterMethod); E.picked = Object.create(null); render(); refocus("[data-emerge]", "[data-efind]"); return; }
     E.openFix = +d.efix; render(); refocus("[data-eapply]"); return; }
   if (d.ecancel) { E.openFix = null; render(); return; }
   if (d.eapply) { var form = b.closest(".fixform"), col = form.dataset.ecolName, op = form.dataset.eop, j = idxOf(ds, col);
@@ -1306,7 +1353,7 @@ view.addEventListener("click", function (e) {
     if (op === "outliers") { var oh = document.getElementById("eouthow").value; return applyStep(ds, {op: "outliers", col: col, how: oh, text: {flag: "Marked", cap: "Capped", remove: "Removed rows with"}[oh] + " unusual " + col + " values", unit: oh === "remove" ? "rows" : "values"}, function () { return opOutliers(ds, j, oh); }); }
     if (op === "derive") { var dh = document.getElementById("ederhow").value; return applyStep(ds, {op: "derive", col: col, how: dh, text: "Added " + {log: "log10", z: "standardized", bins: "quarter"}[dh] + " column from " + col}, function () { return opDerive(ds, j, dh); }); }
   }
-  if (d.efind) { E.clusters = clusterValues(countsOf(ds, E.clusterCol), E.clusterMethod); E.picked = {}; render(); refocus("[data-emerge]", "[data-efind]"); return; }
+  if (d.efind) { E.clusters = clusterValues(countsOf(ds, E.clusterCol), E.clusterMethod); E.picked = Object.create(null); render(); refocus("[data-emerge]", "[data-efind]"); return; }
   if (d.emerge) { var cl = (E.clusters || []).filter(function (_, i) { return E.picked[i] !== false; }); if (!cl.length) return;
     return applyStep(ds, {op: "merge", col: E.clusterCol, method: E.clusterMethod, groups: cl.map(function (x) { return {values: x.values, into: x.into}; }), text: "Merged " + cl.length + " group" + (cl.length > 1 ? "s" : "") + " of similar " + E.clusterCol + " values"}, function () { return opMerge(ds, idxOf(ds, E.clusterCol), cl); }); }
   if (d.eisorun) { ["Anomaly score", "Anomaly"].forEach(function (n) { var k = idxOf(ds, n); if (k >= 0) { ds.rows = ds.rows.map(function (r) { return r.filter(function (_, i) { return i !== k; }); }); ds.cols = ds.cols.filter(function (_, i) { return i !== k; }); } });
@@ -1323,7 +1370,7 @@ view.addEventListener("change", function (e) {
   if (d.eiso != null) { var cs = E.iso.cols; E.iso.cols = t.checked ? cs.concat([d.eiso]) : cs.filter(function (x) { return x !== d.eiso; }); render(); return; }
   if (d.eshare) { E.iso.share = +t.value; render(); return; }
 });
-function countsOf(ds, name) { var j = idxOf(ds, name), u = {}; ds.rows.forEach(function (r) { if (r[j] != null) u[r[j]] = (u[r[j]] || 0) + 1; }); return u; }
+function countsOf(ds, name) { var j = idxOf(ds, name), u = Object.create(null); ds.rows.forEach(function (r) { if (r[j] != null) u[r[j]] = (u[r[j]] || 0) + 1; }); return u; }
 
 // ===== empty.js =====
 // ---------- First-run board: each tab previews its work in faint chalk until data arrives ----------
@@ -1373,7 +1420,7 @@ function fz(v, d) { d = d == null ? 2 : d; var s = (+v).toFixed(d); return Math.
 function apaP(p) { return p < 0.001 ? "<i>p</i> < .001" : "<i>p</i> = " + fz(p, 3); }
 function chipYes(ok, yes, no) { return '<span class="chip ' + (ok ? "q-verified" : "q-estimated") + '">' + (ok ? yes : no) + "</span>"; }
 function getCol(ds, rows, n) { var j = idxOf(ds, n); return rows.map(function (r) { return r[j]; }); }
-function groupsOf(ds, rows, y, g) { var yv = getCol(ds, rows, y), gv = getCol(ds, rows, g), m = {}; yv.forEach(function (v, i) { if (typeof v === "number" && gv[i] != null) (m[gv[i]] = m[gv[i]] || []).push(v); }); return m; }
+function groupsOf(ds, rows, y, g) { var yv = getCol(ds, rows, y), gv = getCol(ds, rows, g), m = Object.create(null); yv.forEach(function (v, i) { if (typeof v === "number" && gv[i] != null) (m[gv[i]] = m[gv[i]] || []).push(v); }); return m; }
 function swRow(name, v) { var s = S2.shapiro(v); return s ? "<tr><td>" + esc(name) + '</td><td class="num">' + s.n + '</td><td class="num">' + s.W.toFixed(3) + '</td><td class="num">' + fp(s.p) + "</td><td>" + chipYes(s.p >= 0.05, "Looks normal", "Not normal") + "</td></tr>" : ""; }
 function swTable(rows) { return '<h3 class="sub-h">Assumption checks</h3><div class="tablewrap"><table class="nosort"><thead><tr><th>Shapiro–Wilk</th><th>Rows</th><th>W</th><th>p</th><th></th></tr></thead><tbody>' + rows + "</tbody></table></div>"; }
 function bfLine(bf) { return "Approximate Bayes factor BF<sub>10</sub> = " + (bf > 1000 ? "> 1000" : bf < 0.001 ? "< 0.001" : f3(bf)) + ": " + S2.bfWord(bf) + " (BIC method, Wagenmakers 2007)."; }
@@ -1402,7 +1449,9 @@ function enrich(R, ds) {
     if (names.length === 2) {
       var mw = S2.mannWhitney(gs[0], gs[1]), pw = S2.powerD(sm.cohen_d, gs[0].length, gs[1].length), bf = S2.bfR2(an.eta2, n, 1);
       R.extra += '<h3 class="sub-h">Rank-based check</h3>' + figs([["Mann–Whitney U", f3(mw.U)], ["p-value", fp(mw.p)], ["Rank effect (r)", f3(mw.r)]]);
-      R.reading.push((nonNormal ? "At least one group is not normally distributed, so the rank-based Mann–Whitney test is the safer read: " : "The rank-based Mann–Whitney test agrees as a check: ") + "U = " + f3(mw.U) + ", p " + (mw.p < 0.001 ? "< 0.001" : "= " + fp(mw.p)) + ".");
+      R.reading.push(((mw.p < .05) === (sm.p < .05) ? "The rank-based Mann–Whitney test gives the same decision at the .05 threshold: " : "The rank-based Mann–Whitney test differs at the .05 threshold. These methods test different hypotheses; with small groups their approximations are especially uncertain: ") + "U = " + f3(mw.U) + ", p " + (mw.p < 0.001 ? "< 0.001" : "= " + fp(mw.p)) + ".");
+      if (nonNormal) R.caveats.push('A normality check flags at least one group. Consider the rank-based alternative, checking independence and distribution shape; it tests a different hypothesis from a comparison of means.');
+      if (gs.some(function (g) { return g.length < 10; })) R.caveats.push('The Mann–Whitney p-value uses a normal approximation. With small groups, prefer an exact calculation in a dedicated statistics package before drawing a conclusion.');
       R.reading.push(bfLine(bf));
       R.caveats.push("Power: with these group sizes there is about a " + Math.round(pw.power * 100) + "% chance of detecting an effect this size. About " + pw.need + " rows per group would give 80% power (normal approximation).");
       if (lev.p < 0.05) R.caveats.push("The groups' spreads differ (Levene), which Welch's t-test already allows for.");
@@ -1415,7 +1464,8 @@ function enrich(R, ds) {
         '<p class="count">Pairwise Welch t-tests with Holm correction for the number of comparisons.</p>';
       var sig = pairs.filter(function (q) { return q.padj < 0.05; });
       R.reading.push(sig.length ? sig.length + " of " + pairs.length + " pairs differ after correcting for multiple comparisons, for example " + esc(sig[0].a) + " vs " + esc(sig[0].b) + " (difference " + f3(sig[0].diff) + ")." : "No pair of groups differs clearly once the comparisons are corrected for multiple testing.");
-      R.reading.push((nonNormal || lev.p < 0.05 ? "Because " + (nonNormal ? "some groups are not normal" : "the spreads differ") + ", the Kruskal–Wallis test is the safer overall read: " : "The rank-based Kruskal–Wallis test agrees as a check: ") + "H(" + kw.df + ") = " + f3(kw.H) + ", p " + (kw.p < 0.001 ? "< 0.001" : "= " + fp(kw.p)) + ".");
+      R.reading.push(((kw.p < .05) === (sm.p < .05) ? "The rank-based Kruskal–Wallis test gives the same decision at the .05 threshold: " : "The rank-based Kruskal–Wallis test differs at the .05 threshold. Check group distributions, sample sizes and the hypotheses before interpreting this difference: ") + "H(" + kw.df + ") = " + f3(kw.H) + ", p " + (kw.p < 0.001 ? "< 0.001" : "= " + fp(kw.p)) + ".");
+      if (nonNormal || lev.p < .05) R.caveats.push('Group normality or spread checks are flagged. Kruskal–Wallis compares rank distributions; unequal shapes or spreads can affect its interpretation as a location difference. Check its assumptions before preferring it.');
       R.reading.push(bfLine(bf2));
       R.caveats = R.caveats.filter(function (c) { return !/says some groups differ, not which/.test(c); });
       R.apa = "<i>F</i>(" + an.df1 + ", " + an.df2 + ") = " + an.F.toFixed(2) + ", " + apaP(an.p) + ", η² = " + fz(an.eta2) + "; Kruskal–Wallis <i>H</i>(" + kw.df + ") = " + kw.H.toFixed(2) + ", " + apaP(kw.p);
@@ -1451,7 +1501,7 @@ function runPaired(ds) {
   R.head = figs([["Average change", f3(t.mean)], ["95% range", f3(t.ciLo) + " to " + f3(t.ciHi)], ["p-value", fp(t.p)], ["Pairs", t.n]], true);
   R.chart = histogram(diffs, "Change (" + s.y + " − " + s.x + ")");
   R.extra = swTable(swRow("Changes", diffs)) + (w ? '<h3 class="sub-h">Rank-based check</h3>' + figs([["Wilcoxon T", f3(w.T)], ["p-value", fp(w.p)], ["Effect (r)", f3(w.r)]]) : "");
-  R.reading.push("On average " + esc(s.y) + " is " + f3(Math.abs(t.mean)) + (t.mean >= 0 ? " higher" : " lower") + " than " + esc(s.x) + " for the same row. That change " + pWord(t.p) + ".");
+  R.reading.push("On average " + esc(s.y) + " is " + f3(Math.abs(t.mean)) + (t.mean >= 0 ? " higher" : " lower") + " than " + esc(s.x) + " for the same row. That change is " + pWord(t.p) + ".");
   if (sw && sw.p < 0.05 && w) R.reading.push("The changes are not normally distributed, so the Wilcoxon signed-rank test is the safer read: p " + (w.p < 0.001 ? "< 0.001" : "= " + fp(w.p)) + ".");
   R.caveats.push("About " + need80 + " pairs would give 80% power for a change this size (normal approximation).");
   R.caveats.push("Both columns must describe the same thing measured twice on each row; otherwise use Compare groups.");
@@ -1459,14 +1509,14 @@ function runPaired(ds) {
   return R;
 }
 
-function binaryCols(ds) { return ds.cols.filter(function (c, j) { if (c.type === "empty") return false; var u = {}; ds.rows.forEach(function (r) { if (r[j] != null) u[r[j]] = 1; }); return Object.keys(u).length === 2; }); }
+function binaryCols(ds) { return ds.cols.filter(function (c, j) { if (c.type === "empty") return false; var u = Object.create(null); ds.rows.forEach(function (r) { if (r[j] != null) u[r[j]] = 1; }); return Object.keys(u).length === 2; }); }
 function runLogistic(ds) {
   var bins = binaryCols(ds), nums = ds.cols.filter(function (c) { return c.type === "number"; }), s = A.sel, R = {kind: "logistic", controls: "", head: "", chart: "", reading: [], caveats: [], summary: {}};
   if (!bins.length || !nums.length) return need(R, "a column with exactly two values (yes/no) and at least one number column");
   if (!bins.some(function (c) { return c.name === s.o; })) s.o = bins[0].name;
-  var j = idxOf(ds, s.o), lv = Object.keys(ds.rows.reduce(function (m, r) { if (r[j] != null) m[r[j]] = 1; return m; }, {})).sort();
+  var j = idxOf(ds, s.o), lv = Object.keys(ds.rows.reduce(function (m, r) { if (r[j] != null) m[r[j]] = 1; return m; }, Object.create(null))).sort();
   if (lv.indexOf(s.ov) < 0) s.ov = lv[1];
-  var preds = nums.filter(function (c) { return c.name !== s.o; }); s.lp = (s.lp || preds.slice(0, 3).map(function (c) { return c.name; })).filter(function (p) { return idxOf(ds, p) >= 0 && p !== s.o; });
+  var preds = nums.filter(function (c) { return c.name !== s.o; }); s.lp = (Array.isArray(s.lp) ? s.lp : preds.slice(0, 3).map(function (c) { return c.name; })).filter(function (p) { return idxOf(ds, p) >= 0 && p !== s.o; });
   R.controls = pick("o", "Outcome", bins, s.o) + '<label class="field" for="ov">Counts as yes<select id="ov" data-asel="ov">' + lv.map(function (v) { return "<option" + (v === s.ov ? " selected" : "") + ">" + esc(v) + "</option>"; }).join("") + "</select></label>" +
     '<fieldset class="field preds"><legend>Predictors</legend>' + preds.map(function (c) { return '<label class="chk"><input type="checkbox" data-lpred="' + esc(c.name) + '"' + (s.lp.indexOf(c.name) >= 0 ? " checked" : "") + "> " + esc(c.name) + "</label>"; }).join("") + "</fieldset>";
   if (!s.lp.length) return need(R, "at least one predictor ticked");
@@ -1490,11 +1540,11 @@ function runPivot(ds) {
   if (!cats.length) return need(R, "at least one category column");
   if (idxOf(ds, s.g) < 0) s.g = cats[0].name; if (s.g2 && idxOf(ds, s.g2) < 0) s.g2 = ""; s.agg = s.agg || (nums.length ? "mean" : "count"); if (s.agg !== "count" && idxOf(ds, s.y) < 0) s.y = (nums[0] || {}).name;
   R.controls = pick("g", "Rows", cats, s.g) + pick("g2", "Columns", cats, s.g2, true) + '<label class="field" for="pagg">Show<select id="pagg" data-asel="agg">' + [["count", "Number of rows"], ["mean", "Average"], ["median", "Median"], ["sum", "Total"]].map(function (o) { return '<option value="' + o[0] + '"' + (s.agg === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></label>" + (s.agg !== "count" && nums.length ? pick("y", "Of", nums, s.y) : "");
-  var rows = filterRows(ds), gi = idxOf(ds, s.g), ci = s.g2 ? idxOf(ds, s.g2) : -1, yi = s.agg === "count" ? -1 : idxOf(ds, s.y), cell = {}, rk = {}, ck = {};
-  rows.forEach(function (r) { var a = r[gi], b = ci >= 0 ? r[ci] : "All"; if (a == null || b == null) return; rk[a] = 1; ck[b] = 1; var k = a + "\u0000" + b; (cell[k] = cell[k] || []).push(yi >= 0 ? r[yi] : 1); });
+  var rows = filterRows(ds), gi = idxOf(ds, s.g), ci = s.g2 ? idxOf(ds, s.g2) : -1, yi = s.agg === "count" ? -1 : idxOf(ds, s.y), cell = Object.create(null), rk = Object.create(null), ck = Object.create(null);
+  rows.forEach(function (r) { var a = r[gi], b = ci >= 0 ? r[ci] : "All"; if (a == null || b == null) return; rk[a] = 1; ck[b] = 1; var k = JSON.stringify([String(a), String(b)]); (cell[k] = cell[k] || []).push(yi >= 0 ? r[yi] : 1); });
   var agg = function (v) { if (!v) return null; if (s.agg === "count") return v.length; var x = S.nums(v); if (!x.length) return null; return s.agg === "sum" ? x.reduce(function (p, q) { return p + q; }, 0) : s.agg === "mean" ? S.mean(x) : S.quantile(x.sort(function (p, q) { return p - q; }), 0.5); };
   var R1 = Object.keys(rk).sort().slice(0, 40), C1 = Object.keys(ck).sort().slice(0, 12), vals = [];
-  var grid = R1.map(function (a) { return C1.map(function (b) { var v = agg(cell[a + "\u0000" + b]); if (v != null) vals.push([v, a, b]); return v; }); });
+  var grid = R1.map(function (a) { return C1.map(function (b) { var v = agg(cell[JSON.stringify([String(a), String(b)])]); if (v != null) vals.push([v, a, b]); return v; }); });
   var mx = Math.max.apply(null, vals.map(function (v) { return Math.abs(v[0]); }).concat([1e-9]));
   R.head = '<div class="tablewrap"><table class="nosort pivot"><thead><tr><th>' + esc(s.g) + (s.g2 ? " \\ " + esc(s.g2) : "") + "</th>" + C1.map(function (b) { return '<th class="num">' + esc(b) + "</th>"; }).join("") + "</tr></thead><tbody>" +
     R1.map(function (a, i) { return "<tr><td>" + esc(a) + "</td>" + grid[i].map(function (v) { return v == null ? '<td class="nd">—</td>' : '<td class="num" style="background:rgba(147,200,242,' + (0.06 + 0.32 * Math.abs(v) / mx).toFixed(2) + ')">' + f3(v) + "</td>"; }).join("") + "</tr>"; }).join("") + "</tbody></table></div>";
@@ -1555,7 +1605,7 @@ function parseFormula(src, ds) {
     if ("+-*/^(),".indexOf(ch) >= 0) { toks.push({t: ch}); i++; continue; }
     var hit = names.filter(function (n) { return src.slice(i, i + n.length) === n; })[0];
     if (hit) { toks.push({t: "col", v: hit}); i += hit.length; continue; }
-    var id = /^[A-Za-z_]\w*/.exec(src.slice(i)); if (id && FN[id[0].toLowerCase()]) { toks.push({t: "fn", v: id[0].toLowerCase()}); i += id[0].length; continue; }
+    var id = /^[A-Za-z_]\w*/.exec(src.slice(i)); if (id && Object.prototype.hasOwnProperty.call(FN, id[0].toLowerCase())) { toks.push({t: "fn", v: id[0].toLowerCase()}); i += id[0].length; continue; }
     throw "“" + src.slice(i, i + 12) + "” is not a column, number or function.";
   }
   var p = 0, peek = function () { return toks[p] || {}; }, eat = function (t) { if (peek().t !== t) throw "Expected “" + t + "”."; p++; };
@@ -1590,10 +1640,10 @@ function opFormula(ds, name, expr) {
 
 // Join: keep every row here, add the other dataset's columns where the keys match (a left join)
 function joinSets(L, Rt, kl, kr) {
-  var ri = idxOf(Rt, kr), li = idxOf(L, kl), map = {}, dup = 0;
+  var ri = idxOf(Rt, kr), li = idxOf(L, kl), map = Object.create(null), dup = 0;
   Rt.rows.forEach(function (r) { var k = r[ri] == null ? null : String(r[ri]).trim(); if (k == null) return; if (map[k]) dup++; else map[k] = r; });
-  var keep = Rt.cols.map(function (_, j) { return j; }).filter(function (j) { return j !== ri; }), names = {}; L.cols.forEach(function (c) { names[c.name] = 1; });
-  var cols = L.cols.concat(keep.map(function (j) { var n = Rt.cols[j].name; return {name: names[n] ? n + " (" + Rt.name + ")" : n, type: Rt.cols[j].type}; })), hit = 0;
+  var keep = Rt.cols.map(function (_, j) { return j; }).filter(function (j) { return j !== ri; }), names = Object.create(null); L.cols.forEach(function (c) { names[c.name] = 1; });
+  var cols = L.cols.concat(keep.map(function (j) { var n = Rt.cols[j].name; n = uniqueColumnName(n, Object.keys(names)); names[n] = true; return {name: n, type: Rt.cols[j].type}; })), hit = 0;
   var rows = L.rows.map(function (r) { var m = r[li] == null ? null : map[String(r[li]).trim()]; if (m) hit++; return r.concat(keep.map(function (j) { return m ? m[j] : null; })); });
   return {cols: cols, rows: rows, hit: hit, dup: dup};
 }
@@ -1606,12 +1656,14 @@ function melt(ds, ids) {
   var idI = ids.map(function (n) { return idxOf(ds, n); }), val = ds.cols.map(function (_, j) { return j; }).filter(function (j) { return idI.indexOf(j) < 0; }), rows = [];
   ds.rows.forEach(function (r) { val.forEach(function (j) { rows.push(idI.map(function (i) { return r[i]; }).concat([ds.cols[j].name, r[j]])); }); });
   var numeric = val.every(function (j) { return isNum(ds.cols[j]); });
-  return {cols: ids.map(function (n) { return ds.cols[idxOf(ds, n)]; }).concat([{name: "variable", type: "category"}, {name: "value", type: numeric ? "number" : "text"}]), rows: rows};
+  var variable = uniqueColumnName('variable', ids), value = uniqueColumnName('value', ids.concat([variable]));
+  return {cols: ids.map(function (n) { return ds.cols[idxOf(ds, n)]; }).concat([{name: variable, type: "category"}, {name: value, type: numeric ? "number" : "text"}]), rows: rows};
 }
 function widen(ds, id, key, val) {
-  var ii = idxOf(ds, id), ki = idxOf(ds, key), vi = idxOf(ds, val), order = [], keys = [], m = {}, clash = 0;
-  ds.rows.forEach(function (r) { var a = r[ii], k = r[ki]; if (a == null || k == null) return; if (!m[a]) { m[a] = {}; order.push(a); } if (keys.indexOf(k) < 0) keys.push(k); if (m[a][k] !== undefined) clash++; m[a][k] = r[vi]; });
-  return {cols: [ds.cols[ii]].concat(keys.map(function (k) { return {name: String(k), type: ds.cols[vi].type}; })), rows: order.map(function (a) { return [a].concat(keys.map(function (k) { return m[a][k] === undefined ? null : m[a][k]; })); }), clash: clash};
+  var ii = idxOf(ds, id), ki = idxOf(ds, key), vi = idxOf(ds, val), order = [], keys = [], m = Object.create(null), clash = 0;
+  ds.rows.forEach(function (r) { var a = r[ii], k = r[ki]; if (a == null || k == null) return; if (!m[a]) { m[a] = Object.create(null); order.push(a); } if (keys.indexOf(k) < 0) keys.push(k); if (m[a][k] !== undefined) clash++; m[a][k] = r[vi]; });
+  var wideNames = [ds.cols[ii].name];
+  return {cols: [ds.cols[ii]].concat(keys.map(function (k) { var name = uniqueColumnName(String(k), wideNames); wideNames.push(name); return {name: name, type: ds.cols[vi].type}; })), rows: order.map(function (a) { return [a].concat(keys.map(function (k) { return m[a][k] === undefined ? null : m[a][k]; })); }), clash: clash};
 }
 // Replay recorded steps on another dataset
 function replayStep(ds, st2) {
@@ -1717,7 +1769,7 @@ function saveFile(filename, data) {
 // A chart as a standalone SVG: theme colours written in, on the board or on white paper
 var PAPER = {"--board": "#ffffff", "--board-2": "#ffffff", "--chalk": "#1b2620", "--chalk-2": "#3e4b44", "--chalk-3": "#5b6862", "--blue": "#1f5fa8", "--yellow": "#a86b00", "--pink": "#b0346a", "--green": "#2e7d32", "--orange": "#b35c00", "--violet": "#5e3fa8", "--rule": "#d5dbd7"};
 function svgText(svg, paper) {
-  var cl = svg.cloneNode(true), src = svg.querySelectorAll("*"), dst = cl.querySelectorAll("*"), root = getComputedStyle(document.documentElement), swap = {};
+  var cl = svg.cloneNode(true), src = svg.querySelectorAll("*"), dst = cl.querySelectorAll("*"), root = getComputedStyle(document.documentElement), swap = Object.create(null);
   if (paper) Object.keys(PAPER).forEach(function (k) { var v = root.getPropertyValue(k).trim(), c = document.createElement("i"); c.style.color = v; document.body.appendChild(c); swap[getComputedStyle(c).color] = PAPER[k]; c.remove(); });
   var fix = function (v) { return paper && swap[v] ? swap[v] : v; };
   [svg].concat([].slice.call(src)).forEach(function (el, i) {
@@ -1835,7 +1887,7 @@ view.addEventListener("click", function (e) {
   if (d.unshare) return unshare(d.unshare);
   if (d.shview) { XP.shareView = XP.shareView === d.shview ? null : d.shview; render(); return; }
   if (d.copyapa) { var t = plain((LAST_R || {}).apa); var done = function (ok) { b.textContent = ok ? "Copied" : "Select and copy the text"; }; try { navigator.clipboard.writeText(t).then(function () { done(true); }, function () { done(false); }); } catch (x) { done(false); } return; }
-  if (d.next != null && LAST_R) { var n = LAST_R.next[+d.next]; if (!n) return; if (n.tab) { nav(n.tab); return; } A.kind = n.kind; A.sel = Object.assign({}, n.sel); A.ai = {}; A.askmsg = ""; render(); refocus('[data-akind="' + n.kind + '"]'); return; }
+  if (d.next != null && LAST_R) { var n = LAST_R.next[+d.next]; if (!n) return; if (n.tab) { nav(n.tab); return; } A.kind = n.kind; A.sel = Object.assign({}, n.sel); A.ai = Object.create(null); A.askmsg = ""; render(); refocus('[data-akind="' + n.kind + '"]'); return; }
 });
 
 // ===== deep.js =====
@@ -1881,8 +1933,8 @@ function workedSteps(ds, R) {
     return stepsTable([step("grand mean", "average of all " + all.length + " values", f3(gm)), step("SS<sub>between</sub>", "Σ <i>n<sub>j</sub></i>(" + XB + "<sub>j</sub> − grand mean)²", f3(ssb)), step("SS<sub>within</sub>", "Σ(<i>x</i> − " + XB + "<sub>j</sub>)²", f3(ssw)), step("MS<sub>between</sub>", f3(ssb) + " / " + d1, f3(ssb / d1)), step("MS<sub>within</sub>", f3(ssw) + " / " + d2, f3(ssw / d2)), step("<i>F</i>", f3(ssb / d1) + " / " + f3(ssw / d2), f3((ssb / d1) / (ssw / d2))), step("η²", "SS<sub>between</sub> / (SS<sub>between</sub> + SS<sub>within</sub>)", f3(ssb / (ssb + ssw)))]); }
   if (k === "paired") { var xb = getCol(ds, filterRows(ds), s.x), ya = getCol(ds, filterRows(ds), s.y), d = []; xb.forEach(function (v, i) { if (typeof v === "number" && typeof ya[i] === "number") d.push(ya[i] - v); }); var D = S.describe(d);
     return stepsTable([step("<i>d</i>", esc(s.y) + " − " + esc(s.x) + " for each row", d.length + " differences"), step("<i>d̄</i>", "average difference", f3(D.mean)), step("<i>s<sub>d</sub></i>", "standard deviation of the differences", f3(D.sd)), step("SE", f3(D.sd) + " / √" + D.n, f3(D.se)), step("<i>t</i>", f3(D.mean) + " / " + f3(D.se), f3(D.mean / D.se) + " on " + (D.n - 1) + " df")]); }
-  if (k === "cross") { var gi = idxOf(ds, s.g), hi = idxOf(ds, s.g2), rows = filterRows(ds), cell = {}, ra = {}, cb = {}, N = 0; rows.forEach(function (r) { if (r[gi] == null || r[hi] == null) return; N++; ra[r[gi]] = (ra[r[gi]] || 0) + 1; cb[r[hi]] = (cb[r[hi]] || 0) + 1; var kk = r[gi] + "\u0000" + r[hi]; cell[kk] = (cell[kk] || 0) + 1; });
-    var out = [], tot = 0, shown = 0; Object.keys(ra).forEach(function (a2) { Object.keys(cb).forEach(function (b2) { var O = cell[a2 + "\u0000" + b2] || 0, Ex = ra[a2] * cb[b2] / N, part = (O - Ex) * (O - Ex) / Ex; tot += part; if (shown++ < 6) out.push(step(esc(a2) + " × " + esc(b2), "(" + O + " − " + f3(Ex) + ")² / " + f3(Ex) + "&nbsp;&nbsp;<span class=\"count\">E = " + ra[a2] + " × " + cb[b2] + " / " + N + "</span>", f3(part))); }); });
+  if (k === "cross") { var gi = idxOf(ds, s.g), hi = idxOf(ds, s.g2), rows = filterRows(ds), cell = Object.create(null), ra = Object.create(null), cb = Object.create(null), N = 0; rows.forEach(function (r) { if (r[gi] == null || r[hi] == null) return; N++; ra[r[gi]] = (ra[r[gi]] || 0) + 1; cb[r[hi]] = (cb[r[hi]] || 0) + 1; var kk = JSON.stringify([String(r[gi]), String(r[hi])]); cell[kk] = (cell[kk] || 0) + 1; });
+    var out = [], tot = 0, shown = 0; Object.keys(ra).forEach(function (a2) { Object.keys(cb).forEach(function (b2) { var O = cell[JSON.stringify([String(a2), String(b2)])] || 0, Ex = ra[a2] * cb[b2] / N, part = (O - Ex) * (O - Ex) / Ex; tot += part; if (shown++ < 6) out.push(step(esc(a2) + " × " + esc(b2), "(" + O + " − " + f3(Ex) + ")² / " + f3(Ex) + "&nbsp;&nbsp;<span class=\"count\">E = " + ra[a2] + " × " + cb[b2] + " / " + N + "</span>", f3(part))); }); });
     out.push(step("χ²", "sum over all " + Object.keys(ra).length * Object.keys(cb).length + " cells", f3(tot))); return stepsTable(out, shown > 6 ? "First six cells shown." : ""); }
   if (k === "regress") { var sm = R.summary; return stepsTable([step("β", "(<i>X</i>ᵀ<i>X</i>)<sup>−1</sup><i>X</i>ᵀ<i>y</i>, solved for " + sm.coefficients.length + " terms", sm.coefficients.map(function (c) { return esc(c.name) + " " + f3(c.b); }).join("<br>")), step("<i>R</i>²", "1 − SS<sub>residual</sub> / SS<sub>total</sub>", f3(sm.r2)), step("adjusted <i>R</i>²", "1 − (1 − <i>R</i>²)(<i>n</i> − 1)/(<i>n</i> − <i>k</i> − 1)", f3(sm.adj_r2))]); }
   return "";
@@ -1927,7 +1979,7 @@ function nullSim(ds, R, N) {
   else if (k === "compare") { var G = groupArrays(ds), all = [].concat.apply([], G.gs), sizes = G.gs.map(function (q) { return q.length; }), cut = function (arr) { var out = [], o = 0; sizes.forEach(function (n) { out.push(arr.slice(o, o + n)); o += n; }); return out; };
     if (G.gs.length === 2) { stat = function (gs) { return S.mean(gs[0]) - S.mean(gs[1]); }; label = "difference in averages"; } else { stat = function (gs) { return S.anova(gs).F; }; label = "F"; }
     obs = stat(G.gs); for (var i2 = 0; i2 < N; i2++) sims.push(stat(cut(shuffle(all, rnd)))); }
-  else if (k === "cross") { var gi = idxOf(ds, s.g), hi = idxOf(ds, s.g2), pr = filterRows(ds).filter(function (r) { return r[gi] != null && r[hi] != null; }), a = pr.map(function (r) { return r[gi]; }), b = pr.map(function (r) { return r[hi]; }), chi = function (bb) { var ra = {}, cb = {}, cell = {}; a.forEach(function (v, i) { ra[v] = (ra[v] || 0) + 1; cb[bb[i]] = (cb[bb[i]] || 0) + 1; cell[v + "\u0000" + bb[i]] = (cell[v + "\u0000" + bb[i]] || 0) + 1; }); var x2 = 0, N0 = a.length; Object.keys(ra).forEach(function (r) { Object.keys(cb).forEach(function (c) { var e = ra[r] * cb[c] / N0, o = cell[r + "\u0000" + c] || 0; x2 += (o - e) * (o - e) / e; }); }); return x2; };
+  else if (k === "cross") { var gi = idxOf(ds, s.g), hi = idxOf(ds, s.g2), pr = filterRows(ds).filter(function (r) { return r[gi] != null && r[hi] != null; }), a = pr.map(function (r) { return r[gi]; }), b = pr.map(function (r) { return r[hi]; }), chi = function (bb) { var ra = Object.create(null), cb = Object.create(null), cell = Object.create(null); a.forEach(function (v, i) { ra[v] = (ra[v] || 0) + 1; cb[bb[i]] = (cb[bb[i]] || 0) + 1; cell[JSON.stringify([String(v), String(bb[i])])] = (cell[JSON.stringify([String(v), String(bb[i])])] || 0) + 1; }); var x2 = 0, N0 = a.length; Object.keys(ra).forEach(function (r) { Object.keys(cb).forEach(function (c) { var e = ra[r] * cb[c] / N0, o = cell[JSON.stringify([String(r), String(c)])] || 0; x2 += (o - e) * (o - e) / e; }); }); return x2; };
     obs = chi(b); label = "χ²"; for (var i3 = 0; i3 < N; i3++) sims.push(chi(shuffle(b, rnd))); }
   else if (k === "paired") { var xb = getCol(ds, filterRows(ds), s.x), ya = getCol(ds, filterRows(ds), s.y), d = []; xb.forEach(function (v, i) { if (typeof v === "number" && typeof ya[i] === "number") d.push(ya[i] - v); }); obs = S.mean(d); label = "average change"; for (var i4 = 0; i4 < N; i4++) sims.push(S.mean(d.map(function (v) { return rnd() < 0.5 ? -v : v; }))); }
   var two = k !== "cross" && !(k === "compare" && label === "F"), ext = sims.filter(function (v) { return two ? Math.abs(v) >= Math.abs(obs) - 1e-12 : v >= obs - 1e-12; }).length;
@@ -2006,7 +2058,7 @@ function fitPanel(ds) {
 // 6. Predict: a value with both ranges, plus a held-out check
 function predictPanel(ds, R) {
   var s = A.sel, k = A.kind, preds = k === "relate" ? [s.x] : k === "logistic" ? (s.lp || []) : (s.preds || []).filter(function (p) { return p !== s.y; }); if (!preds.length) return "";
-  var key = k + (k === "logistic" ? s.o : s.y) + preds.join("|"); if (DP.pred.key !== key) DP.pred = {key: key, vals: {}};
+  var key = k + (k === "logistic" ? s.o : s.y) + preds.join("|"); if (DP.pred.key !== key) DP.pred = {key: key, vals: Object.create(null)};
   var inputs = preds.map(function (p) { var d = S.describe(getCol(ds, filterRows(ds), p)), v = DP.pred.vals[p] != null ? DP.pred.vals[p] : +d.mean.toPrecision(4); DP.pred.vals[p] = v; return '<label class="field" for="pv-' + esc(p) + '">' + esc(p) + '<input id="pv-' + esc(p) + '" type="number" step="any" value="' + v + '" data-dpv="' + esc(p) + '"></label>'; }).join("");
   var res = "";
   if (k === "logistic") { var X = filterRows(ds).map(function (r) { return preds.map(function (p) { return r[idxOf(ds, p)]; }); }), yv = filterRows(ds).map(function (r) { var v = r[idxOf(ds, s.o)]; return v == null ? null : String(v) === s.ov ? 1 : 0; }), o = S2.logistic(yv, X, preds); if (o.error) return '<p class="nd">' + esc(o.error) + "</p>";
@@ -2087,7 +2139,7 @@ view.addEventListener("click", function (e) {
   if (d.deep) { DP.tab = d.deep; render(); refocus('[data-deep="' + d.deep + '"]'); return; }
   if (d.dsim) { b.disabled = true; b.textContent = "Simulating…"; setTimeout(function () { DP.sim[A.kind + JSON.stringify(A.sel)] = nullSim(ds, LAST_R, 1000); render(); }, 20); return; }
   if (d.dlabrun) { var n = DP.lab.n || Math.max(10, Math.round((LAST_R.summary.n || 40) / 4)); DP.lab.n = n; b.disabled = true; b.textContent = "Drawing…"; setTimeout(function () { runLab(ds, LAST_R, n); render(); }, 20); return; }
-  if (d.mpair != null) { var p = DP.pairs[+d.mpair]; A.kind = "relate"; A.sel = {x: p[1], y: p[0]}; A.ai = {}; render(); refocus('[data-akind="relate"]'); return; }
+  if (d.mpair != null) { var p = DP.pairs[+d.mpair]; A.kind = "relate"; A.sel = {x: p[1], y: p[0]}; A.ai = Object.create(null); render(); refocus('[data-akind="relate"]'); return; }
 });
 view.addEventListener("input", function (e) { if (e.target.dataset && e.target.dataset.dlab) { DP.lab.n = +e.target.value; var b = e.target.closest(".slot").querySelector("b.num"); if (b) b.textContent = e.target.value + " rows"; } });
 view.addEventListener("change", function (e) { var d = e.target.dataset || {}; if (d.dpv != null) { var v = parseFloat(e.target.value); if (isFinite(v)) { DP.pred.vals[d.dpv] = v; render(); refocus('[data-dpv="' + d.dpv + '"]'); } } });
@@ -2182,7 +2234,7 @@ function addToPaper(ds, R) {
 }
 function firstSentence(h) { var t = plain(h); var m = /^(.+?[.!?])(\s|$)/.exec(t); return m ? m[1] : t; }
 function limitations() {
-  var out = [], tests = WP.items.filter(function (it) { return it.p != null; }), sig = tests.filter(function (it) { return it.p < 0.05; }), seen = {};
+  var out = [], tests = WP.items.filter(function (it) { return it.p != null; }), sig = tests.filter(function (it) { return it.p < 0.05; }), seen = Object.create(null);
   if (tests.length >= 3) out.push(tests.length + " tests were run; at α = .05, about " + (tests.length * 0.05).toFixed(1) + " clear result" + (tests.length * 0.05 >= 1.5 ? "s" : "") + " would be expected by chance alone. " + (sig.length ? sig.length + " reached p < .05; consider a correction (for example Holm) before treating each as confirmed." : ""));
   var small = WP.items.filter(function (it) { return it.n && it.n < 30; }); if (small.length) out.push(small.length + " analys" + (small.length === 1 ? "is uses" : "es use") + " fewer than 30 rows, so estimates are imprecise.");
   WP.items.forEach(function (it) { it.reading.concat(it.caveats).forEach(function (c) { var t = plain(c); if (/not normally distributed|not normal|spreads differ|overfit|extrapolat|carried forward|small expected/i.test(t)) { var k = t.slice(0, 60); if (!seen[k]) { seen[k] = 1; out.push(t); } } }); });
@@ -2190,7 +2242,7 @@ function limitations() {
   return out;
 }
 function paperHTML(forFile) {
-  var methods = [], used = {};
+  var methods = [], used = Object.create(null);
   WP.items.forEach(function (it) { if (!used[it.test]) { used[it.test] = 1; methods.push(it.test); } });
   var data = []; WP.items.forEach(function (it) { if (data.indexOf(it.dataset) < 0) data.push(it.dataset); });
   var figN = 0, res = WP.items.map(function (it, i) {
@@ -2312,13 +2364,15 @@ function askAnswer(ds) {
   var q = ((document.getElementById("askq") || {}).value || "").trim(); if (!q) return;
   A.askq = q;
   if (/\b(caus\w*|prove|guarantee|why|diagnos\w*)\b/i.test(q)) A.askmsg = "This assistant cannot establish causes, diagnose conditions, or explain why a pattern exists from this table. Ask about an association or comparison instead.";
+  else if (/\bp[- ]?values?\b|\bp\s*[=<>]|valor\s+p\b|significan/i.test(q)) { var currentResult = runAnalysis(ds); A.askmsg = localExplanation(ds, currentResult, 'pvalue').join(' '); }
+  else if (/sample size|how many|combine|join|merge|files|muestra|combinar|archivos/i.test(q)) A.askmsg = 'To combine files, import them under Your data, then open Combine datasets in Clean & enhance. Sample-size planning needs a meaningful target effect, desired power and study design. Observed-effect power in Go deeper is an approximation; it cannot determine your required sample size by itself.';
   else if (/^(check data quality|check (my |the )?data|missing (data|values)|data quality)[?.!]?$/i.test(q)) {
     var rows = filterRows(ds), missing = 0;
     rows.forEach(function (r) { r.forEach(function (v) { if (v == null) missing++; }); });
     A.askmsg = "In the current selection: " + rows.length + " rows, " + ds.cols.length + " columns and " + missing + " missing cells. Open Clean & enhance for the health check and fixes you can undo.";
   } else {
     var r = routeQuestion(ds, q);
-    if (r) { A.kind = r.kind; A.sel = r.sel; A.ai = {}; A.askmsg = "Selected: " + KIND_HELP[r.kind] + (r.kind === "paired" ? " Check that both columns measure the same thing on the same rows; the first named column is Before and the second is After." : " Check the selected columns below."); }
+    if (r) { A.kind = r.kind; A.sel = r.sel; A.ai = Object.create(null); A.askmsg = "Selected: " + KIND_HELP[r.kind] + (r.kind === "paired" ? " Check that both columns measure the same thing on the same rows; the first named column is Before and the second is After." : " Check the selected columns below."); }
     else A.askmsg = "I could not match that to a supported analysis without guessing. Use complete column names and a task such as Summarize, Compare, Relate, or Predict [outcome] from [predictors]. For a trend, name a measure and a year/date column. Try an example above.";
   }
   render(); refocus("#ask-answer");
@@ -2403,6 +2457,7 @@ function localExplanation(ds, R, topic) {
     if (R.kind === "paired") out.push("Each row must identify the same unit measured twice on a comparable scale. Verify this in the source data.");
   }
   if (topic === "next") {
+    out.push("To combine files, import each dataset under Your data, then use Combine datasets in Clean & enhance. For a sample-size plan, specify a meaningful target effect, desired power and design; the observed-effect power calculation under Go deeper is only an approximation, not a study plan.");
     out.push("Inspect missing values, duplicates and unusual values in Clean & enhance before interpreting the result. Do not remove valid observations just to obtain a smaller p-value.");
     out = out.concat(diag.notes);
     (R.next || []).forEach(function (n) { out.push("An exploratory option: " + n.label + "."); });
@@ -2466,7 +2521,7 @@ view.addEventListener("click", function (e) {
 // Same-origin loopback bridge with independent evidence validation and cancellation.
 var LM = {key: '', state: '', lines: [], request: 0, question: '', ctl: null, health: 'Check connection to confirm Ollama and the configured model are available.'};
 function modelEvidence(ds, R) {
-  var evidence = {};
+  var evidence = Object.create(null);
   ['result', 'uncertainty', 'assumptions', 'pvalue', 'next'].forEach(function (topic) { evidence[topic] = localExplanation(ds, R, topic); });
   return evidence;
 }
@@ -2554,7 +2609,7 @@ runAnalysis = function (ds) {
     if (['describe', 'pivot', 'matrix'].indexOf(A.kind) < 0 && nonfinite(R.summary))
       R = invalidResult(A.kind, R.controls, 'This analysis has undefined estimates. Check for constant columns, insufficient observations or a singular model. No statistical conclusion is available.');
     if (R.valid !== false) {
-      var undefinedText = function (text) { return /\b(NaN|Infinity|undefined)\b/.test(localText(text)); };
+      var undefinedText = function (text) { return /\b(NaN|Infinity|undefined)\b/.test(localText(String(text || '').replace(/<[^>]*>/g, ' '))); };
       if (undefinedText(R.head)) R = invalidResult(A.kind, R.controls, 'A required statistic is undefined for this selection. Choose columns with usable variation and enough observations.');
       else {
         if (undefinedText(R.extra)) R.extra = '<p class="count">Some supplementary checks are undefined for this selection.</p>';
@@ -2621,19 +2676,32 @@ function validateProject(p) {
   tree(p, 0);
   if (!p || p.format !== 'ekm-project' || p.version !== 1 || !Array.isArray(p.datasets) || !p.writeup || !Array.isArray(p.writeup.items)) throw new Error('Choose an EKM project JSON file (version 1).');
   var ids = Object.create(null);
-  if (p.selection && (typeof p.selection !== 'object' || Array.isArray(p.selection) || Object.keys(p.selection).some(function (k) { var v = p.selection[k]; return v !== null && typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean' && !(Array.isArray(v) && v.every(function (x) { return typeof x === 'string'; })); }))) throw new Error('Invalid analysis selection.');
+  if (p.selection && (typeof p.selection !== 'object' || Array.isArray(p.selection) || Object.keys(p.selection).some(function (k) { var v = p.selection[k]; return v != null && typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean' && !(Array.isArray(v) && v.every(function (x) { return typeof x === 'string'; })); }))) throw new Error('Invalid analysis selection.');
   if (p.chart && (typeof p.chart !== 'object' || Array.isArray(p.chart) || Object.keys(p.chart).some(function (k) { return p.chart[k] !== null && ['string','number','boolean'].indexOf(typeof p.chart[k]) < 0; }))) throw new Error('Invalid chart settings.');
+  if (p.selection) Object.keys(p.selection).forEach(function (k) {
+    var v = p.selection[k];
+    if (v == null) return;
+    if (['preds','lp'].indexOf(k) >= 0 ? !Array.isArray(v) || v.some(function (x) { return typeof x !== 'string'; }) : typeof v !== 'string') throw new Error('Invalid analysis selection: ' + k + '.');
+  });
+  if (p.chart) {
+    if (p.chart.type && ['histogram','bar','box','scatter','line','3d'].indexOf(p.chart.type) < 0) throw new Error('Invalid chart type.');
+    if (p.chart.agg != null && ['count','mean','sum','median'].indexOf(p.chart.agg) < 0) throw new Error('Invalid chart aggregation.');
+    if (p.chart.fit != null && typeof p.chart.fit !== 'boolean') throw new Error('Invalid fitted-line setting.');
+  }
   function dataset(ds) {
-    if (!ds || typeof ds.id !== 'string' || !/^[\w-]{1,100}$/.test(ds.id) || typeof ds.name !== 'string' || !Array.isArray(ds.cols) || !ds.cols.length || !Array.isArray(ds.rows)) throw new Error('Invalid dataset.');
+    if (!ds || typeof ds.id !== 'string' || !/^[\w-]{1,100}$/.test(ds.id) || ['__proto__','constructor','prototype'].indexOf(ds.id) >= 0 || typeof ds.name !== 'string' || !Array.isArray(ds.cols) || !ds.cols.length || !Array.isArray(ds.rows)) throw new Error('Invalid dataset.');
     var names = Object.create(null);
     var cols = ds.cols.map(function (c) { if (!c || typeof c.name !== 'string' || names[c.name] || ['number','year','date','category','text','empty'].indexOf(c.type) < 0) throw new Error('Invalid columns.'); names[c.name] = true; return {name: c.name, type: c.type}; });
     var rows = ds.rows.map(function (r) { if (!Array.isArray(r) || r.length !== cols.length) throw new Error('Invalid data row.'); return r.map(function (v,j) { if (v !== null && typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') throw new Error('Invalid cell.'); if (v !== null && isNum(cols[j]) && typeof v !== 'number') throw new Error('Numeric cells must contain numbers.'); return v; }); });
-    return {id: ds.id, name: ds.name, cols: cols, rows: rows, origin: 'file', source: String(ds.source || ''), note: String(ds.note || ''), added: String(ds.added || ''), saved: false, recipe: Array.isArray(ds.recipe) ? ds.recipe : []};
+    var raw = null;
+    if (ds.rawRows || ds.rawColumns) { if (!Array.isArray(ds.rawColumns) || !Array.isArray(ds.rawRows) || !ds.rawColumns.every(function (n) { return typeof n === 'string'; })) throw new Error('Invalid source columns.'); raw = ds.rawRows.map(function (r) { if (!Array.isArray(r) || r.length !== ds.rawColumns.length || r.some(function (v) { return v !== null && ['number','string','boolean'].indexOf(typeof v) < 0; })) throw new Error('Invalid source row.'); return r.slice(); }); }
+    return Object.assign({id: ds.id, name: ds.name, cols: cols, rows: rows, origin: 'file', source: String(ds.source || ''), note: String(ds.note || ''), added: String(ds.added || ''), saved: false, recipe: Array.isArray(ds.recipe) ? ds.recipe : []}, raw ? {rawRows: raw, rawColumns: ds.rawColumns.slice(), sourceHeaders: Array.isArray(ds.sourceHeaders) && ds.sourceHeaders.length === ds.rawColumns.length && ds.sourceHeaders.every(function (n) { return typeof n === 'string'; }) ? ds.sourceHeaders.slice() : ds.rawColumns.slice(), importOptions: {decimal: ds.importOptions && ds.importOptions.decimal === ',' ? ',' : '.', missing: ds.importOptions && ds.importOptions.missing === 'tokens' ? 'tokens' : 'blank'}} : {});
   }
+  if (p.selection && p.selection.agg != null && ['count','mean','sum','median'].indexOf(p.selection.agg) < 0) throw new Error('Invalid pivot aggregation.');
   var sets = p.datasets.map(function (ds) { var d = dataset(ds); if (ids[d.id]) throw new Error('Duplicate dataset identifier.'); ids[d.id] = true; return d; });
   var items = p.writeup.items.map(function (it) {
     if (!it || !Array.isArray(it.reading) || !Array.isArray(it.caveats)) throw new Error('Invalid write-up result.');
-    var out = {};
+    var out = Object.create(null);
     ['id','at','dataset','source','kind','test','title'].forEach(function (k) { out[k] = String(it[k] || ''); });
     out.reading = it.reading.map(function (s) { if (typeof s !== 'string') throw new Error('Invalid reading.'); return esc(localText(s)); });
     out.caveats = it.caveats.map(function (s) { if (typeof s !== 'string') throw new Error('Invalid caveat.'); return esc(localText(s)); });
@@ -2641,7 +2709,7 @@ function validateProject(p) {
     // Imported reporting flags are not certificates; review them again.
     out.evidence = null; return out;
   });
-  var history = {undo: {}, original: {}};
+  var history = {undo: Object.create(null), original: Object.create(null)};
   if (p.history) sets.forEach(function (ds) {
     var orig = (p.history.original || {})[ds.id], undo = (p.history.undo || {})[ds.id];
     if (orig) history.original[ds.id] = dataset(Object.assign({}, ds, orig));
@@ -2652,18 +2720,33 @@ function validateProject(p) {
 }
 function restoreProject(p) {
   var v = validateProject(p); // Validate everything before replacing live state.
-  A.sets = v.datasets; A.cur = v.current; A.kind = v.analysis; A.sel = v.selection; A.chart = v.chart; A.ai = {}; A.askmsg = ''; A.askq = '';
+  if (PROJECT.owner) { PROJECT.owner = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2); PROJECT.lastDraft = ''; }
+  A.sets = v.datasets; A.cur = v.current; A.kind = v.analysis; A.sel = v.selection; A.chart = v.chart; A.ai = Object.create(null); A.askmsg = ''; A.askq = '';
   WP.title = v.writeup.title; WP.items = v.writeup.items; WP.review = null;
-  E.undo = v.history.undo; E.orig = v.history.original; E.openFix = null; E.iso = null; E.clusters = null; E.picked = {};
-  LM.request++; if (LM.ctl) LM.ctl.abort(); LM.key = ''; LM.state = ''; PROJECT.last = ''; XP.msg = '';
+  E.undo = v.history.undo; E.orig = v.history.original; E.openFix = null; E.iso = null; E.clusters = null; E.picked = Object.create(null);
+  LM.request++; if (LM.ctl) LM.ctl.abort(); LM.ctl = null; LM.key = ''; LM.state = ''; LM.lines = []; LM.question = ''; if (typeof IMPORT !== 'undefined' && IMPORT) IMPORT.workbook = null; PROJECT.last = ''; XP.msg = '';
 }
 function cacheProject() {
   if (!PROJECT.remember) return;
-  try { var text = JSON.stringify(projectSnapshot()); if (text !== PROJECT.last) { localStorage.setItem(PROJECT.key, text); PROJECT.last = text; } PROJECT.storageMessage = 'Saved in this browser. Keep a project file as a backup.'; }
-  catch (err) { PROJECT.storageMessage = 'Browser save unavailable or full. Save a project file to keep your work.'; }
+  try {
+    var text = JSON.stringify(projectSnapshot());
+    // Persist each tab before publishing a shared copy: simultaneous writers retain both drafts.
+    if (text !== PROJECT.lastDraft) { localStorage.setItem(PROJECT.key + '-draft-' + PROJECT.owner, JSON.stringify({savedAt: new Date().toISOString(), project: JSON.parse(text)})); PROJECT.lastDraft = text; }
+    var latest = localStorage.getItem(PROJECT.key);
+    if (latest !== PROJECT.base && latest !== text) {
+      PROJECT.conflict = true;
+      PROJECT.storageMessage = 'Another tab saved a newer project. This tab is preserved as a separate browser draft. Save a project file, or load the latest shared copy.'; return;
+    }
+    PROJECT.conflict = false;
+    if (text !== latest) localStorage.setItem(PROJECT.key, text);
+    PROJECT.base = text; PROJECT.last = text;
+    PROJECT.storageMessage = 'Saved in this browser. Keep a project file as a backup.';
+  } catch (err) { PROJECT.storageMessage = 'Browser save unavailable or full. Save a project file to keep your work.'; }
 }
 function projectControls() {
-  return '<section class="card"><h2>Keep your project</h2><div class="slot"><button type="button" class="btn" data-project-save="1">Save project (.json)</button><button type="button" class="btn" data-project-open="1">Open project</button><input class="sr-file" id="project-file" tabindex="-1" type="file" accept=".json"><label class="chk"><input type="checkbox" id="project-remember"' + (PROJECT.remember ? ' checked' : '') + '> Keep in this browser</label><button type="button" class="btn" data-project-clear="1">Forget browser copy</button></div><p class="count" role="status">' + esc((PROJECT.message ? PROJECT.message + ' ' : '') + (PROJECT.storageMessage || 'A project file includes your datasets, cleaning history and write-up. Opening one replaces the current project; save your work first.')) + '</p></section>';
+  var recovery = '';
+  try { var drafts = Object.keys(localStorage).filter(function (k) { return k.indexOf(PROJECT.key + '-draft-') === 0 && k !== PROJECT.key + '-draft-' + PROJECT.owner; }); if (drafts.length) recovery = '<label class="field">Preserved tab drafts<select id="project-draft">' + drafts.map(function (k) { var d = JSON.parse(localStorage.getItem(k)); return '<option value="' + esc(k) + '">' + esc(d.savedAt + ' · ' + d.project.datasets.map(function (s) { return s.name; }).join(', ')) + '</option>'; }).join('') + '</select></label><button type="button" class="btn" data-project-draft="1">Open preserved draft</button>'; } catch (err) {}
+  return '<section class="card"><h2>Keep your project</h2><div class="slot"><button type="button" class="btn" data-project-save="1">Save project (.json)</button><button type="button" class="btn" data-project-open="1">Open project</button><input class="sr-file" id="project-file" tabindex="-1" type="file" accept=".json"><label class="chk"><input type="checkbox" id="project-remember"' + (PROJECT.remember ? ' checked' : '') + '> Keep in this browser</label><button type="button" class="btn" data-project-clear="1">Forget browser copy</button>' + (PROJECT.conflict ? '<button type="button" class="btn" data-project-latest="1">Load latest shared copy</button>' : '') + recovery + '</div><p class="count" role="status">' + esc((PROJECT.message ? PROJECT.message + ' ' : '') + (PROJECT.storageMessage || 'A project file includes your datasets, cleaning history and write-up. Opening one replaces the current project; save your work first.')) + '</p></section>';
 }
 var _projectData = VIEWS.data;
 VIEWS.data = function () { return projectControls() + _projectData(); };
@@ -2671,18 +2754,184 @@ var _projectRender = render;
 render = function () { cacheProject(); _projectRender(); };
 view.addEventListener('click', function (e) {
   var b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.projectLatest || b.dataset.projectDraft) { try { var text = localStorage.getItem(b.dataset.projectDraft ? document.getElementById('project-draft').value : PROJECT.key), p = JSON.parse(text); restoreProject(b.dataset.projectDraft ? p.project : p); PROJECT.base = localStorage.getItem(PROJECT.key); PROJECT.conflict = false; PROJECT.message = 'Project restored; other tab drafts remain available.'; } catch(err) { PROJECT.message = 'Could not restore project: ' + err.message; } render(); return; }
   if (b.dataset.projectOpen) { document.getElementById('project-file').value = ''; document.getElementById('project-file').click(); }
-  if (b.dataset.projectSave) { try { nativeDownload('ekm-project.json', JSON.stringify(projectSnapshot(), null, 2)); PROJECT.message = 'Project download started.'; } catch (err) { PROJECT.message = err.message; } render(); }
-  if (b.dataset.projectClear) { try { localStorage.removeItem(PROJECT.key); } catch (err) {} PROJECT.remember = false; PROJECT.storageMessage = ''; try { localStorage.setItem('ekm-remember', 'off'); } catch (err) {} PROJECT.last = ''; PROJECT.message = 'Browser copy removed. Your current tab is unchanged; save a project file before closing it.'; render(); }
+  if (b.dataset.projectSave) { try { var snapshot = projectSnapshot(); validateProject(snapshot); var projectText = JSON.stringify(snapshot, null, 2); if (new Blob([projectText]).size > 50e6) throw new Error('Project exceeds the 50 MB opening limit. Export your datasets separately or reduce cleaning history.'); nativeDownload('ekm-project.json', projectText); PROJECT.message = 'Project download started.'; } catch (err) { PROJECT.message = err.message; } render(); }
+  if (b.dataset.projectClear) { PROJECT.remember = false; try { localStorage.setItem('ekm-remember', 'off'); localStorage.removeItem(PROJECT.key); Object.keys(localStorage).filter(function (k) { return k.indexOf(PROJECT.key + '-draft-') === 0; }).forEach(function (k) { localStorage.removeItem(k); }); } catch (err) {} PROJECT.base = null; PROJECT.conflict = false; PROJECT.storageMessage = ''; PROJECT.last = ''; PROJECT.message = 'Browser copy and preserved drafts removed. Your current tab is unchanged; save a project file before closing it.'; render(); }
 });
 view.addEventListener('change', function (e) {
-  if (e.target.id === 'project-remember') { PROJECT.remember = e.target.checked; PROJECT.storageMessage = ''; try { localStorage.setItem('ekm-remember', PROJECT.remember ? 'on' : 'off'); } catch (err) {} if (!PROJECT.remember) { try { localStorage.removeItem(PROJECT.key); } catch (err) {} PROJECT.message = 'Browser saving off. Save a project file before closing this tab.'; } render(); }
+  if (e.target.id === 'project-remember') { PROJECT.remember = e.target.checked; PROJECT.storageMessage = ''; try { localStorage.setItem('ekm-remember', PROJECT.remember ? 'on' : 'off'); } catch (err) {} if (!PROJECT.remember) { try { localStorage.removeItem(PROJECT.key); Object.keys(localStorage).filter(function(k){return k.indexOf(PROJECT.key+'-draft-')===0;}).forEach(function(k){localStorage.removeItem(k);}); PROJECT.lastDraft = ''; PROJECT.base = null; } catch (err) {} PROJECT.message = 'Browser saving off. Save a project file before closing this tab.'; } render(); }
   if (e.target.id === 'project-file' && e.target.files[0]) {
     var f = e.target.files[0]; if (f.size > 50e6) { PROJECT.message = 'Project files up to 50 MB can be opened.'; render(); return; }
     f.text().then(function (text) { restoreProject(JSON.parse(text)); PROJECT.message = 'Project opened. Review imported results before using them.'; nav('data'); }).catch(function (err) { PROJECT.message = 'Project not opened. ' + err.message; render(); });
   }
 });
-try { var pref = localStorage.getItem('ekm-remember'); if (pref) PROJECT.remember = pref === 'on'; var cached = localStorage.getItem(PROJECT.key); if (cached) { restoreProject(JSON.parse(cached)); PROJECT.remember = true; } } catch (err) { PROJECT.remember = false; PROJECT.message = 'Saved browser project could not be restored. Open a project backup.'; }
+try { var pref = localStorage.getItem('ekm-remember'); if (pref) PROJECT.remember = pref === 'on'; var cached = localStorage.getItem(PROJECT.key); PROJECT.base = cached; if (cached) { restoreProject(JSON.parse(cached)); PROJECT.remember = true; } } catch (err) { PROJECT.remember = false; PROJECT.message = 'Saved browser project could not be restored. Open a project backup.'; }
+
+PROJECT.owner = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+window.addEventListener('storage', function (e) { if (e.key === 'ekm-remember' && e.newValue === 'off') { PROJECT.remember = false; PROJECT.base = null; PROJECT.conflict = false; PROJECT.storageMessage = 'Browser saving was switched off in another tab. Save a project file to keep your work.'; render(); return; } if (e.key === PROJECT.key && PROJECT.remember && e.newValue !== PROJECT.base) { PROJECT.conflict = true; render(); } });
+
+// ===== input-integrity.js =====
+// Input fidelity and explicit conversion rules. Source values are never overwritten.
+function uniqueColumnName(name, used) { var n = name, i = 2; while (used.indexOf(n) >= 0) n = name + ' (' + i++ + ')'; return n; }
+function validDateValue(v) { var t = String(v), m = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(t); if (!m) return false; var d = new Date(t + (m[3] ? '' : '-01') + 'T00:00:00Z'); return !isNaN(d.getTime()) && d.toISOString().slice(0, m[3] ? 10 : 7) === t; }
+function changeColumnType(ds, j, type) {
+  var name = ds.cols[j].name, original = ds.rawColumns ? ds.rawColumns.indexOf(name) : -1;
+  var useRaw = original >= 0 && ds.rawRows.length === ds.rows.length && (ds.recipe || []).every(function (s) { return s.op === 'type'; });
+  var rows = ds.rows.map(function (r, i) {
+    var row = r.slice(), v = useRaw ? ds.rawRows[i][original] : r[j];
+    if ((type === 'number' || type === 'year') && ds.importOptions) v = importedValue(v, ds.importOptions);
+    if (isMissing(v)) row[j] = null;
+    else if (type === 'number' || type === 'year') { var n = parseNum(v); if (typeof n !== 'number' || !isFinite(n)) throw new Error('“' + name + '” contains a value that cannot be converted without loss. Check original values or use explicit missing-value settings.'); row[j] = n; }
+    else if (type === 'date') { if (!validDateValue(v)) throw new Error('“' + v + '” is not a valid ISO calendar date. Use YYYY-MM-DD.'); row[j] = String(v); }
+    else row[j] = String(v);
+    return row;
+  });
+  var cols = ds.cols.map(function (c, i) { return {name: c.name, type: i === j ? type : c.type}; });
+  return {rows: rows, cols: cols, changed: ds.rows.length || 1};
+}
+var _replayInput = replayStep;
+replayStep = function (ds, step) { return step.op === 'type' && idxOf(ds, step.col) >= 0 ? changeColumnType(ds, idxOf(ds, step.col), step.type) : _replayInput(ds, step); };
+opToNum = function (ds, j) { return changeColumnType(ds, j, 'number'); };
+function losslessJSONParse(text) {
+  var out = '', i = 0;
+  while (i < text.length) {
+    if (text[i] === '"') { var start = i++; while (i < text.length) { if (text[i] === '\\') i += 2; else if (text[i++] === '"') break; } out += text.slice(start, i); }
+    else { var number = /^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(text.slice(i));
+      if (number) { var token = number[0]; out += /^-?\d+$/.test(token) && Math.abs(+token) > 9007199254740991 ? JSON.stringify(token) : token; i += token.length; }
+      else out += text[i++];
+    }
+  }
+  return JSON.parse(out);
+}
+var IMPORT = {decimal: '.', missing: 'blank', sheet: null, workbook: null};
+function importedValue(v, options) {
+  if (options.missing === 'tokens' && /^(na|n\/a|nan|null|none|no data( found)?)$/i.test(String(v).trim())) return null;
+  if (options.decimal === ',' && typeof v === 'string' && /^[-+]?\d+(?:\.\d{3})*,\d+(?:[eE][-+]?\d+)?$/.test(v.trim())) return v.trim().replace(/\./g, '').replace(',', '.');
+  return v;
+}
+var _inputMake = makeSet;
+makeSet = function (name, header, body, origin, extra) {
+  var options = {decimal: IMPORT.decimal, missing: IMPORT.missing};
+  var converted = body.map(function (r) { return r.map(function (v) { return importedValue(v, options); }); });
+  var ds = _inputMake(name, header, converted, origin, extra);
+  ds.sourceHeaders = header.map(function (h) { return h == null ? '' : String(h); });
+  ds.rawColumns = ds.cols.map(function (c) { return c.name; });
+  ds.rawRows = body.map(function (r) { return header.map(function (_, j) { return r[j] == null ? null : r[j]; }); });
+  ds.importOptions = options; return ds;
+};
+var _inputData = VIEWS.data;
+VIEWS.data = function () {
+  var h = _inputData(), ds = cur(), settings = '<details class="dt"><summary>Import settings</summary><div class="toolbar"><label class="field">Decimal mark<select id="import-decimal"><option value="."' + (IMPORT.decimal === '.' ? ' selected' : '') + '>Dot (1.5)</option><option value=","' + (IMPORT.decimal === ',' ? ' selected' : '') + '>Comma (1,5)</option></select></label><label class="field">Missing values<select id="import-missing"><option value="blank"' + (IMPORT.missing === 'blank' ? ' selected' : '') + '>Empty cells only</option><option value="tokens"' + (IMPORT.missing === 'tokens' ? ' selected' : '') + '>Empty, NA, N/A, null, none</option></select></label></div><p class="count">Applies to the next upload or paste. Identifiers with leading zeros and unsafe integers stay as text. Mixed numeric/text columns keep every value. Original values remain available below.</p></details>';
+  h = h.replace('<div class="slot"><label class="btn btn-primary" for="afile">', settings + '<div class="slot"><label class="btn btn-primary" for="afile">');
+  if (IMPORT.workbook) h += '<section class="card"><h2>Choose worksheet</h2><label class="field">Worksheet<select id="import-sheet">' + IMPORT.workbook.names.map(function (n, i) { return '<option value="' + i + '">' + esc(n) + '</option>'; }).join('') + '</select></label><button class="btn btn-primary" type="button" data-import-sheet="1">Import selected worksheet</button><p class="count">The first worksheet was imported. Select another worksheet to add it as a separate dataset.</p></section>';
+  if (ds && ds.rawRows) h += '<section class="card"><h2>Original values</h2><p class="count">Unmodified imported values. Cleaning and type changes affect the working table; this source copy remains unchanged.</p><button class="btn" type="button" data-source-csv="1">Original data (.csv)</button><details><summary>Preview original rows</summary><div class="tablewrap"><table><thead><tr>' + ds.rawColumns.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' + ds.rawRows.slice(0, 12).map(function (r) { return '<tr>' + r.map(function (v) { return '<td>' + esc(v) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div></details></section>';
+  return h;
+};
+view.addEventListener('change', function (e) { if (e.target.id === 'import-decimal') IMPORT.decimal = e.target.value; if (e.target.id === 'import-missing') IMPORT.missing = e.target.value; });
+view.addEventListener('click', function (e) {
+  var b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.sourceCsv && cur()) saveFile(slug(cur().name) + '-original.csv', csvText({cols: (cur().sourceHeaders || cur().rawColumns).map(function (n) { return {name:n}; }), rows: cur().rawRows}));
+  if (b.dataset.importSheet && IMPORT.workbook) { try { var w = IMPORT.workbook, i = +document.getElementById('import-sheet').value, aoa = w.reader.utils.sheet_to_json(w.book.Sheets[w.names[i]], {header:1, raw:true, defval:''}); aoa = aoa.filter(function(r){return r.some(function(v){return String(v).trim()!=='';});}); var ds = makeSet(w.name+' ('+w.names[i]+')',aoa[0]||[],aoa.slice(1)); if (!ds.rows.length) throw new Error('This worksheet has no data rows.'); A.sets.unshift(ds); pickSet(ds.id); saveSet(ds); render(); } catch(err) { A.msg=err.message; render(); } }
+});
+
+// ===== responsive-checks.js =====
+// All relationship pairs are screened off the UI thread, with a yielding fallback.
+var REL = {cache: new WeakMap(), current: null};
+function relationshipScan(rows, indices, emit, cancelled) {
+  var columns = indices.map(function (j) { return rows.map(function (r) { return r[j]; }); }), a = 0, b = 1, done = 0, total = indices.length * (indices.length - 1) / 2, matches = [], count = 0;
+  function chunk() {
+    if (cancelled && cancelled()) return;
+    var until = Date.now() + 8;
+    while (a < indices.length - 1 && Date.now() < until) {
+      var co = S.screenPair(columns[a], columns[b]);
+      if (co.n > 5 && Math.abs(co.r) > .9) { count++; if (matches.length < 100) matches.push({a: indices[a], b: indices[b], r: co.r}); }
+      done++; b++; if (b >= indices.length) { a++; b = a + 1; }
+    }
+    emit({done: done, total: total, complete: done === total, matches: matches, count: count});
+    if (done < total) setTimeout(chunk, 0);
+  }
+  chunk();
+}
+function stopRelationships(job) { if (!job || job.state !== 'running') return; job.state = 'cancelled'; if (job.worker) job.worker.terminate(); job.worker = null; }
+function startRelationships(ds, job) {
+  if (REL.current !== job) stopRelationships(REL.current);
+  REL.current = job; job.state = 'running'; job.done = 0;
+  var indices = ds.cols.map(function (_, j) { return j; }).filter(function (j) { return ds.cols[j].type === 'number'; });
+  job.total = indices.length * (indices.length - 1) / 2; var last = 0;
+  function receive(e) {
+    if (job.state !== 'running') return;
+    job.done = e.done;
+    if (e.complete) {
+      job.state = 'complete'; if (job.worker) job.worker.terminate(); job.worker = null;
+      job.findings = e.matches.map(function (m) { return {sev:'info', col: ds.cols[m.a].name, title: 'Nearly duplicates ' + ds.cols[m.b].name, detail:'Correlation ' + m.r.toFixed(2) + '. Using both as predictors makes a regression unstable; keep one.', fix:null, src:'Rule adapted from ydata-profiling'}; });
+      if (e.count > e.matches.length) job.findings.push({sev:'info', col:'Relationships', title:e.count + ' strongly correlated pairs', detail:'All ' + e.total + ' pairs were screened. Showing the first 100 relationships; choose individual pairs under Analyze for full estimates.', fix:null, src:'Pairwise Pearson screening'});
+    }
+    if (st.tab === 'enhance' && cur() && cur().rows === ds.rows && cur().cols === ds.cols && (e.complete || Date.now() - last > 250)) { last = Date.now(); render(); }
+  }
+  if (!job.total) { receive({complete:true,done:0,total:0,matches:[],count:0}); return; }
+  try {
+    var code = EKM_STATS_SOURCE + '\nonmessage=function(e){(' + relationshipScan.toString() + ')(e.data.rows,e.data.indices,function(p){postMessage(p);});};', url = URL.createObjectURL(new Blob([code], {type:'application/javascript'}));
+    job.worker = new Worker(url); URL.revokeObjectURL(url);
+    job.worker.onmessage = function (e) { receive(e.data); };
+    job.worker.onerror = function (event) { event.preventDefault(); if (job.worker) job.worker.terminate(); job.worker = null; relationshipScan(ds.rows, indices, receive, function () { return job.state !== 'running'; }); };
+    job.worker.postMessage({rows:ds.rows, indices:indices});
+  } catch (err) { if (url) URL.revokeObjectURL(url); setTimeout(function () { relationshipScan(ds.rows, indices, receive, function () { return job.state !== 'running'; }); }, 0); }
+}
+var _baseChecks = checks;
+checks = function (ds) {
+  var job = REL.cache.get(ds.rows);
+  if (!job || job.cols !== ds.cols) { job = {cols:ds.cols, findings:[], base:_baseChecks(ds), state:'ready', done:0, total:0, worker:null}; REL.cache.set(ds.rows, job); }
+  // Baseline comparisons reuse their base checks; only the current table starts a scan.
+  if (cur() === ds && st.tab === 'enhance' && job.state === 'ready') setTimeout(function () { if (cur() === ds && st.tab === 'enhance' && job.state === 'ready') startRelationships(ds, job); }, 0);
+  return job.base.concat(job.findings);
+};
+var _responsiveEnhance = VIEWS.enhance;
+VIEWS.enhance = function () {
+  var html = _responsiveEnhance(), ds = cur(), job = ds && ds.rows && REL.cache.get(ds.rows);
+  if (!job) return html;
+  var text = job.state === 'complete' ? 'Relationship scan complete: ' + job.done + ' pairs checked.' : job.state === 'cancelled' ? 'Relationship scan cancelled. Column checks remain available.' : 'Relationship scan: ' + job.done + ' of ' + job.total + ' pairs checked. Column checks are available now.';
+  return '<section class="card"><h2>Relationship scan</h2><p class="count" role="status">' + esc(text) + '</p>' + (job.state === 'running' ? '<button type="button" class="btn" data-relationship-cancel="1">Cancel relationship scan</button>' : job.state === 'cancelled' ? '<button type="button" class="btn" data-relationship-start="1">Run relationship scan</button>' : '') + '</section>' + html;
+};
+view.addEventListener('click', function (e) { var b = e.target.closest('button'), ds = cur(); if (!b || !ds) return; var job = REL.cache.get(ds.rows); if (b.dataset.relationshipCancel) { stopRelationships(job); render(); } if (b.dataset.relationshipStart && job) startRelationships(ds, job); });
+// Keep the keyboard user's position when innerHTML is replaced by any module.
+var _focusRender = render, focusTab = st.tab;
+render = function () {
+  if (REL.current && (st.tab !== 'enhance' || !cur() || REL.current.cols !== cur().cols || REL.cache.get(cur().rows) !== REL.current)) stopRelationships(REL.current);
+  var active = document.activeElement, id = active && active.id, tag = active && active.tagName, attrs = [], start = null, end = null, restore = active && view.contains(active) && focusTab === st.tab;
+  if (restore) { [].forEach.call(active.attributes, function (a) { if (a.name.indexOf('data-') === 0) attrs.push([a.name,a.value]); }); try { start = active.selectionStart; end = active.selectionEnd; } catch (err) {} }
+  _focusRender(); focusTab = st.tab;
+  if (!restore) return;
+  var next = id ? document.getElementById(id) : null;
+  if (!next && attrs.length) next = [].filter.call(view.querySelectorAll('button,input,select,textarea,a'), function (el) { return el.tagName === tag && attrs.every(function (a) { return el.getAttribute(a[0]) === a[1]; }); })[0];
+  if (next && !next.disabled) { next.focus({preventScroll:true}); if (start != null && next.setSelectionRange) try { next.setSelectionRange(start,end); } catch (err) {} }
+};
+// Worked arithmetic must agree with the stable engine, including extreme magnitudes.
+var _arithmeticSteps = workedSteps;
+workedSteps = function (ds, R) {
+  if (A.kind === 'relate') {
+    var p = rowsXY(ds, A.sel.x, A.sel.y), co = S.correlate(p.x,p.y), c = co.calculation;
+    if (!c) return '';
+    return stepsTable([
+      step('n','complete pairs',co.n),
+      step('S<sub>xy</sub>','sum of products of scaled, centered values',f3(c.xy)),
+      step('S<sub>xx</sub>, S<sub>yy</sub>','sums of squared scaled, centered values',f3(c.xx)+', '+f3(c.yy)),
+      step('r',f3(c.xy)+' / √'+f3(c.xx)+' / √'+f3(c.yy),f3(co.r)),
+      step('slope','slope in original units',f3(co.slope)),
+      step('intercept','intercept in original units',f3(co.intercept)),
+      step('t','r√(n − 2) / √(1 − r²)',Math.abs(co.r) === 1 ? 'Exact linear relationship (limiting statistic)' : f3(co.r*Math.sqrt((co.n-2)/(1-co.r*co.r)))+' on '+(co.n-2)+' df')
+    ],'Centered differences are scaled separately for each column before computing products. This avoids overflow and underflow without changing r. The fitted slope and intercept are converted back to the original units.');
+  }
+  if (['describe','compare','paired'].indexOf(A.kind) >= 0) {
+    var names = A.kind === 'paired' ? [A.sel.x,A.sel.y] : [A.sel.y], indices = names.map(function(n){return idxOf(ds,n);}), max = 0;
+    filterRows(ds).forEach(function(r){indices.forEach(function(j){if(typeof r[j]==='number')max=Math.max(max,Math.abs(r[j]));});});
+    if (max > 1e70 || max > 0 && max < 1e-70) {
+      var scaled = Object.assign({},ds,{rows:ds.rows.map(function(r){return r.map(function(v,j){return indices.indexOf(j)>=0 && typeof v==='number' ? v/max : v;});})});
+      return '<p class="count">The arithmetic below uses measurements divided by '+f3(max)+'. Multiply averages, differences and standard deviations by this factor to return to the original units. Test statistics and standardized effects are unchanged.</p>'+_arithmeticSteps(scaled,R);
+    }
+  }
+  return _arithmeticSteps(ds,R);
+};
 
 nav((location.hash || "").slice(1) || "data");
 </script>

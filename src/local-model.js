@@ -1,7 +1,7 @@
 // Same-origin loopback bridge with independent evidence validation and cancellation.
 var LM = {key: '', state: '', lines: [], request: 0, question: '', ctl: null, health: 'Check connection to confirm Ollama and the configured model are available.'};
 function modelEvidence(ds, R) {
-  var evidence = {};
+  var evidence = Object.create(null);
   ['result', 'uncertainty', 'assumptions', 'pvalue', 'next'].forEach(function (topic) { evidence[topic] = localExplanation(ds, R, topic); });
   return evidence;
 }

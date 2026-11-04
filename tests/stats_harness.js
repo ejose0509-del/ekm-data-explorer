@@ -7,7 +7,7 @@ const x = [1.2,2.3,2.1,3.8,4.0,4.4,5.9,6.1,7.3,8.8,9.1,10.5,11.2,12.0,30.0], y =
 const t = S.ttest(a, b), an = S.anova([a, b, c]), ch = S.chisq([[20,15,5],[10,25,25]]), co = S.correlate(x, y);
 const o = S.ols(y, x.map((v, i) => [v, (i * 7) % 5]), ["x1", "x2"]);
 const lg = S2.logistic([0,0,0,1,0,1,0,1,1,1,0,1,1,1,0,1], [[1],[2],[3],[4],[5],[6],[7],[8],[9],[10],[11],[12],[13],[14],[3.5],[2.5]], ["x"]);
-console.log(JSON.stringify({
+const result = {
   welch_t: t.t, welch_df: t.df, welch_p: t.p, anova_F: an.F, anova_p: an.p, chi2: ch.x2, chi2_p: ch.p,
   pearson_r: co.r, pearson_p: co.p, spearman: co.rho, spearman_p: co.prho,
   ols_b1: o.coefs[1].b, ols_se1: o.coefs[1].se, ols_r2: o.r2,
@@ -18,4 +18,25 @@ console.log(JSON.stringify({
   wilcoxon_T: S2.wilcoxon(x, y).T, wilcoxon_p: S2.wilcoxon(x, y).p,
   paired_t: S2.pairedT(x, y).t, paired_p: S2.pairedT(x, y).p,
   logit_b1: lg.coefs[1].b, logit_se1: lg.coefs[1].se, logit_p1: lg.coefs[1].p,
-}));
+};
+
+const edgeX = [1,2,3,4,5], edgeY = [1,3,2,5,4];
+for (const [name, scale] of [['large',1e150],['tiny',1e-150],['huge',1e300],['subnormal',1e-300]]) {
+ const c = S.correlate(edgeX.map(v=>v*scale),edgeY.map(v=>v*scale));
+ for (const key of ['r','p','ciLo','ciHi']) result[name+'_'+key]=c[key];
+ const d = S.describe(edgeX.map(v=>v*scale)); result[name+'_sd_unit']=d.sd/scale;
+ const screen = S.screenPair(edgeX.map(v=>v*scale), edgeY.map(v=>v*scale)); result[name+'_screen']=screen.r;
+}
+for (const [name, xs, ys] of [['three',[1,2,3],[1,3,2]],['offset',edgeX.map(v=>v+1e12),edgeY.map(v=>v+1e12)],['perfect',edgeX,edgeX],['negative',edgeX,edgeX.map(v=>-v)]]) {
+ const c = S.correlate(xs,ys); for (const key of ['r','p','ciLo','ciHi']) result[name+'_'+key]=c[key];
+}
+for (const [name, scale] of [['large',1e150],['tiny',1e-150]]) {
+ const aa=a.map(v=>v*scale),bb=b.map(v=>v*scale),cc=c.map(v=>v*scale), t=S.ttest(aa,bb),an=S.anova([aa,bb,cc]);
+ for (const key of ['t','df','p']) result[name+'_welch_'+key]=t[key];
+ result[name+'_welch_diff_unit']=t.diff/scale; result[name+'_welch_lo_unit']=t.ciLo/scale; result[name+'_welch_hi_unit']=t.ciHi/scale;
+ result[name+'_anova_F']=an.F;result[name+'_anova_p']=an.p;
+}
+result.mean_huge_unit = S.mean([1e308,1e308,1e308])/1e308;
+result.mean_smallest_unit = S.mean([Number.MIN_VALUE,Number.MIN_VALUE,Number.MIN_VALUE])/Number.MIN_VALUE;
+for (const [name, scale] of [['large',1e150],['tiny',1e-150]]) { const sw=S2.shapiro(a.map(v=>v*scale));result[name+'_shapiro_W']=sw.W;result[name+'_shapiro_p']=sw.p; }
+console.log(JSON.stringify(result));

@@ -9,7 +9,7 @@ python3 build.py                  # src/ -> dist/index.html
 python3 tests/check_stats.py      # statistics vs SciPy (needs node, numpy, scipy)
 ```
 
-Open `dist/index.html` in a browser to use it. Run the stats check after any change to `src/stats.js` or `src/stats2.js`; all 30 values must match SciPy.
+Open `dist/index.html` in a browser to use it. Run the stats check after any change to `src/stats.js` or `src/stats2.js`; all 92 values (including the original 30) must match SciPy.
 
 ## Layout
 
@@ -30,7 +30,9 @@ Open `dist/index.html` in a browser to use it. Run the stats check after any cha
 | `src/space.js` | 3D view (canvas renderer) and the 3D chart type |
 | `src/writeup.js` | Write-up tab, limitations, saved result evidence |
 | `src/reliability.js` | Validity checks before interpretation and write-up capture |
-| `src/project.js` | Native downloads, portable projects, browser persistence |
+| `src/project.js` | Native downloads, portable projects, conflict-aware browser persistence |
+| `src/input-integrity.js` | Original values, import settings, worksheet selection, reversible types |
+| `src/responsive-checks.js` | Cancellable background relationship screening, focus retention, stable worked arithmetic |
 | `src/local-model.js` | Optional same-origin local model bridge |
 | `src/assistant.js` | Offline question routing, grounded explanations, self-check and write-up review |
 

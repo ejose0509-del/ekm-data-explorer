@@ -19,15 +19,15 @@ def question_topic(question):
     if CAUSAL.search(question):
         return None
     q = question.lower()
-    if re.search(r'\bp[- ]?values?\b|significan', q):
+    if re.search(r'\bp[- ]?values?\b|\bp\s*[=<>]|valor\s+p\b|significan', q):
         return 'pvalue'
-    if re.search(r'uncertain|confidence|interval|effect|how (big|large|strong)|size of', q):
+    if re.search(r'uncertain|confidence|interval|effect|how (big|large|strong)|size of|incertidumbre|confianza|efecto', q):
         return 'uncertainty'
-    if re.search(r'assum|independen|normal|valid|reliable|method', q):
+    if re.search(r'assum|independen|normal|valid|reliable|method|supuestos|método', q):
         return 'assumptions'
-    if re.search(r'next|follow.up|what should|what (can|do) i do', q):
+    if re.search(r'next|follow.up|what should|what (can|do) i do|sample size|how many|combine|join|merge|files|siguiente|muestra|combinar|archivos', q):
         return 'next'
-    if re.search(r'\b(results?|findings?|summar\w*|explain|interpret|correlat\w*|associat\w*|differences?)\b', q):
+    if re.search(r'resultado|explica|interpreta|correlación|\b(results?|findings?|summar\w*|explain|interpret|correlat\w*|associat\w*|differences?)\b', q):
         return 'result'
     return None
 

@@ -28,10 +28,26 @@ ref = {
   "paired_t": st.ttest_rel(x, y).statistic, "paired_p": st.ttest_rel(x, y).pvalue,
   "logit_b1": bl[1], "logit_se1": sel[1], "logit_p1": 2 * st.norm.sf(abs(bl[1] / sel[1])),
 }
+
+edge_x = np.array([1.,2.,3.,4.,5.]); edge_y = np.array([1.,3.,2.,5.,4.])
+for name, scale in [('large',1e150),('tiny',1e-150),('huge',1e300),('subnormal',1e-300)]:
+    corr = st.pearsonr(edge_x*scale,edge_y*scale); ci=corr.confidence_interval()
+    for key, value in zip(['r','p','ciLo','ciHi'], [corr.statistic,corr.pvalue,ci.low,ci.high]): ref[name+'_'+key]=value
+    ref[name+'_sd_unit']=np.std(edge_x,ddof=1); ref[name+'_screen']=corr.statistic
+for name, xx, yy in [('three',[1.,2.,3.],[1.,3.,2.]),('offset',edge_x+1e12,edge_y+1e12),('perfect',edge_x,edge_x),('negative',edge_x,-edge_x)]:
+    corr=st.pearsonr(xx,yy);ci=corr.confidence_interval()
+    for key,value in zip(['r','p','ciLo','ciHi'],[corr.statistic,corr.pvalue,ci.low,ci.high]):ref[name+'_'+key]=value
+for name in ['large','tiny']:
+    for key,value in [('t',t.statistic),('df',t.df),('p',t.pvalue),('diff_unit',np.mean(a)-np.mean(b)),('lo_unit',t.confidence_interval().low),('hi_unit',t.confidence_interval().high)]:ref[name+'_welch_'+key]=value
+    ref[name+'_anova_F']=f.statistic;ref[name+'_anova_p']=f.pvalue
+ref['mean_huge_unit']=np.mean([1.,1.,1.]);ref['mean_smallest_unit']=np.mean([np.nextafter(0.,1.)]*3)/np.nextafter(0.,1.)
+for name in ['large','tiny']:
+    ref[name+'_shapiro_W']=st.shapiro(a).statistic;ref[name+'_shapiro_p']=st.shapiro(a).pvalue
 bad = 0
 for k, v in ref.items():
-    ok = abs(ekm[k] - float(v)) <= 1e-6 * max(1.0, abs(float(v)))
+    actual=ekm.get(k)
+    ok = actual is not None and abs(actual - float(v)) <= 1e-6 * max(1.0, abs(float(v)))
     bad += not ok
-    print(("PASS " if ok else "FAIL ") + k.ljust(16), "%.10g" % ekm[k], "%.10g" % float(v))
-print("\n%d of %d match SciPy" % (len(ref) - bad, len(ref)))
+    print(('PASS ' if ok else 'FAIL ') + k.ljust(24), str(actual) if actual is None else '%.10g' % actual, '%.10g' % float(v))
+print('\n%d of %d match SciPy' % (len(ref) - bad, len(ref)))
 sys.exit(1 if bad else 0)

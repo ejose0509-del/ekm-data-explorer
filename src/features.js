@@ -8,7 +8,7 @@ function fz(v, d) { d = d == null ? 2 : d; var s = (+v).toFixed(d); return Math.
 function apaP(p) { return p < 0.001 ? "<i>p</i> < .001" : "<i>p</i> = " + fz(p, 3); }
 function chipYes(ok, yes, no) { return '<span class="chip ' + (ok ? "q-verified" : "q-estimated") + '">' + (ok ? yes : no) + "</span>"; }
 function getCol(ds, rows, n) { var j = idxOf(ds, n); return rows.map(function (r) { return r[j]; }); }
-function groupsOf(ds, rows, y, g) { var yv = getCol(ds, rows, y), gv = getCol(ds, rows, g), m = {}; yv.forEach(function (v, i) { if (typeof v === "number" && gv[i] != null) (m[gv[i]] = m[gv[i]] || []).push(v); }); return m; }
+function groupsOf(ds, rows, y, g) { var yv = getCol(ds, rows, y), gv = getCol(ds, rows, g), m = Object.create(null); yv.forEach(function (v, i) { if (typeof v === "number" && gv[i] != null) (m[gv[i]] = m[gv[i]] || []).push(v); }); return m; }
 function swRow(name, v) { var s = S2.shapiro(v); return s ? "<tr><td>" + esc(name) + '</td><td class="num">' + s.n + '</td><td class="num">' + s.W.toFixed(3) + '</td><td class="num">' + fp(s.p) + "</td><td>" + chipYes(s.p >= 0.05, "Looks normal", "Not normal") + "</td></tr>" : ""; }
 function swTable(rows) { return '<h3 class="sub-h">Assumption checks</h3><div class="tablewrap"><table class="nosort"><thead><tr><th>Shapiro–Wilk</th><th>Rows</th><th>W</th><th>p</th><th></th></tr></thead><tbody>' + rows + "</tbody></table></div>"; }
 function bfLine(bf) { return "Approximate Bayes factor BF<sub>10</sub> = " + (bf > 1000 ? "> 1000" : bf < 0.001 ? "< 0.001" : f3(bf)) + ": " + S2.bfWord(bf) + " (BIC method, Wagenmakers 2007)."; }
@@ -37,7 +37,9 @@ function enrich(R, ds) {
     if (names.length === 2) {
       var mw = S2.mannWhitney(gs[0], gs[1]), pw = S2.powerD(sm.cohen_d, gs[0].length, gs[1].length), bf = S2.bfR2(an.eta2, n, 1);
       R.extra += '<h3 class="sub-h">Rank-based check</h3>' + figs([["Mann–Whitney U", f3(mw.U)], ["p-value", fp(mw.p)], ["Rank effect (r)", f3(mw.r)]]);
-      R.reading.push((nonNormal ? "At least one group is not normally distributed, so the rank-based Mann–Whitney test is the safer read: " : "The rank-based Mann–Whitney test agrees as a check: ") + "U = " + f3(mw.U) + ", p " + (mw.p < 0.001 ? "< 0.001" : "= " + fp(mw.p)) + ".");
+      R.reading.push(((mw.p < .05) === (sm.p < .05) ? "The rank-based Mann–Whitney test gives the same decision at the .05 threshold: " : "The rank-based Mann–Whitney test differs at the .05 threshold. These methods test different hypotheses; with small groups their approximations are especially uncertain: ") + "U = " + f3(mw.U) + ", p " + (mw.p < 0.001 ? "< 0.001" : "= " + fp(mw.p)) + ".");
+      if (nonNormal) R.caveats.push('A normality check flags at least one group. Consider the rank-based alternative, checking independence and distribution shape; it tests a different hypothesis from a comparison of means.');
+      if (gs.some(function (g) { return g.length < 10; })) R.caveats.push('The Mann–Whitney p-value uses a normal approximation. With small groups, prefer an exact calculation in a dedicated statistics package before drawing a conclusion.');
       R.reading.push(bfLine(bf));
       R.caveats.push("Power: with these group sizes there is about a " + Math.round(pw.power * 100) + "% chance of detecting an effect this size. About " + pw.need + " rows per group would give 80% power (normal approximation).");
       if (lev.p < 0.05) R.caveats.push("The groups' spreads differ (Levene), which Welch's t-test already allows for.");
@@ -50,7 +52,8 @@ function enrich(R, ds) {
         '<p class="count">Pairwise Welch t-tests with Holm correction for the number of comparisons.</p>';
       var sig = pairs.filter(function (q) { return q.padj < 0.05; });
       R.reading.push(sig.length ? sig.length + " of " + pairs.length + " pairs differ after correcting for multiple comparisons, for example " + esc(sig[0].a) + " vs " + esc(sig[0].b) + " (difference " + f3(sig[0].diff) + ")." : "No pair of groups differs clearly once the comparisons are corrected for multiple testing.");
-      R.reading.push((nonNormal || lev.p < 0.05 ? "Because " + (nonNormal ? "some groups are not normal" : "the spreads differ") + ", the Kruskal–Wallis test is the safer overall read: " : "The rank-based Kruskal–Wallis test agrees as a check: ") + "H(" + kw.df + ") = " + f3(kw.H) + ", p " + (kw.p < 0.001 ? "< 0.001" : "= " + fp(kw.p)) + ".");
+      R.reading.push(((kw.p < .05) === (sm.p < .05) ? "The rank-based Kruskal–Wallis test gives the same decision at the .05 threshold: " : "The rank-based Kruskal–Wallis test differs at the .05 threshold. Check group distributions, sample sizes and the hypotheses before interpreting this difference: ") + "H(" + kw.df + ") = " + f3(kw.H) + ", p " + (kw.p < 0.001 ? "< 0.001" : "= " + fp(kw.p)) + ".");
+      if (nonNormal || lev.p < .05) R.caveats.push('Group normality or spread checks are flagged. Kruskal–Wallis compares rank distributions; unequal shapes or spreads can affect its interpretation as a location difference. Check its assumptions before preferring it.');
       R.reading.push(bfLine(bf2));
       R.caveats = R.caveats.filter(function (c) { return !/says some groups differ, not which/.test(c); });
       R.apa = "<i>F</i>(" + an.df1 + ", " + an.df2 + ") = " + an.F.toFixed(2) + ", " + apaP(an.p) + ", η² = " + fz(an.eta2) + "; Kruskal–Wallis <i>H</i>(" + kw.df + ") = " + kw.H.toFixed(2) + ", " + apaP(kw.p);
@@ -86,7 +89,7 @@ function runPaired(ds) {
   R.head = figs([["Average change", f3(t.mean)], ["95% range", f3(t.ciLo) + " to " + f3(t.ciHi)], ["p-value", fp(t.p)], ["Pairs", t.n]], true);
   R.chart = histogram(diffs, "Change (" + s.y + " − " + s.x + ")");
   R.extra = swTable(swRow("Changes", diffs)) + (w ? '<h3 class="sub-h">Rank-based check</h3>' + figs([["Wilcoxon T", f3(w.T)], ["p-value", fp(w.p)], ["Effect (r)", f3(w.r)]]) : "");
-  R.reading.push("On average " + esc(s.y) + " is " + f3(Math.abs(t.mean)) + (t.mean >= 0 ? " higher" : " lower") + " than " + esc(s.x) + " for the same row. That change " + pWord(t.p) + ".");
+  R.reading.push("On average " + esc(s.y) + " is " + f3(Math.abs(t.mean)) + (t.mean >= 0 ? " higher" : " lower") + " than " + esc(s.x) + " for the same row. That change is " + pWord(t.p) + ".");
   if (sw && sw.p < 0.05 && w) R.reading.push("The changes are not normally distributed, so the Wilcoxon signed-rank test is the safer read: p " + (w.p < 0.001 ? "< 0.001" : "= " + fp(w.p)) + ".");
   R.caveats.push("About " + need80 + " pairs would give 80% power for a change this size (normal approximation).");
   R.caveats.push("Both columns must describe the same thing measured twice on each row; otherwise use Compare groups.");
@@ -94,14 +97,14 @@ function runPaired(ds) {
   return R;
 }
 
-function binaryCols(ds) { return ds.cols.filter(function (c, j) { if (c.type === "empty") return false; var u = {}; ds.rows.forEach(function (r) { if (r[j] != null) u[r[j]] = 1; }); return Object.keys(u).length === 2; }); }
+function binaryCols(ds) { return ds.cols.filter(function (c, j) { if (c.type === "empty") return false; var u = Object.create(null); ds.rows.forEach(function (r) { if (r[j] != null) u[r[j]] = 1; }); return Object.keys(u).length === 2; }); }
 function runLogistic(ds) {
   var bins = binaryCols(ds), nums = ds.cols.filter(function (c) { return c.type === "number"; }), s = A.sel, R = {kind: "logistic", controls: "", head: "", chart: "", reading: [], caveats: [], summary: {}};
   if (!bins.length || !nums.length) return need(R, "a column with exactly two values (yes/no) and at least one number column");
   if (!bins.some(function (c) { return c.name === s.o; })) s.o = bins[0].name;
-  var j = idxOf(ds, s.o), lv = Object.keys(ds.rows.reduce(function (m, r) { if (r[j] != null) m[r[j]] = 1; return m; }, {})).sort();
+  var j = idxOf(ds, s.o), lv = Object.keys(ds.rows.reduce(function (m, r) { if (r[j] != null) m[r[j]] = 1; return m; }, Object.create(null))).sort();
   if (lv.indexOf(s.ov) < 0) s.ov = lv[1];
-  var preds = nums.filter(function (c) { return c.name !== s.o; }); s.lp = (s.lp || preds.slice(0, 3).map(function (c) { return c.name; })).filter(function (p) { return idxOf(ds, p) >= 0 && p !== s.o; });
+  var preds = nums.filter(function (c) { return c.name !== s.o; }); s.lp = (Array.isArray(s.lp) ? s.lp : preds.slice(0, 3).map(function (c) { return c.name; })).filter(function (p) { return idxOf(ds, p) >= 0 && p !== s.o; });
   R.controls = pick("o", "Outcome", bins, s.o) + '<label class="field" for="ov">Counts as yes<select id="ov" data-asel="ov">' + lv.map(function (v) { return "<option" + (v === s.ov ? " selected" : "") + ">" + esc(v) + "</option>"; }).join("") + "</select></label>" +
     '<fieldset class="field preds"><legend>Predictors</legend>' + preds.map(function (c) { return '<label class="chk"><input type="checkbox" data-lpred="' + esc(c.name) + '"' + (s.lp.indexOf(c.name) >= 0 ? " checked" : "") + "> " + esc(c.name) + "</label>"; }).join("") + "</fieldset>";
   if (!s.lp.length) return need(R, "at least one predictor ticked");
@@ -125,11 +128,11 @@ function runPivot(ds) {
   if (!cats.length) return need(R, "at least one category column");
   if (idxOf(ds, s.g) < 0) s.g = cats[0].name; if (s.g2 && idxOf(ds, s.g2) < 0) s.g2 = ""; s.agg = s.agg || (nums.length ? "mean" : "count"); if (s.agg !== "count" && idxOf(ds, s.y) < 0) s.y = (nums[0] || {}).name;
   R.controls = pick("g", "Rows", cats, s.g) + pick("g2", "Columns", cats, s.g2, true) + '<label class="field" for="pagg">Show<select id="pagg" data-asel="agg">' + [["count", "Number of rows"], ["mean", "Average"], ["median", "Median"], ["sum", "Total"]].map(function (o) { return '<option value="' + o[0] + '"' + (s.agg === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></label>" + (s.agg !== "count" && nums.length ? pick("y", "Of", nums, s.y) : "");
-  var rows = filterRows(ds), gi = idxOf(ds, s.g), ci = s.g2 ? idxOf(ds, s.g2) : -1, yi = s.agg === "count" ? -1 : idxOf(ds, s.y), cell = {}, rk = {}, ck = {};
-  rows.forEach(function (r) { var a = r[gi], b = ci >= 0 ? r[ci] : "All"; if (a == null || b == null) return; rk[a] = 1; ck[b] = 1; var k = a + "\u0000" + b; (cell[k] = cell[k] || []).push(yi >= 0 ? r[yi] : 1); });
+  var rows = filterRows(ds), gi = idxOf(ds, s.g), ci = s.g2 ? idxOf(ds, s.g2) : -1, yi = s.agg === "count" ? -1 : idxOf(ds, s.y), cell = Object.create(null), rk = Object.create(null), ck = Object.create(null);
+  rows.forEach(function (r) { var a = r[gi], b = ci >= 0 ? r[ci] : "All"; if (a == null || b == null) return; rk[a] = 1; ck[b] = 1; var k = JSON.stringify([String(a), String(b)]); (cell[k] = cell[k] || []).push(yi >= 0 ? r[yi] : 1); });
   var agg = function (v) { if (!v) return null; if (s.agg === "count") return v.length; var x = S.nums(v); if (!x.length) return null; return s.agg === "sum" ? x.reduce(function (p, q) { return p + q; }, 0) : s.agg === "mean" ? S.mean(x) : S.quantile(x.sort(function (p, q) { return p - q; }), 0.5); };
   var R1 = Object.keys(rk).sort().slice(0, 40), C1 = Object.keys(ck).sort().slice(0, 12), vals = [];
-  var grid = R1.map(function (a) { return C1.map(function (b) { var v = agg(cell[a + "\u0000" + b]); if (v != null) vals.push([v, a, b]); return v; }); });
+  var grid = R1.map(function (a) { return C1.map(function (b) { var v = agg(cell[JSON.stringify([String(a), String(b)])]); if (v != null) vals.push([v, a, b]); return v; }); });
   var mx = Math.max.apply(null, vals.map(function (v) { return Math.abs(v[0]); }).concat([1e-9]));
   R.head = '<div class="tablewrap"><table class="nosort pivot"><thead><tr><th>' + esc(s.g) + (s.g2 ? " \\ " + esc(s.g2) : "") + "</th>" + C1.map(function (b) { return '<th class="num">' + esc(b) + "</th>"; }).join("") + "</tr></thead><tbody>" +
     R1.map(function (a, i) { return "<tr><td>" + esc(a) + "</td>" + grid[i].map(function (v) { return v == null ? '<td class="nd">—</td>' : '<td class="num" style="background:rgba(147,200,242,' + (0.06 + 0.32 * Math.abs(v) / mx).toFixed(2) + ')">' + f3(v) + "</td>"; }).join("") + "</tr>"; }).join("") + "</tbody></table></div>";

@@ -13,7 +13,7 @@ function saveFile(filename, data) {
 // A chart as a standalone SVG: theme colours written in, on the board or on white paper
 var PAPER = {"--board": "#ffffff", "--board-2": "#ffffff", "--chalk": "#1b2620", "--chalk-2": "#3e4b44", "--chalk-3": "#5b6862", "--blue": "#1f5fa8", "--yellow": "#a86b00", "--pink": "#b0346a", "--green": "#2e7d32", "--orange": "#b35c00", "--violet": "#5e3fa8", "--rule": "#d5dbd7"};
 function svgText(svg, paper) {
-  var cl = svg.cloneNode(true), src = svg.querySelectorAll("*"), dst = cl.querySelectorAll("*"), root = getComputedStyle(document.documentElement), swap = {};
+  var cl = svg.cloneNode(true), src = svg.querySelectorAll("*"), dst = cl.querySelectorAll("*"), root = getComputedStyle(document.documentElement), swap = Object.create(null);
   if (paper) Object.keys(PAPER).forEach(function (k) { var v = root.getPropertyValue(k).trim(), c = document.createElement("i"); c.style.color = v; document.body.appendChild(c); swap[getComputedStyle(c).color] = PAPER[k]; c.remove(); });
   var fix = function (v) { return paper && swap[v] ? swap[v] : v; };
   [svg].concat([].slice.call(src)).forEach(function (el, i) {
@@ -131,5 +131,5 @@ view.addEventListener("click", function (e) {
   if (d.unshare) return unshare(d.unshare);
   if (d.shview) { XP.shareView = XP.shareView === d.shview ? null : d.shview; render(); return; }
   if (d.copyapa) { var t = plain((LAST_R || {}).apa); var done = function (ok) { b.textContent = ok ? "Copied" : "Select and copy the text"; }; try { navigator.clipboard.writeText(t).then(function () { done(true); }, function () { done(false); }); } catch (x) { done(false); } return; }
-  if (d.next != null && LAST_R) { var n = LAST_R.next[+d.next]; if (!n) return; if (n.tab) { nav(n.tab); return; } A.kind = n.kind; A.sel = Object.assign({}, n.sel); A.ai = {}; A.askmsg = ""; render(); refocus('[data-akind="' + n.kind + '"]'); return; }
+  if (d.next != null && LAST_R) { var n = LAST_R.next[+d.next]; if (!n) return; if (n.tab) { nav(n.tab); return; } A.kind = n.kind; A.sel = Object.assign({}, n.sel); A.ai = Object.create(null); A.askmsg = ""; render(); refocus('[data-akind="' + n.kind + '"]'); return; }
 });

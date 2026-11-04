@@ -78,13 +78,15 @@ function askAnswer(ds) {
   var q = ((document.getElementById("askq") || {}).value || "").trim(); if (!q) return;
   A.askq = q;
   if (/\b(caus\w*|prove|guarantee|why|diagnos\w*)\b/i.test(q)) A.askmsg = "This assistant cannot establish causes, diagnose conditions, or explain why a pattern exists from this table. Ask about an association or comparison instead.";
+  else if (/\bp[- ]?values?\b|\bp\s*[=<>]|valor\s+p\b|significan/i.test(q)) { var currentResult = runAnalysis(ds); A.askmsg = localExplanation(ds, currentResult, 'pvalue').join(' '); }
+  else if (/sample size|how many|combine|join|merge|files|muestra|combinar|archivos/i.test(q)) A.askmsg = 'To combine files, import them under Your data, then open Combine datasets in Clean & enhance. Sample-size planning needs a meaningful target effect, desired power and study design. Observed-effect power in Go deeper is an approximation; it cannot determine your required sample size by itself.';
   else if (/^(check data quality|check (my |the )?data|missing (data|values)|data quality)[?.!]?$/i.test(q)) {
     var rows = filterRows(ds), missing = 0;
     rows.forEach(function (r) { r.forEach(function (v) { if (v == null) missing++; }); });
     A.askmsg = "In the current selection: " + rows.length + " rows, " + ds.cols.length + " columns and " + missing + " missing cells. Open Clean & enhance for the health check and fixes you can undo.";
   } else {
     var r = routeQuestion(ds, q);
-    if (r) { A.kind = r.kind; A.sel = r.sel; A.ai = {}; A.askmsg = "Selected: " + KIND_HELP[r.kind] + (r.kind === "paired" ? " Check that both columns measure the same thing on the same rows; the first named column is Before and the second is After." : " Check the selected columns below."); }
+    if (r) { A.kind = r.kind; A.sel = r.sel; A.ai = Object.create(null); A.askmsg = "Selected: " + KIND_HELP[r.kind] + (r.kind === "paired" ? " Check that both columns measure the same thing on the same rows; the first named column is Before and the second is After." : " Check the selected columns below."); }
     else A.askmsg = "I could not match that to a supported analysis without guessing. Use complete column names and a task such as Summarize, Compare, Relate, or Predict [outcome] from [predictors]. For a trend, name a measure and a year/date column. Try an example above.";
   }
   render(); refocus("#ask-answer");
@@ -169,6 +171,7 @@ function localExplanation(ds, R, topic) {
     if (R.kind === "paired") out.push("Each row must identify the same unit measured twice on a comparable scale. Verify this in the source data.");
   }
   if (topic === "next") {
+    out.push("To combine files, import each dataset under Your data, then use Combine datasets in Clean & enhance. For a sample-size plan, specify a meaningful target effect, desired power and design; the observed-effect power calculation under Go deeper is only an approximation, not a study plan.");
     out.push("Inspect missing values, duplicates and unusual values in Clean & enhance before interpreting the result. Do not remove valid observations just to obtain a smaller p-value.");
     out = out.concat(diag.notes);
     (R.next || []).forEach(function (n) { out.push("An exploratory option: " + n.label + "."); });

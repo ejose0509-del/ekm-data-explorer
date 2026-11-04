@@ -17,7 +17,7 @@ function addToPaper(ds, R) {
 }
 function firstSentence(h) { var t = plain(h); var m = /^(.+?[.!?])(\s|$)/.exec(t); return m ? m[1] : t; }
 function limitations() {
-  var out = [], tests = WP.items.filter(function (it) { return it.p != null; }), sig = tests.filter(function (it) { return it.p < 0.05; }), seen = {};
+  var out = [], tests = WP.items.filter(function (it) { return it.p != null; }), sig = tests.filter(function (it) { return it.p < 0.05; }), seen = Object.create(null);
   if (tests.length >= 3) out.push(tests.length + " tests were run; at α = .05, about " + (tests.length * 0.05).toFixed(1) + " clear result" + (tests.length * 0.05 >= 1.5 ? "s" : "") + " would be expected by chance alone. " + (sig.length ? sig.length + " reached p < .05; consider a correction (for example Holm) before treating each as confirmed." : ""));
   var small = WP.items.filter(function (it) { return it.n && it.n < 30; }); if (small.length) out.push(small.length + " analys" + (small.length === 1 ? "is uses" : "es use") + " fewer than 30 rows, so estimates are imprecise.");
   WP.items.forEach(function (it) { it.reading.concat(it.caveats).forEach(function (c) { var t = plain(c); if (/not normally distributed|not normal|spreads differ|overfit|extrapolat|carried forward|small expected/i.test(t)) { var k = t.slice(0, 60); if (!seen[k]) { seen[k] = 1; out.push(t); } } }); });
@@ -25,7 +25,7 @@ function limitations() {
   return out;
 }
 function paperHTML(forFile) {
-  var methods = [], used = {};
+  var methods = [], used = Object.create(null);
   WP.items.forEach(function (it) { if (!used[it.test]) { used[it.test] = 1; methods.push(it.test); } });
   var data = []; WP.items.forEach(function (it) { if (data.indexOf(it.dataset) < 0) data.push(it.dataset); });
   var figN = 0, res = WP.items.map(function (it, i) {

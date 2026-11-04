@@ -4,7 +4,7 @@
 //   ydata-profiling alerts (missing, constant, unique, cardinality, imbalance, skew, zeros, duplicates, correlation)
 //   Palantir Foundry data expectations and health checks (primary key, allowed values, freshness) and its step history
 //   scikit-learn KNNImputer, MissingIndicator and IsolationForest
-var E = {sev: "", openFix: null, clusterCol: null, clusterMethod: "fingerprint", clusters: null, picked: {}, iso: null, undo: {}, orig: {}, msg: ""};
+var E = {sev: "", openFix: null, clusterCol: null, clusterMethod: "fingerprint", clusters: null, picked: Object.create(null), iso: null, undo: Object.create(null), orig: Object.create(null), msg: ""};
 
 // --- OpenRefine key-collision and nearest-neighbour clustering ---
 function asciiFold(s) { return s.normalize("NFKD").replace(/[̀-ͯ]/g, ""); }
@@ -24,11 +24,11 @@ function lev(a, b) {
   return prev[n];
 }
 function clusterValues(counts, method) {
-  var vals = Object.keys(counts), groups = {};
+  var vals = Object.keys(counts), groups = Object.create(null);
   if (method === "levenshtein") {
     // Blocking: compare only values that share a 3-character substring (OpenRefine allows lowering its default of 6; 6 misses typos in short words), then join within radius.
     var parent = vals.map(function (_, i) { return i; }), find = function (i) { while (parent[i] !== i) i = parent[i] = parent[parent[i]]; return i; };
-    var blocks = {}; vals.forEach(function (v, i) { var s = v.toLowerCase(), b = Math.min(3, s.length); for (var p = 0; p + b <= s.length; p++) (blocks[s.slice(p, p + b)] = blocks[s.slice(p, p + b)] || []).push(i); });
+    var blocks = Object.create(null); vals.forEach(function (v, i) { var s = v.toLowerCase(), b = Math.min(3, s.length); for (var p = 0; p + b <= s.length; p++) (blocks[s.slice(p, p + b)] = blocks[s.slice(p, p + b)] || []).push(i); });
     Object.keys(blocks).forEach(function (k) { var ids = blocks[k]; if (ids.length > 200) return; for (var a = 0; a < ids.length; a++) for (var b2 = a + 1; b2 < ids.length; b2++) { var x = vals[ids[a]].toLowerCase(), y = vals[ids[b2]].toLowerCase(); if (lev(x, y) <= (Math.min(x.length, y.length) < 6 ? 1 : 2)) parent[find(ids[a])] = find(ids[b2]); } });
     vals.forEach(function (v, i) { var r = find(i); (groups[r] = groups[r] || []).push(v); });
   } else {
@@ -51,7 +51,7 @@ function knnFill(ds, j, k) {   // KNNImputer: mean of the k nearest rows (nan-eu
       .filter(function (x) { return isFinite(x[0]); }).sort(function (a, b) { return a[0] - b[0]; }).slice(0, k);
     if (!d.length) return r;
     var v; if (numeric) v = S.mean(d.map(function (x) { return ds.rows[x[1]][j]; }));
-    else { var c = {}; d.forEach(function (x) { var w = ds.rows[x[1]][j]; c[w] = (c[w] || 0) + 1; }); v = Object.keys(c).sort(function (a, b) { return c[b] - c[a]; })[0]; }
+    else { var c = Object.create(null); d.forEach(function (x) { var w = ds.rows[x[1]][j]; c[w] = (c[w] || 0) + 1; }); v = Object.keys(c).sort(function (a, b) { return c[b] - c[a]; })[0]; }
     changed++; var r2 = r.slice(); r2[j] = numeric ? +(+v).toPrecision(6) : v; return r2;
   });
   var left = out.filter(function (r) { return r[j] == null; }).length;
@@ -78,12 +78,12 @@ function isoForest(X, trees, sub) {
 // --- health checks ---
 function checks(ds) {
   var out = [], n = ds.rows.length, push = function (sev, col, title, detail, fix, src) { out.push({sev: sev, col: col, title: title, detail: detail, fix: fix, src: src}); };
-  var seen = {}, dup = 0; ds.rows.forEach(function (r) { var k = JSON.stringify(r); if (seen[k]) dup++; seen[k] = 1; });
+  var seen = Object.create(null), dup = 0; ds.rows.forEach(function (r) { var k = JSON.stringify(r); if (seen[k]) dup++; seen[k] = 1; });
   if (dup) push("warn", null, dup + " duplicate row" + (dup > 1 ? "s" : ""), "Rows that repeat another row exactly. They count twice in every statistic.", {op: "dedupe", label: "Remove duplicates"}, "Rule adapted from ydata-profiling");
   var keyCol = null;
   ds.cols.forEach(function (c, j) {
     var v = colVals(ds, j), miss = v.filter(function (x) { return x == null; }).length, present = v.filter(function (x) { return x != null; });
-    var u = {}; present.forEach(function (x) { u[x] = (u[x] || 0) + 1; }); var distinct = Object.keys(u).length;
+    var u = Object.create(null); present.forEach(function (x) { u[x] = (u[x] || 0) + 1; }); var distinct = Object.keys(u).length;
     if (!present.length) { push("high", c.name, "Empty column", "No values at all.", {op: "drop", label: "Remove column"}, "Rule adapted from ydata-profiling"); return; }
     if (miss) push(miss / n > 0.5 ? "high" : miss / n > 0.05 ? "warn" : "info", c.name, Math.round(miss / n * 1000) / 10 + "% missing", miss + " of " + n + " rows have no value.", {op: "fill", label: "Fill missing values"}, "Rule adapted from ydata-profiling");
     if (distinct === 1) push("warn", c.name, "Same value in every row", "“" + present[0] + "” everywhere, so it cannot explain any differences.", {op: "drop", label: "Remove column"}, "Rule adapted from ydata-profiling");
@@ -108,11 +108,6 @@ function checks(ds) {
       if (c.type === "date") { var last = present.map(function (x) { return String(x).slice(0, 10); }).sort().pop(), age = Math.round((Date.now() - Date.parse(last)) / 864e5); if (age > 365) push("info", c.name, "Latest date is " + last, "The newest record is " + (age / 365).toFixed(1) + " years old.", null, "Modelled on Foundry's freshness check"); }
     }
   });
-  var nums = ds.cols.map(function (c, j) { return j; }).filter(function (j) { return ds.cols[j].type === "number"; });
-  for (var a = 0; a < nums.length; a++) for (var b = a + 1; b < nums.length; b++) {
-    var co = S.correlate(colVals(ds, nums[a]), colVals(ds, nums[b]));
-    if (co.n > 5 && Math.abs(co.r) > 0.9) push("info", ds.cols[nums[a]].name, "Nearly duplicates " + ds.cols[nums[b]].name, "Correlation " + co.r.toFixed(2) + ". Using both as predictors makes a regression unstable; keep one.", null, "Rule adapted from ydata-profiling");
-  }
   var rank = {high: 0, warn: 1, info: 2};
   return out.sort(function (x, y) { return rank[x.sev] - rank[y.sev]; });
 }
@@ -121,26 +116,27 @@ function checks(ds) {
 function applyStep(ds, step, fn) {
   var before = ds.rows, beforeCols = JSON.parse(JSON.stringify(ds.cols));
   if (!E.orig[ds.id]) E.orig[ds.id] = {rows: before, cols: beforeCols, recipe: (ds.recipe || []).slice()};
-  var res = fn();
+  var res; try { res = fn(); } catch (err) { E.msg = err.message || 'This change could not be applied.'; if (st.tab === 'data') A.msg = E.msg; render(); return; }
   if (!res || !res.changed) { E.msg = (res && res.why) || "Nothing needed changing."; render(); return; }
   (E.undo[ds.id] = E.undo[ds.id] || []).push({rows: before, cols: beforeCols});
+  if (st.tab === 'data') A.msg = '';
   ds.rows = res.rows; if (res.cols) ds.cols = res.cols;
   ds.recipe = (ds.recipe || []).concat([Object.assign({at: new Date().toISOString(), changed: res.changed}, step)]);
-  E.msg = step.text + " (" + res.changed + " " + (step.unit || "values") + ")." + (res.why ? " " + res.why : ""); E.openFix = null; E.clusters = null; A.ai = {};
+  E.msg = step.text + " (" + res.changed + " " + (step.unit || "values") + ")." + (res.why ? " " + res.why : ""); E.openFix = null; E.clusters = null; A.ai = Object.create(null);
   render(); saveSet(ds);
 }
 function mapCol(ds, j, f) { var ch = 0; return {rows: ds.rows.map(function (r) { var v = f(r[j]); if (v === r[j]) return r; ch++; var r2 = r.slice(); r2[j] = v; return r2; }), changed: ch}; }
 function opTrim(ds, j) { return mapCol(ds, j, function (v) { return typeof v === "string" ? v.trim().replace(/\s{2,}/g, " ") : v; }); }
 function opToNum(ds, j) { var res = mapCol(ds, j, function (v) { if (v == null) return v; var n = parseNum(v); return typeof n === "number" ? n : null; }); var cols = ds.cols.slice(); cols[j] = Object.assign({}, cols[j], {type: "number"}); res.cols = cols; res.changed = res.changed || 1; return res; }
-function opDedupe(ds) { var seen = {}, rows = ds.rows.filter(function (r) { var k = JSON.stringify(r); if (seen[k]) return false; seen[k] = 1; return true; }); return {rows: rows, changed: ds.rows.length - rows.length}; }
-function opDrop(ds, j) { return {rows: ds.rows.map(function (r) { return r.filter(function (_, i) { return i !== j; }); }), cols: ds.cols.filter(function (_, i) { return i !== j; }), changed: 1}; }
+function opDedupe(ds) { var seen = Object.create(null), rows = ds.rows.filter(function (r) { var k = JSON.stringify(r); if (seen[k]) return false; seen[k] = 1; return true; }); return {rows: rows, changed: ds.rows.length - rows.length}; }
+function opDrop(ds, j) { if (ds.cols.length <= 1) throw new Error('Keep at least one column, or delete the dataset under Your data.'); return {rows: ds.rows.map(function (r) { return r.filter(function (_, i) { return i !== j; }); }), cols: ds.cols.filter(function (_, i) { return i !== j; }), changed: 1}; }
 function opFill(ds, j, how, flag) {
   var v = colVals(ds, j), c = ds.cols[j], res;
   if (how === "knn") res = knnFill(ds, j, 5);
   else {
     var fillv;
     if (how === "median") fillv = S.describe(v).median; else if (how === "mean") fillv = +S.describe(v).mean.toPrecision(6);
-    else { var u = {}; v.forEach(function (x) { if (x != null) u[x] = (u[x] || 0) + 1; }); fillv = Object.keys(u).sort(function (a, b) { return u[b] - u[a]; })[0]; if (isNum(c)) fillv = +fillv; }
+    else { var u = Object.create(null); v.forEach(function (x) { if (x != null) u[x] = (u[x] || 0) + 1; }); fillv = Object.keys(u).sort(function (a, b) { return u[b] - u[a]; })[0]; if (isNum(c)) fillv = +fillv; }
     res = mapCol(ds, j, function (x) { return x == null ? fillv : x; });
   }
   if (flag && res.changed) {   // MissingIndicator: remember which rows were filled
@@ -163,7 +159,7 @@ function opDerive(ds, j, how) {
   return {rows: ds.rows.map(function (r) { return r.concat([f(r[j])]); }), cols: ds.cols.concat([{name: name, type: how === "bins" ? "category" : "number"}]), changed: v.filter(function (x) { return x != null; }).length};
 }
 function opMerge(ds, j, clusters) {
-  var map = {}; clusters.forEach(function (cl) { cl.values.forEach(function (v) { if (v !== cl.into) map[v] = cl.into; }); });
+  var map = Object.create(null); clusters.forEach(function (cl) { cl.values.forEach(function (v) { if (v !== cl.into) map[v] = cl.into; }); });
   return mapCol(ds, j, function (v) { return v != null && Object.prototype.hasOwnProperty.call(map, v) ? map[v] : v; });
 }
 function opIso(ds, cols, share) {
@@ -258,7 +254,7 @@ view.addEventListener("click", function (e) {
     if (["dedupe", "trim", "tonum", "drop"].indexOf(c.fix.op) >= 0) { var j0 = c.col ? idxOf(ds, c.col) : -1;
       return applyStep(ds, {op: c.fix.op, col: c.col, text: {dedupe: "Removed duplicate rows", trim: "Trimmed spaces in " + c.col, tonum: "Converted " + c.col + " to numbers", drop: "Removed column " + c.col}[c.fix.op], unit: c.fix.op === "dedupe" ? "rows" : c.fix.op === "drop" ? "column" : "values"},
         function () { return c.fix.op === "dedupe" ? opDedupe(ds) : c.fix.op === "trim" ? opTrim(ds, j0) : c.fix.op === "tonum" ? opToNum(ds, j0) : opDrop(ds, j0); }); }
-    if (c.fix.op === "cluster") { E.clusterCol = c.col; E.clusters = clusterValues(countsOf(ds, c.col), E.clusterMethod); E.picked = {}; render(); refocus("[data-emerge]", "[data-efind]"); return; }
+    if (c.fix.op === "cluster") { E.clusterCol = c.col; E.clusters = clusterValues(countsOf(ds, c.col), E.clusterMethod); E.picked = Object.create(null); render(); refocus("[data-emerge]", "[data-efind]"); return; }
     E.openFix = +d.efix; render(); refocus("[data-eapply]"); return; }
   if (d.ecancel) { E.openFix = null; render(); return; }
   if (d.eapply) { var form = b.closest(".fixform"), col = form.dataset.ecolName, op = form.dataset.eop, j = idxOf(ds, col);
@@ -266,7 +262,7 @@ view.addEventListener("click", function (e) {
     if (op === "outliers") { var oh = document.getElementById("eouthow").value; return applyStep(ds, {op: "outliers", col: col, how: oh, text: {flag: "Marked", cap: "Capped", remove: "Removed rows with"}[oh] + " unusual " + col + " values", unit: oh === "remove" ? "rows" : "values"}, function () { return opOutliers(ds, j, oh); }); }
     if (op === "derive") { var dh = document.getElementById("ederhow").value; return applyStep(ds, {op: "derive", col: col, how: dh, text: "Added " + {log: "log10", z: "standardized", bins: "quarter"}[dh] + " column from " + col}, function () { return opDerive(ds, j, dh); }); }
   }
-  if (d.efind) { E.clusters = clusterValues(countsOf(ds, E.clusterCol), E.clusterMethod); E.picked = {}; render(); refocus("[data-emerge]", "[data-efind]"); return; }
+  if (d.efind) { E.clusters = clusterValues(countsOf(ds, E.clusterCol), E.clusterMethod); E.picked = Object.create(null); render(); refocus("[data-emerge]", "[data-efind]"); return; }
   if (d.emerge) { var cl = (E.clusters || []).filter(function (_, i) { return E.picked[i] !== false; }); if (!cl.length) return;
     return applyStep(ds, {op: "merge", col: E.clusterCol, method: E.clusterMethod, groups: cl.map(function (x) { return {values: x.values, into: x.into}; }), text: "Merged " + cl.length + " group" + (cl.length > 1 ? "s" : "") + " of similar " + E.clusterCol + " values"}, function () { return opMerge(ds, idxOf(ds, E.clusterCol), cl); }); }
   if (d.eisorun) { ["Anomaly score", "Anomaly"].forEach(function (n) { var k = idxOf(ds, n); if (k >= 0) { ds.rows = ds.rows.map(function (r) { return r.filter(function (_, i) { return i !== k; }); }); ds.cols = ds.cols.filter(function (_, i) { return i !== k; }); } });
@@ -283,4 +279,4 @@ view.addEventListener("change", function (e) {
   if (d.eiso != null) { var cs = E.iso.cols; E.iso.cols = t.checked ? cs.concat([d.eiso]) : cs.filter(function (x) { return x !== d.eiso; }); render(); return; }
   if (d.eshare) { E.iso.share = +t.value; render(); return; }
 });
-function countsOf(ds, name) { var j = idxOf(ds, name), u = {}; ds.rows.forEach(function (r) { if (r[j] != null) u[r[j]] = (u[r[j]] || 0) + 1; }); return u; }
+function countsOf(ds, name) { var j = idxOf(ds, name), u = Object.create(null); ds.rows.forEach(function (r) { if (r[j] != null) u[r[j]] = (u[r[j]] || 0) + 1; }); return u; }

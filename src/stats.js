@@ -38,13 +38,19 @@ var S = (function () {
 
   function nums(a) { return a.filter(function (v) { return typeof v === "number" && isFinite(v); }); }
   function sum(a) { var s = 0; for (var i = 0; i < a.length; i++) s += a[i]; return s; }
-  function mean(a) { return a.length ? sum(a) / a.length : NaN; }
+  function mean(a) {
+    if (!a.length) return NaN;
+    var scale = 0; a.forEach(function (v) { scale = Math.max(scale, Math.abs(v)); }); if (!isFinite(scale)) return NaN; if (!scale) return 0;
+    var total = 0, correction = 0;
+    a.forEach(function (v) { var adjusted = v / scale - correction, next = total + adjusted; correction = (next - total) - adjusted; total = next; });
+    return total / a.length * scale;
+  }
   function variance(a) { var m = mean(a), s = 0; for (var i = 0; i < a.length; i++) s += (a[i] - m) * (a[i] - m); return a.length > 1 ? s / (a.length - 1) : NaN; }
-  function quantile(sorted, p) { if (!sorted.length) return NaN; var i = (sorted.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i); return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo); }
+  function quantile(sorted, p) { if (!sorted.length) return NaN; var i = (sorted.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i); return lo === hi ? sorted[lo] : sorted[lo] * (hi - i) + sorted[hi] * (i - lo); }
   function describe(a) {
-    var x = nums(a), s = x.slice().sort(function (p, q) { return p - q; }), n = x.length, m = mean(x), sd = Math.sqrt(variance(x));
+    var x = nums(a), s = x.slice().sort(function (p, q) { return p - q; }), n = x.length, m = mean(x), c = centered(x), unit = c.values, um = mean(unit), usd = Math.sqrt(variance(unit)), sd = (usd * c.scale) * (c.half ? 2 : 1);
     var q1 = quantile(s, 0.25), q3 = quantile(s, 0.75), iqr = q3 - q1, skew = 0;
-    for (var i = 0; i < n; i++) skew += Math.pow((x[i] - m) / sd, 3);
+    for (var i = 0; i < n; i++) skew += Math.pow((unit[i] - um) / usd, 3);
     skew = n > 2 && sd > 0 ? skew * n / ((n - 1) * (n - 2)) : 0;
     var out = x.filter(function (v) { return v < q1 - 1.5 * iqr || v > q3 + 1.5 * iqr; }).length;
     return {n: n, mean: m, sd: sd, min: s[0], q1: q1, median: quantile(s, 0.5), q3: q3, max: s[n - 1], skew: skew, outliers: out, se: sd / Math.sqrt(n)};
@@ -55,22 +61,38 @@ var S = (function () {
     return r;
   }
   function pairs(xs, ys) { var x = [], y = []; for (var i = 0; i < xs.length; i++) if (typeof xs[i] === "number" && isFinite(xs[i]) && typeof ys[i] === "number" && isFinite(ys[i])) { x.push(xs[i]); y.push(ys[i]); } return [x, y]; }
-  function pearsonRaw(x, y) { var mx = mean(x), my = mean(y), sxy = 0, sxx = 0, syy = 0; for (var i = 0; i < x.length; i++) { sxy += (x[i] - mx) * (y[i] - my); sxx += (x[i] - mx) * (x[i] - mx); syy += (y[i] - my) * (y[i] - my); } return sxy / Math.sqrt(sxx * syy); }
+  function centered(a) {
+    var m = mean(a), half = a.some(function (v) { return !isFinite(v - m); }), scale = 0;
+    var values = a.map(function (v) { var d = half ? v / 2 - m / 2 : v - m; scale = Math.max(scale, Math.abs(d)); return d; });
+    return {values: values.map(function (v) { return scale ? v / scale : 0; }), scale: scale, half: half};
+  }
+  function scaledPair(x, y) {
+    var cx = centered(x), cy = centered(y), ux = cx.values, uy = cy.values, mx = mean(ux), my = mean(uy), xx = 0, yy = 0, xy = 0;
+    for (var i = 0; i < x.length; i++) { var dx = ux[i] - mx, dy = uy[i] - my; xx += dx * dx; yy += dy * dy; xy += dx * dy; }
+    return {r: Math.max(-1, Math.min(1, xy / Math.sqrt(xx) / Math.sqrt(yy))), sx: cx.scale, sy: cy.scale, factor: (cy.half ? 2 : 1) / (cx.half ? 2 : 1), xx: xx, yy: yy, xy: xy};
+  }
+  function pearsonRaw(x, y) { return scaledPair(x, y).r; }
   function correlate(xs, ys) {
     var p = pairs(xs, ys), x = p[0], y = p[1], n = x.length;
     if (n < 3) return {n: n};
-    var r = pearsonRaw(x, y), t = r * Math.sqrt((n - 2) / Math.max(1e-12, 1 - r * r)), rho = pearsonRaw(ranks(x), ranks(y)), ts = rho * Math.sqrt((n - 2) / Math.max(1e-12, 1 - rho * rho));
-    var mx = mean(x), my = mean(y), sxx = 0, sxy = 0; for (var i = 0; i < n; i++) { sxx += (x[i] - mx) * (x[i] - mx); sxy += (x[i] - mx) * (y[i] - my); }
-    var slope = sxy / sxx, icpt = my - slope * mx, z = Math.atanh(Math.max(-0.999999, Math.min(0.999999, r))), zs = 1.959964 / Math.sqrt(Math.max(1, n - 3));
-    return {n: n, r: r, p: pT(t, n - 2), rho: rho, prho: pT(ts, n - 2), slope: slope, intercept: icpt, r2: r * r, ciLo: Math.tanh(z - zs), ciHi: Math.tanh(z + zs), x: x, y: y};
+    var co = scaledPair(x, y), r = co.r, rho = pearsonRaw(ranks(x), ranks(y));
+    function prob(v) { return Math.abs(v) === 1 ? 0 : pT(v * Math.sqrt((n - 2) / (1 - v * v)), n - 2); }
+    var slope = (co.xy / co.xx) * (co.sy / co.sx) * co.factor, icpt = mean(y) - slope * mean(x), lo = -1, hi = 1;
+    if (n > 3) { if (Math.abs(r) === 1) lo = hi = r; else { var z = Math.atanh(r), zs = 1.959964 / Math.sqrt(n - 3); lo = Math.tanh(z - zs); hi = Math.tanh(z + zs); } }
+    return {n: n, r: r, p: prob(r), rho: rho, prho: prob(rho), slope: slope, intercept: icpt, r2: r * r, ciLo: lo, ciHi: hi, calculation: {xy: co.xy, xx: co.xx, yy: co.yy}, x: x, y: y};
   }
   function ttest(a, b) {   // Welch
-    var A = describe(a), B = describe(b), va = A.sd * A.sd / A.n, vb = B.sd * B.sd / B.n, t = (A.mean - B.mean) / Math.sqrt(va + vb);
+    a = nums(a); b = nums(b);
+    var scale = 0; a.concat(b).forEach(function (v) { scale = Math.max(scale, Math.abs(v)); }); scale = scale || 1;
+    var A = describe(a.map(function (v) { return v / scale; })), B = describe(b.map(function (v) { return v / scale; })), va = A.sd * A.sd / A.n, vb = B.sd * B.sd / B.n, t = (A.mean - B.mean) / Math.sqrt(va + vb);
     var df = (va + vb) * (va + vb) / (va * va / (A.n - 1) + vb * vb / (B.n - 1)), sp = Math.sqrt(((A.n - 1) * A.sd * A.sd + (B.n - 1) * B.sd * B.sd) / (A.n + B.n - 2));
     var tc = tCrit(df), diff = A.mean - B.mean, se = Math.sqrt(va + vb);
-    return {t: t, df: df, p: pT(t, df), d: diff / sp, diff: diff, ciLo: diff - tc * se, ciHi: diff + tc * se, A: A, B: B};
+    return {t: t, df: df, p: pT(t, df), d: diff / sp, diff: diff * scale, ciLo: (diff - tc * se) * scale, ciHi: (diff + tc * se) * scale, A: describe(a), B: describe(b)};
   }
   function anova(groups) {   // groups: [[values]]
+    groups = groups.map(nums);
+    var scale = 0; groups.forEach(function (g) { g.forEach(function (v) { scale = Math.max(scale, Math.abs(v)); }); }); scale = scale || 1;
+    groups = groups.map(function (g) { return g.map(function (v) { return v / scale; }); });
     var all = [].concat.apply([], groups), gm = mean(all), ssb = 0, ssw = 0, k = groups.length, n = all.length;
     groups.forEach(function (g) { var m = mean(g); ssb += g.length * (m - gm) * (m - gm); g.forEach(function (v) { ssw += (v - m) * (v - m); }); });
     var df1 = k - 1, df2 = n - k, F = (ssb / df1) / (ssw / df2);
@@ -109,5 +131,5 @@ var S = (function () {
     var r2 = 1 - sse / sst, adj = 1 - (1 - r2) * (n - 1) / df, F = ((sst - sse) / (k - 1)) / s2e;
     return {n: n, coefs: coefs, r2: r2, adj: adj, F: F, pF: pF(F, k - 1, df), df: df};
   }
-  return {describe: describe, correlate: correlate, ttest: ttest, anova: anova, chisq: chisq, ols: ols, mean: mean, quantile: quantile, nums: nums, pT: pT, pF: pF, pChi: pChi, ibeta: ibeta, gammaQ: gammaQ};
+  return {normalize: function (a) { return centered(a).values; }, screenPair: function (xs, ys) { var p = pairs(xs, ys); return {n: p[0].length, r: pearsonRaw(p[0], p[1])}; }, describe: describe, correlate: correlate, ttest: ttest, anova: anova, chisq: chisq, ols: ols, mean: mean, quantile: quantile, nums: nums, pT: pT, pF: pF, pChi: pChi, ibeta: ibeta, gammaQ: gammaQ};
 })();

@@ -22,6 +22,7 @@ var S2 = (function () {
   function shapiro(x) {
     x = S.nums(x).slice().sort(function (p, q) { return p - q; }); var n = x.length;
     if (n < 3 || n > 5000) return null;
+    x = S.normalize(x);
     var m = [], mm = 0, a = new Array(n);
     for (var i = 1; i <= n; i++) { var v = qnorm((i - 0.375) / (n + 0.25)); m.push(v); mm += v * v; }
     if (n === 3) { a = [-Math.SQRT1_2, 0, Math.SQRT1_2]; }

@@ -32,7 +32,7 @@ var assert = require('assert'), path = require('path'), fs = require('fs'), spaw
    var csv=page.waitForEvent('download');await page.getByRole('button',{name:'Data (.csv)',exact:true}).click();var csvFile=await csv;assert((fs.readFileSync(await csvFile.path(),'utf8')).includes('X,Y,Group'));
    var download=page.waitForEvent('download');await page.getByRole('button',{name:'Save project (.json)',exact:true}).click();var file=await download;
    var json=JSON.parse(fs.readFileSync(await file.path(),'utf8'));assert.equal(json.writeup.items.length,1);assert.equal(json.datasets.length,2);assert(json.history.undo[json.current].length);
-   assert(await page.evaluate(function(){var old=Storage.prototype.setItem;Storage.prototype.setItem=function(){throw new Error('quota');};PROJECT.last='';render();var failed=PROJECT.storageMessage.indexOf('unavailable or full')>=0;Storage.prototype.setItem=old;render();return failed;}));
+   assert(await page.evaluate(function(){var old=Storage.prototype.setItem;Storage.prototype.setItem=function(){throw new Error('quota');};var title=WP.title;WP.title+=' quota-test';render();var failed=PROJECT.storageMessage.indexOf('unavailable or full')>=0;Storage.prototype.setItem=old;WP.title=title;render();return failed;}));
    await page.reload();assert.equal(await page.evaluate(function(){return A.sets.length;}),2);assert.equal(await page.evaluate(function(){return WP.items.length;}),1);
    assert.equal(await page.evaluate(function(){return E.undo[A.cur].length;}),1);
    await page.getByRole('button',{name:'Forget browser copy',exact:true}).click();await page.reload();assert.equal(await page.evaluate(function(){return A.sets.length;}),0);

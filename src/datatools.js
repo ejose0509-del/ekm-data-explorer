@@ -13,7 +13,7 @@ function parseFormula(src, ds) {
     if ("+-*/^(),".indexOf(ch) >= 0) { toks.push({t: ch}); i++; continue; }
     var hit = names.filter(function (n) { return src.slice(i, i + n.length) === n; })[0];
     if (hit) { toks.push({t: "col", v: hit}); i += hit.length; continue; }
-    var id = /^[A-Za-z_]\w*/.exec(src.slice(i)); if (id && FN[id[0].toLowerCase()]) { toks.push({t: "fn", v: id[0].toLowerCase()}); i += id[0].length; continue; }
+    var id = /^[A-Za-z_]\w*/.exec(src.slice(i)); if (id && Object.prototype.hasOwnProperty.call(FN, id[0].toLowerCase())) { toks.push({t: "fn", v: id[0].toLowerCase()}); i += id[0].length; continue; }
     throw "“" + src.slice(i, i + 12) + "” is not a column, number or function.";
   }
   var p = 0, peek = function () { return toks[p] || {}; }, eat = function (t) { if (peek().t !== t) throw "Expected “" + t + "”."; p++; };
@@ -48,10 +48,10 @@ function opFormula(ds, name, expr) {
 
 // Join: keep every row here, add the other dataset's columns where the keys match (a left join)
 function joinSets(L, Rt, kl, kr) {
-  var ri = idxOf(Rt, kr), li = idxOf(L, kl), map = {}, dup = 0;
+  var ri = idxOf(Rt, kr), li = idxOf(L, kl), map = Object.create(null), dup = 0;
   Rt.rows.forEach(function (r) { var k = r[ri] == null ? null : String(r[ri]).trim(); if (k == null) return; if (map[k]) dup++; else map[k] = r; });
-  var keep = Rt.cols.map(function (_, j) { return j; }).filter(function (j) { return j !== ri; }), names = {}; L.cols.forEach(function (c) { names[c.name] = 1; });
-  var cols = L.cols.concat(keep.map(function (j) { var n = Rt.cols[j].name; return {name: names[n] ? n + " (" + Rt.name + ")" : n, type: Rt.cols[j].type}; })), hit = 0;
+  var keep = Rt.cols.map(function (_, j) { return j; }).filter(function (j) { return j !== ri; }), names = Object.create(null); L.cols.forEach(function (c) { names[c.name] = 1; });
+  var cols = L.cols.concat(keep.map(function (j) { var n = Rt.cols[j].name; n = uniqueColumnName(n, Object.keys(names)); names[n] = true; return {name: n, type: Rt.cols[j].type}; })), hit = 0;
   var rows = L.rows.map(function (r) { var m = r[li] == null ? null : map[String(r[li]).trim()]; if (m) hit++; return r.concat(keep.map(function (j) { return m ? m[j] : null; })); });
   return {cols: cols, rows: rows, hit: hit, dup: dup};
 }
@@ -64,12 +64,14 @@ function melt(ds, ids) {
   var idI = ids.map(function (n) { return idxOf(ds, n); }), val = ds.cols.map(function (_, j) { return j; }).filter(function (j) { return idI.indexOf(j) < 0; }), rows = [];
   ds.rows.forEach(function (r) { val.forEach(function (j) { rows.push(idI.map(function (i) { return r[i]; }).concat([ds.cols[j].name, r[j]])); }); });
   var numeric = val.every(function (j) { return isNum(ds.cols[j]); });
-  return {cols: ids.map(function (n) { return ds.cols[idxOf(ds, n)]; }).concat([{name: "variable", type: "category"}, {name: "value", type: numeric ? "number" : "text"}]), rows: rows};
+  var variable = uniqueColumnName('variable', ids), value = uniqueColumnName('value', ids.concat([variable]));
+  return {cols: ids.map(function (n) { return ds.cols[idxOf(ds, n)]; }).concat([{name: variable, type: "category"}, {name: value, type: numeric ? "number" : "text"}]), rows: rows};
 }
 function widen(ds, id, key, val) {
-  var ii = idxOf(ds, id), ki = idxOf(ds, key), vi = idxOf(ds, val), order = [], keys = [], m = {}, clash = 0;
-  ds.rows.forEach(function (r) { var a = r[ii], k = r[ki]; if (a == null || k == null) return; if (!m[a]) { m[a] = {}; order.push(a); } if (keys.indexOf(k) < 0) keys.push(k); if (m[a][k] !== undefined) clash++; m[a][k] = r[vi]; });
-  return {cols: [ds.cols[ii]].concat(keys.map(function (k) { return {name: String(k), type: ds.cols[vi].type}; })), rows: order.map(function (a) { return [a].concat(keys.map(function (k) { return m[a][k] === undefined ? null : m[a][k]; })); }), clash: clash};
+  var ii = idxOf(ds, id), ki = idxOf(ds, key), vi = idxOf(ds, val), order = [], keys = [], m = Object.create(null), clash = 0;
+  ds.rows.forEach(function (r) { var a = r[ii], k = r[ki]; if (a == null || k == null) return; if (!m[a]) { m[a] = Object.create(null); order.push(a); } if (keys.indexOf(k) < 0) keys.push(k); if (m[a][k] !== undefined) clash++; m[a][k] = r[vi]; });
+  var wideNames = [ds.cols[ii].name];
+  return {cols: [ds.cols[ii]].concat(keys.map(function (k) { var name = uniqueColumnName(String(k), wideNames); wideNames.push(name); return {name: name, type: ds.cols[vi].type}; })), rows: order.map(function (a) { return [a].concat(keys.map(function (k) { return m[a][k] === undefined ? null : m[a][k]; })); }), clash: clash};
 }
 // Replay recorded steps on another dataset
 function replayStep(ds, st2) {
