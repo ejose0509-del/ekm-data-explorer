@@ -228,3 +228,55 @@ view.addEventListener("click", function (e) {
   if (d.rtgo === "picked" || d.rtclear === "picked") { tagRows(ds, Object.keys(TAGS.picked).map(Number).sort(function (a, b) { return a - b; }), d.rtclear ? "" : tag, d.rtclear ? "" : note, "chosen in the grid"); return; }
   if (d.rtgo === "filter") { var keep = A.sel.keepExcluded; A.sel.keepExcluded = true; var rows = filterRows(ds), at = new Map(); A.sel.keepExcluded = keep; ds.rows.forEach(function (r, i) { at.set(r, i); }); tagRows(ds, rows.map(function (r) { return at.get(r); }), tag, note, "rows where " + (A.sel.where ? whereText(A.sel.where) : A.sel.f + " is " + A.sel.fv)); return; }
 });
+
+// Sensitivity follows the data dependencies, including recorded row-selection rules.
+function inheritedColumn(column, inputs) {
+  var severity = {personal: 1, health: 2}, sens = tagOf(column).sens || "", rank = severity[sens] || (sens ? 1 : 0);
+  (inputs || []).forEach(function (c) { var v = tagOf(c).sens || "", r = severity[v] || (v ? 1 : 0); if (r > rank) { rank = r; sens = r === 2 ? "health" : "personal"; } });
+  if (!rank) return column;
+  var tags = Object.assign({}, tagOf(column), {sens: sens}); delete tags.suggested;
+  return Object.assign({}, column, {tags: tags});
+}
+function dependencyColumns(ds, names) { return names.map(function (name) { return colMeta(ds, name); }).filter(Boolean); }
+function filterDependencies(sel) { return (sel.f ? [sel.f] : []).concat(sel.where && sel.where.conds ? sel.where.conds.map(function (c) { return c.col; }) : []); }
+function sensitiveOutputs(result, ds, inputs) {
+  if (result.cols) result.cols = result.cols.map(function (c) { return idxOf(ds, c.name) < 0 ? inheritedColumn(c, inputs) : c; });
+  return result;
+}
+function mergedColumn(left, right, column) {
+  var sources = [left, right].filter(Boolean), tags = Object.assign({}, tagOf(left || right));
+  ["role", "level"].forEach(function (key) { var values = sources.map(function (c) { return tagOf(c)[key]; }).filter(Boolean); tags[key] = values.every(function (v) { return v === values[0]; }) ? values[0] || "" : ""; });
+  tags.topics = []; sources.forEach(function (c) { (tagOf(c).topics || []).forEach(function (t) { if (tags.topics.indexOf(t) < 0) tags.topics.push(t); }); });
+  delete tags.suggested;
+  var out = Object.assign({}, column, {tags: tags});
+  ["label", "unit", "values", "limits"].forEach(function (key) { var vals = sources.map(function (c) { return c[key]; }); if (!vals.every(function (v) { return JSON.stringify(v) === JSON.stringify(vals[0]); })) delete out[key]; });
+  return inheritedColumn(out, sources);
+}
+var _sensitiveAppend = appendSets;
+appendSets = function (a, b, source) { var r = _sensitiveAppend(a, b, source); r.cols = r.cols.map(function (c) { var ca = colMeta(a, c.name), cb = colMeta(b, c.name); return ca || cb ? mergedColumn(ca, cb, c) : c; }); return r; };
+var _sensitiveType = changeColumnType;
+changeColumnType = function (ds, j, type) { var r = _sensitiveType(ds, j, type); r.cols = r.cols.map(function (c, i) { return Object.assign({}, ds.cols[i], c); }); return r; };
+var _sensitiveFormula = opFormula;
+opFormula = function (ds, name, expr) {
+  var ast = parseFormula(expr, ds), inputs = [];
+  function visit(node) { if (!node) return; if (node.c != null) inputs.push(ds.cols[node.c]); if (node.a) visit(node.a); if (node.b) visit(node.b); (node.args || []).forEach(visit); }
+  visit(ast); return sensitiveOutputs(_sensitiveFormula(ds, name, expr), ds, inputs);
+};
+var _sensitiveDerive = opDerive, _sensitiveRecode = opRecode, _sensitiveScale = opScale, _sensitiveScores = opScores, _sensitivePredict = opPredict, _sensitiveOutliers = opOutliers, _sensitiveFill = opFill, _sensitiveIso = opIso;
+opDerive = function (ds, j, how) { return sensitiveOutputs(_sensitiveDerive(ds, j, how), ds, [ds.cols[j]]); };
+opRecode = function (ds, spec) { return sensitiveOutputs(_sensitiveRecode(ds, spec), ds, dependencyColumns(ds, [spec.col])); };
+opScale = function (ds, items, reverse, name) { return sensitiveOutputs(_sensitiveScale(ds, items, reverse, name), ds, dependencyColumns(ds, items)); };
+opScores = function (ds, items, meth, k, rot, prefix, spec) { return sensitiveOutputs(_sensitiveScores(ds, items, meth, k, rot, prefix, spec), ds, dependencyColumns(ds, items.concat(filterDependencies(spec && spec.selection || A.sel)))); };
+opPredict = function (ds, spec) { var sel = spec.sel; return sensitiveOutputs(_sensitivePredict(ds, spec), ds, dependencyColumns(ds, [sel.mt, sel.mvg, sel.mvt].concat(sel.mp || [], filterDependencies(sel)))); };
+opOutliers = function (ds, j, how) { return sensitiveOutputs(_sensitiveOutliers(ds, j, how), ds, [ds.cols[j]]); };
+opFill = function (ds, j, how, flag) {
+  var inputs = how === "knn" ? ds.cols.filter(isNum) : [ds.cols[j]], r = sensitiveOutputs(_sensitiveFill(ds, j, how, flag), ds, inputs);
+  if (r.changed) { r.cols = r.cols || ds.cols.slice(); r.cols[j] = inheritedColumn(r.cols[j], inputs); }
+  return r;
+};
+opIso = function (ds, names, share) { var r = _sensitiveIso(ds, names, share), inputs = dependencyColumns(ds, names); r.cols = r.cols.map(function (c) { return r.outputs.indexOf(c.name) >= 0 ? inheritedColumn(c, inputs.concat([colMeta(ds, c.name)])) : c; }); return r; };
+var _sensitiveMelt = melt, _sensitiveWiden = widen, _sensitiveJoin = joinSets, _sensitiveTypedJoin = joinTyped;
+melt = function (ds, ids) { var r = _sensitiveMelt(ds, ids), inputs = ds.cols.filter(function (c) { return ids.indexOf(c.name) < 0; }); r.cols = r.cols.map(function (c, j) { return j >= ids.length ? inheritedColumn(c, inputs) : c; }); return r; };
+widen = function (ds, id, key, value) { var r = _sensitiveWiden(ds, id, key, value), inputs = dependencyColumns(ds, [key, value]); r.cols = r.cols.map(function (c, j) { return j ? inheritedColumn(c, inputs) : c; }); return r; };
+joinSets = function (left, right, kl, kr) { var r = _sensitiveJoin(left, right, kl, kr), payload = right.cols.filter(function (c) { return c.name !== kr; }); r.cols = r.cols.map(function (c, j) { return j >= left.cols.length ? Object.assign({}, payload[j - left.cols.length], c) : c.name === kl ? mergedColumn(colMeta(left, kl), colMeta(right, kr), c) : c; }); return r; };
+joinTyped = function (left, right, kl, kr, type, every) { var r = _sensitiveTypedJoin(left, right, kl, kr, type, every); r.cols = r.cols.map(function (c) { return c.name === kl ? mergedColumn(colMeta(left, kl), colMeta(right, kr), c) : c; }); return r; };

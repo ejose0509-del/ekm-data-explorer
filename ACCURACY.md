@@ -10,7 +10,7 @@ rounding done before import cannot be recovered. Numerical tolerances are explic
 | E2 | Refresh loses metadata, exclusions, source fidelity and rollback | Verified for the acceptance cases below | Reordered stable IDs, no-ID refusal, changed schema, replay failure rollback, latest-request handling, original CSV and project round-trip |
 | E3 | PCA/factor score columns refit excluded data | Verified for the acceptance cases below | Same fitted parameters and eligible rows as displayed; scores and replay verified |
 | E4 | Prediction recipes omit validation context; duplicate source headers fail replay | Verified for the acceptance cases below | Gap/filter preservation, original-header mapping and generated workflow execution |
-| E5 | Sensitivity lost in append and derived columns | Pending | Conservative metadata propagation, CSV exclusion and project persistence |
+| E5 | Sensitivity lost in append and derived columns | Verified for the acceptance cases below | Conservative metadata propagation, CSV exclusion and project persistence |
 | E6 | Weighted agreement and ordinal interpretation mismatch | Pending | Raw vs weighted agreement explicitly separated; headline uses selected primary statistic |
 | E7 | Plan invalid input and lost settings | Pending | Domain validation, no invalid result/write-up, project save/open and reload |
 | E8 | Rare-class CV averages undefined folds | Pending | Validation uses a feasible split or refuses it explicitly; valid fold counts match headline |
@@ -118,3 +118,23 @@ source values/headers and explicitly identify themselves as unredacted.
   unresolved intermittent test/interaction observation, not a repaired range defect.
 - `check_score_integrity.js` also passes; `check_stats.py` passes its fixed and strict
   gates. R script execution has not been verified (Rscript is unavailable).
+
+## E5 acceptance record
+
+Sensitivity follows parsed formula dependencies and the inputs to transformations,
+recodes, scale/factor scores, predictions, missing/outlier flags, imputation, anomaly
+outputs and reshaping. Prediction/factor eligibility filters are included. Appending
+uses the stronger classification from either source; conflicting roles/levels and
+inconsistent units/labels/bounds/value labels are cleared. Joins preserve payload
+metadata and merge shared-key sensitivity. Type conversion retains column metadata.
+
+- `node tests/check_sensitivity_integrity.js`: 20 groups at 1440px/400px, including
+  actual formula action, redacted working CSV download, explicitly unredacted original
+  download, both append orders, project round-trip, AST/name collisions, constants,
+  nested formulas, type conversion, KNN donors, filter-dependent predictions, joins,
+  pivots, factor/scale/anomaly outputs and actual completed-imputation save.
+- `check_tags_patterns.js`: 42 checks. `check_new_features.js`: 46 checks, including
+  actual exported Python execution. `check_stats.py` passes its fixed and strict gates.
+- Scope: column metadata propagation and default working-CSV exclusion for these paths.
+  These labels do not anonymize data or redact analysis/report text. Full projects,
+  originals and replay scripts intentionally retain data and require sharing review.

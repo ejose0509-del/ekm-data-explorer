@@ -488,7 +488,7 @@ view.addEventListener("click", function (e) {
   }
   if (d.mirun) { var inputRows = ds.rows, inputCols = ds.cols, inputSel = JSON.stringify(A.sel); b.disabled = true; b.textContent = "Imputing…"; setTimeout(function () { if (cur() !== ds || ds.rows !== inputRows || ds.cols !== inputCols || A.kind !== "missing" || JSON.stringify(A.sel) !== inputSel) return; runMI(ds); render(); refocus("[data-mirun]"); }, 20); return; }
   if (d.misave && MI.res && MI.res.imps) {
-    var cols = MI.res.cols.map(function (n) { return {name: n, type: "number"}; }).concat([{name: ".imp", type: "category"}]), rows2 = [];
+    var cols = MI.res.cols.map(function (n) { return inheritedColumn(Object.assign({}, colMeta(ds, n), {name: n, type: "number"}), dependencyColumns(ds, MI.res.cols)); }).concat([{name: ".imp", type: "category"}]), rows2 = [];
     MI.res.imps.forEach(function (D, l) { D.forEach(function (r) { rows2.push(r.concat([String(l + 1)])); }); });
     addDerived(ds.name + " · " + MI.res.m + " imputations", cols, rows2, "Stacked completed datasets from multiple imputation (column .imp numbers each one). Analyse each and pool with Rubin's rules."); render(); return;
   }
