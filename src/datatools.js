@@ -42,7 +42,7 @@ function evalF(node, row) {
   return out != null && isFinite(out) ? out : null;
 }
 function opFormula(ds, name, expr) {
-  var ast = parseFormula(expr, ds), n = 0, rows = ds.rows.map(function (r) { var v = evalF(ast, r); if (v != null) n++; return r.concat([v == null ? null : +v.toPrecision(10)]); });
+  var ast = parseFormula(expr, ds), n = 0, rows = ds.rows.map(function (r) { var v = evalF(ast, r); if (v != null) n++; return r.concat([v == null ? null : v]); });
   return {rows: rows, cols: ds.cols.concat([{name: name, type: "number"}]), changed: n};
 }
 

@@ -81,4 +81,22 @@ PL=Object.assign(plDefaults(),{design:'corr',alt:'smaller'});result.plan_corr_lo
 PL=Object.assign(plDefaults(),{m:10,icc:.05,drop:10});const inflated=plInflate(160);result.plan_recruit=inflated.n;result.plan_clusters=inflated.clusters;
 eval(src('ml.js')+';globalThis.ML=ML;');
 const priorMetrics=ML.clsMetrics([0,0,0,1],[.25,.25,.25,.25]);result.baseline_accuracy=priorMetrics.accuracy;result.baseline_brier=priorMetrics.brier;result.baseline_rmse=ML.regMetrics([2,5,8,11],[3,3,3,3]).rmse;
+eval(src('analyzer.js').slice(src('analyzer.js').indexOf('function colVals('),src('analyzer.js').indexOf('function idxOf(')));
+const enh=src('enhancer.js'),dt=src('datatools.js'),met=src('methods.js'),input=src('input-integrity.js');
+function isNum(c){return c.type==='number'||c.type==='year';}
+eval(input.slice(input.indexOf('function uniqueColumnName'),input.indexOf('function validDateValue')));
+eval(enh.slice(enh.indexOf('function knnFill('),enh.indexOf('// --- Isolation Forest')));
+eval(enh.slice(enh.indexOf('function mapCol('),enh.indexOf('function latestIsoOutputs(')));
+eval(dt.slice(0,dt.indexOf('// Join:')));
+eval(met.slice(met.indexOf('function reverseInRange('),met.indexOf('function fitFactor(')));
+const precise=[.12345678901234567,.23456789012345678,.34567890123456789,.4567890123456789],pd={cols:[{name:'Value',type:'number'}],rows:precise.map(v=>[v])};
+for(const [i,r] of opDerive(pd,0,'z').rows.entries())result['transform_z_'+i]=r[1];
+for(const [i,r] of opDerive(pd,0,'log').rows.entries())result['transform_log_'+i]=r[1];
+const off={cols:pd.cols,rows:[0,0,1].map(v=>[1e15+v])};for(const [i,r] of opDerive(off,0,'z').rows.entries())result['transform_offset_z_'+i]=r[1];
+result.transform_copy=opFormula(pd,'Copy','[Value]').rows[0][1];
+result.transform_mean=opFill({cols:pd.cols,rows:pd.rows.concat([[null]])},0,'mean',false).rows[4][0];
+const donors={cols:[{name:'Target',type:'number'},{name:'Feature',type:'number'}],rows:precise.concat([.567890123456789]).map(v=>[v,0]).concat([[null,0]])};result.transform_knn=knnFill(donors,0,5).rows[5][0];
+const caps={cols:pd.cols,rows:precise.concat([10.123456789]).map(v=>[v])};result.transform_cap=opOutliers(caps,0,'cap').rows[4][0];
+result.transform_scale=opScale({cols:[{name:'A',type:'number'},{name:'B',type:'number'}],rows:[[precise[0],precise[1]]]},['A','B'],[],'Mean').rows[0][2];
+result.transform_huge_scale_unit=opScale({cols:[{name:'A',type:'number'},{name:'B',type:'number'}],rows:[[1e308,1e308]]},['A','B'],['B'],'Mean').rows[0][2]/1e308;
 console.log(JSON.stringify(result));

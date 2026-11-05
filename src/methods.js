@@ -188,7 +188,7 @@ function runReliability(ds) {
   var M = completeMatrix(ds, rows, items), X = M.X;
   if (X.length < 5) return need(R, "at least five rows answered on every item");
   var lo = Infinity, hi = -Infinity; X.forEach(function (r) { r.forEach(function (v) { lo = Math.min(lo, v); hi = Math.max(hi, v); }); });
-  X = X.map(function (r) { return r.map(function (v, j) { return rev.indexOf(items[j]) >= 0 ? lo + hi - v : v; }); });
+  X = X.map(function (r) { return r.map(function (v, j) { return rev.indexOf(items[j]) >= 0 ? reverseInRange(v, lo, hi) : v; }); });
   if (X[0].some(function (_, j) { return X.every(function (r) { return r[j] === X[0][j]; }); })) return need(R, "items that vary (one item has the same answer in every row)");
   var a = S3.alpha(X), om = items.length >= 3 ? S3.omega(S3.corrMatrix(X).R, X) : NaN;
   var band = a.alpha >= 0.9 ? "excellent" : a.alpha >= 0.8 ? "good" : a.alpha >= 0.7 ? "acceptable" : a.alpha >= 0.6 ? "questionable" : "poor";
@@ -209,14 +209,15 @@ function runReliability(ds) {
   R.next.push({label: "Check the structure with factor analysis", kind: "factor", sel: {fitems: items.slice()}});
   return R;
 }
-function opScale(ds, items, rev, name) {
+function reverseInRange(value, lo, hi) { var out = lo + (hi - value); return isFinite(out) ? out : (lo / 2 + hi / 2 - value / 2) * 2; }
+function opScale(ds, items, rev, name, selection) {
   var idx = items.map(function (n) { return idxOf(ds, n); }); if (idx.some(function (j) { return j < 0; })) throw new Error("A scale item is missing from this dataset.");
-  var lo = Infinity, hi = -Infinity; ds.rows.forEach(function (r) { idx.forEach(function (j) { if (typeof r[j] === "number") { lo = Math.min(lo, r[j]); hi = Math.max(hi, r[j]); } }); });
-  var n = 0, rows = ds.rows.map(function (r) { var v = idx.map(function (j, q) { var x = r[j]; return typeof x !== "number" ? null : rev.indexOf(items[q]) >= 0 ? lo + hi - x : x; }); var ok = v.every(function (x) { return x != null; }); if (ok) n++; return r.concat([ok ? +(v.reduce(function (a, b) { return a + b; }, 0) / v.length).toPrecision(8) : null]); });
-  return {rows: rows, cols: ds.cols.concat([{name: uniqueColumnName(name, ds.cols.map(function (c) { return c.name; })), type: "number"}]), changed: n};
+  var rows = selection ? scoreRows(ds, selection) : ds.rows, complete = rows.filter(function (r) { return idx.every(function (j) { return typeof r[j] === "number" && isFinite(r[j]); }); }), eligible = new Set(complete);
+  if (!complete.length) throw new Error("Scale scoring needs complete eligible observations.");
+  var lo = Infinity, hi = -Infinity; complete.forEach(function (r) { idx.forEach(function (j) { lo = Math.min(lo, r[j]); hi = Math.max(hi, r[j]); }); });
+  var n = 0, scored = ds.rows.map(function (r) { if (!eligible.has(r)) return r.concat([null]); var values = idx.map(function (j, q) { return rev.indexOf(items[q]) >= 0 ? reverseInRange(r[j], lo, hi) : r[j]; }); n++; return r.concat([S.mean(values)]); });
+  return {rows: scored, cols: ds.cols.concat([{name: uniqueColumnName(name, ds.cols.map(function (c) { return c.name; })), type: "number"}]), changed: n};
 }
-
-// ---- Factor analysis / PCA ----
 function fitFactor(X, items, s) {
     var moments = S3.corrMatrix(X), C = moments.R; if (C.some(function (r) { return r.some(function (v) { return !isFinite(v); }); })) return {err: "items that vary"};
     var kb = S3.kmoBartlett(C, X.length); if (!kb) return {err: "items that are not exact combinations of each other (the correlation matrix is singular)"};
@@ -480,7 +481,7 @@ view.addEventListener("change", function (e) {
 });
 view.addEventListener("click", function (e) {
   var b = e.target.closest("button"); if (!b) return; var d = b.dataset, ds = cur(); if (!ds) return;
-  if (d.mscale) { var items = A.sel.items || [], rev = A.sel.rev || []; applyStep(ds, {op: "scale", items: items.slice(), rev: rev.slice(), name: "Scale score", text: "Added the scale score (mean of " + items.length + " items)", unit: "rows scored"}, function () { return opScale(ds, items, rev, "Scale score"); }); return; }
+  if (d.mscale) { if (!LAST_R || LAST_R.valid === false || LAST_R.kind !== "reliability") return; var items = A.sel.items || [], rev = A.sel.rev || [], selection = scoreSelection(A.sel); applyStep(ds, {op: "scale", items: items.slice(), rev: rev.slice(), selection: selection, name: "Scale score", text: "Added the scale score (mean of " + items.length + " items, complete eligible rows)", unit: "rows scored"}, function () { return opScale(ds, items, rev, "Scale score", selection); }); return; }
   if (d.mscores) {
     if (!LAST_R || LAST_R.valid === false || !LAST_R.scoreFit) return;
     var r = LAST_R.summary, it = A.sel.fitems || [], meth = A.sel.fmeth, k = r.factors, rot = A.sel.frot, pre = meth === "pca" ? "Component" : "Factor", spec = {fit: clone(LAST_R.scoreFit), selection: scoreSelection(A.sel)};
@@ -496,7 +497,7 @@ view.addEventListener("click", function (e) {
 // Replay support for the new recorded steps
 var _replayStep2 = replayStep;
 replayStep = function (ds, st2) {
-  if (st2.op === "scale") return opScale(ds, st2.items, st2.rev || [], st2.name || "Scale score");
+  if (st2.op === "scale") return opScale(ds, st2.items, st2.rev || [], st2.name || "Scale score", st2.selection);
   if (st2.op === "scores") { if (!st2.fit || !st2.selection) throw new Error("Legacy score steps have no recorded fit or row scope. Regenerate them from the intended analysis."); return opScores(ds, st2.items, st2.meth, st2.k, st2.rot, st2.prefix, st2); }
   return _replayStep2(ds, st2);
 };

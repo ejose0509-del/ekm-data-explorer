@@ -99,10 +99,17 @@ n=70;r=-.3;tcrit=st.t.ppf(.95,n-2);rc=np.sqrt(tcrit*tcrit/(tcrit*tcrit+n-2));zr=
 ref['plan_corr_lower']=st.norm.cdf((-zr-np.arctanh(rc))*np.sqrt(n-3))
 ref['plan_recruit']=260;ref['plan_clusters']=26
 ref['baseline_accuracy']=.75;ref['baseline_brier']=np.mean((np.array([0,0,0,1])-.25)**2);ref['baseline_rmse']=np.sqrt(np.mean((np.array([2,5,8,11])-3)**2))
+precise=np.array([.12345678901234567,.23456789012345678,.34567890123456789,.4567890123456789])
+for i,value in enumerate(st.zscore(precise,ddof=1)):ref['transform_z_'+str(i)]=value
+for i,value in enumerate(np.log10(precise)):ref['transform_log_'+str(i)]=value
+for i,value in enumerate(st.zscore([0.,0.,1.],ddof=1)):ref['transform_offset_z_'+str(i)]=value
+ref['transform_copy']=precise[0];ref['transform_mean']=np.mean(precise);ref['transform_knn']=np.mean(np.append(precise,.567890123456789))
+q1,q3=np.quantile(np.append(precise,10.123456789),[.25,.75]);ref['transform_cap']=q3+1.5*(q3-q1)
+ref['transform_scale']=np.mean(precise[:2]);ref['transform_huge_scale_unit']=1.
 bad = 0
 for k, v in ref.items():
     actual=ekm.get(k)
-    tolerance = 1e-8 * abs(float(v)) + 1e-300 if k.startswith("tail_") else 1e-6 * max(1.0, abs(float(v)))
+    tolerance = (1e-12 if k.startswith("transform_") else 1e-8) * abs(float(v)) + 1e-300 if k.startswith(("tail_", "transform_")) else 1e-6 * max(1.0, abs(float(v)))
     ok = actual is not None and abs(actual - float(v)) <= tolerance
     bad += not ok
     print(('PASS ' if ok else 'FAIL ') + k.ljust(24), str(actual) if actual is None else '%.10g' % actual, '%.10g' % float(v))

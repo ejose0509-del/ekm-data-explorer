@@ -275,7 +275,7 @@ opFormula = function (ds, name, expr) {
 var _sensitiveDerive = opDerive, _sensitiveRecode = opRecode, _sensitiveScale = opScale, _sensitiveScores = opScores, _sensitivePredict = opPredict, _sensitiveOutliers = opOutliers, _sensitiveFill = opFill, _sensitiveIso = opIso;
 opDerive = function (ds, j, how) { return sensitiveOutputs(_sensitiveDerive(ds, j, how), ds, [ds.cols[j]]); };
 opRecode = function (ds, spec) { return sensitiveOutputs(_sensitiveRecode(ds, spec), ds, dependencyColumns(ds, [spec.col])); };
-opScale = function (ds, items, reverse, name) { return sensitiveOutputs(_sensitiveScale(ds, items, reverse, name), ds, dependencyColumns(ds, items)); };
+opScale = function (ds, items, reverse, name, selection) { return sensitiveOutputs(_sensitiveScale(ds, items, reverse, name, selection), ds, dependencyColumns(ds, items.concat(filterDependencies(selection || {})))); };
 opScores = function (ds, items, meth, k, rot, prefix, spec) { return sensitiveOutputs(_sensitiveScores(ds, items, meth, k, rot, prefix, spec), ds, dependencyColumns(ds, items.concat(filterDependencies(spec && spec.selection || A.sel)))); };
 opPredict = function (ds, spec) { var sel = spec.sel; return sensitiveOutputs(_sensitivePredict(ds, spec), ds, dependencyColumns(ds, [sel.mt, sel.mvg, sel.mvt].concat(sel.mp || [], filterDependencies(sel)))); };
 opOutliers = function (ds, j, how) { return sensitiveOutputs(_sensitiveOutliers(ds, j, how), ds, [ds.cols[j]]); };

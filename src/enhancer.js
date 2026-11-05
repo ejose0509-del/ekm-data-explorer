@@ -52,7 +52,7 @@ function knnFill(ds, j, k) {   // KNNImputer: mean of the k nearest rows (nan-eu
     if (!d.length) return r;
     var v; if (numeric) v = S.mean(d.map(function (x) { return ds.rows[x[1]][j]; }));
     else { var c = Object.create(null); d.forEach(function (x) { var w = ds.rows[x[1]][j]; c[w] = (c[w] || 0) + 1; }); v = Object.keys(c).sort(function (a, b) { return c[b] - c[a]; })[0]; }
-    changed++; var r2 = r.slice(); r2[j] = numeric ? +(+v).toPrecision(6) : v; return r2;
+    changed++; var r2 = r.slice(); r2[j] = v; return r2;
   });
   var left = out.filter(function (r) { return r[j] == null; }).length;
   return {rows: out, changed: changed, why: left ? left + " missing value" + (left > 1 ? "s" : "") + " could not be filled: those rows have no other measurements to compare with. Try the median or most common value instead." : ""};
@@ -132,10 +132,11 @@ function opDedupe(ds) { var seen = Object.create(null), rows = ds.rows.filter(fu
 function opDrop(ds, j) { if (ds.cols.length <= 1) throw new Error('Keep at least one column, or delete the dataset under Your data.'); return {rows: ds.rows.map(function (r) { return r.filter(function (_, i) { return i !== j; }); }), cols: ds.cols.filter(function (_, i) { return i !== j; }), changed: 1}; }
 function opFill(ds, j, how, flag) {
   var v = colVals(ds, j), c = ds.cols[j], res;
+  if (!v.some(function (x) { return x != null && (typeof x !== "number" || isFinite(x)); }) || ((how === "mean" || how === "median") && !S.nums(v).length)) throw new Error("Filling needs observed usable values; an entirely missing column cannot be estimated.");
   if (how === "knn") res = knnFill(ds, j, 5);
   else {
     var fillv;
-    if (how === "median") fillv = S.describe(v).median; else if (how === "mean") fillv = +S.describe(v).mean.toPrecision(6);
+    if (how === "median") fillv = S.describe(v).median; else if (how === "mean") fillv = S.describe(v).mean;
     else { var u = Object.create(null); v.forEach(function (x) { if (x != null) u[x] = (u[x] || 0) + 1; }); fillv = Object.keys(u).sort(function (a, b) { return u[b] - u[a]; })[0]; if (isNum(c)) fillv = +fillv; }
     res = mapCol(ds, j, function (x) { return x == null ? fillv : x; });
   }
@@ -148,13 +149,17 @@ function opFill(ds, j, how, flag) {
 function opOutliers(ds, j, how) {
   var d = S.describe(colVals(ds, j)), lo = d.q1 - 1.5 * (d.q3 - d.q1), hi = d.q3 + 1.5 * (d.q3 - d.q1), bad = function (x) { return typeof x === "number" && (x < lo || x > hi); };
   if (how === "flag") { var n = 0; var rows = ds.rows.map(function (r) { var b = bad(r[j]); if (b) n++; return r.concat([b ? "yes" : "no"]); }); return {rows: rows, cols: ds.cols.concat([{name: uniqueColumnName(ds.cols[j].name + " unusual", ds.cols.map(function (c) { return c.name; })), type: "category"}]), changed: n}; }
-  if (how === "cap") return mapCol(ds, j, function (x) { return typeof x !== "number" ? x : x < lo ? +lo.toPrecision(6) : x > hi ? +hi.toPrecision(6) : x; });
+  if (how === "cap") return mapCol(ds, j, function (x) { return typeof x !== "number" ? x : x < lo ? lo : x > hi ? hi : x; });
   var keep = ds.rows.filter(function (r) { return !bad(r[j]); }); return {rows: keep, changed: ds.rows.length - keep.length};
 }
 function opDerive(ds, j, how) {
   var c = ds.cols[j], v = colVals(ds, j), d = S.describe(v), name, f;
-  if (how === "log") { name = "log10 of " + c.name; f = function (x) { return typeof x === "number" && x > 0 ? +Math.log10(x).toPrecision(6) : null; }; }
-  else if (how === "z") { name = c.name + " (standardized)"; f = function (x) { return typeof x === "number" ? +((x - d.mean) / d.sd).toPrecision(5) : null; }; }
+  if (["log", "z", "bins"].indexOf(how) < 0) throw new Error("Choose a supported transformation.");
+  var zValues, zMean, zSD, zAt = 0;
+  if (how === "z") { zValues = S.normalize(v.filter(function (x) { return typeof x === "number" && isFinite(x); })); zMean = S.mean(zValues); zSD = S.describe(zValues).sd; if (!(zSD > 0 && isFinite(zSD))) throw new Error("Standardization needs finite, nonconstant observations."); }
+  if (how === "log" && !v.some(function (x) { return typeof x === "number" && x > 0; })) throw new Error("Log transformation needs positive observations.");
+  if (how === "log") { name = "log10 of " + c.name; f = function (x) { return typeof x === "number" && x > 0 ? Math.log10(x) : null; }; }
+  else if (how === "z") { name = c.name + " (standardized)"; f = function (x) { return typeof x === "number" && isFinite(x) ? (zValues[zAt++] - zMean) / zSD : null; }; }
   else { name = c.name + " (quarter)"; f = function (x) { return typeof x !== "number" ? null : x <= d.q1 ? "Q1 lowest" : x <= d.median ? "Q2" : x <= d.q3 ? "Q3" : "Q4 highest"; }; }
   name = uniqueColumnName(name, ds.cols.map(function (c) { return c.name; }));
   return {rows: ds.rows.map(function (r) { return r.concat([f(r[j])]); }), cols: ds.cols.concat([{name: name, type: how === "bins" ? "category" : "number"}]), changed: v.filter(function (x) { return x != null; }).length};
@@ -177,7 +182,7 @@ function opIso(ds, cols, share) {
   var idx = cols.map(function (n) { return idxOf(source, n); }), stt = idx.map(function (i) { var d = S.describe(colVals(source, i)); return [d.median, d.sd || 1]; });
   var X = source.rows.map(function (r) { return idx.map(function (i, q) { return typeof r[i] === "number" ? (r[i] - stt[q][0]) / stt[q][1] : 0; }); });
   var sc = isoForest(X, 100, 256), cut = sc.slice().sort(function (a, b) { return b - a; })[Math.max(0, Math.floor(sc.length * share) - 1)];
-  var n = 0, rows = source.rows.map(function (r, i) { var flag = sc[i] >= cut; if (flag) n++; return r.concat([+sc[i].toFixed(3), flag ? "yes" : "no"]); });
+  var n = 0, rows = source.rows.map(function (r, i) { var flag = sc[i] >= cut; if (flag) n++; return r.concat([sc[i], flag ? "yes" : "no"]); });
   var names = source.cols.map(function (c) { return c.name; }), score = uniqueColumnName('Anomaly score', names), flag = uniqueColumnName('Anomaly', names.concat([score]));
   return {rows: rows, cols: source.cols.concat([{name: score, type: 'number'}, {name: flag, type: 'category'}]), changed: n, outputs: [score, flag]};
 }

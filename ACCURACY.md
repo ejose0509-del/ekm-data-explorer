@@ -14,7 +14,7 @@ rounding done before import cannot be recovered. Numerical tolerances are explic
 | E6 | Weighted agreement and ordinal interpretation mismatch | Verified for the acceptance cases below | Raw vs weighted agreement explicitly separated; headline uses selected primary statistic |
 | E7 | Plan invalid input and lost settings | Verified for the acceptance cases below | Domain validation, no invalid result/write-up, project save/open and reload |
 | E8 | Rare-class CV averages undefined folds | Verified for the acceptance cases below | Validation uses a feasible split or refuses it explicitly; valid fold counts match headline |
-| E9 | Premature rounding in cleaning, formulas and scale columns (found during this repair) | Pending | Stored transformations retain binary64 precision; each changed operation has an independent numerical case |
+| E9 | Premature rounding in cleaning, formulas and scale columns (found during this repair) | Verified for the acceptance cases below | Stored transformations retain binary64 precision; each changed operation has an independent numerical case |
 | E10 | Model calculations lose translation/scale stability (found during E8) | Pending | Regression tree split/values, standardization and validation metrics against independent references on shifted/scaled inputs |
 | E11 | Background scan redraw corrupts in-progress input (reproduced after E4) | Pending | No scan redraw during editing; repeated real field interactions and saved ranges preserve the entered values |
 
@@ -226,6 +226,35 @@ produces a spurious finite calibration conclusion. Fold SD is labelled as SD, no
 - 151 fixed SciPy values plus strict Welch gate; 44/44 method groups. 26 trust groups
   (all 17 analysis kinds and actual Python model exports) and 10 source/prediction
   replay groups pass. R code is generated but Rscript execution remains unverified.
+- The broader feature fixture has only four negative complete cases. Its former
+  5-fold expectation relied on dropping an undefined fold; the valid feature flow
+  now explicitly selects 2-fold, while the CV suite asserts infeasible-fold refusal.
+  Its AUC≈.589 is verified by independent positive/negative pair counts, replacing
+  an arbitrary >.6 assertion that is not a statistical-correctness requirement.
 - Scope: validation integrity and these classification/metric cases. Rare-class
   results remain unstable even when estimable. No performance confidence interval
   is implemented. The separate shifted-tree numerical failure is tracked as E10.
+
+## E9 acceptance record
+
+Working values no longer use display rounding in formula columns, mean/KNN fills,
+Tukey caps, logs, standardized values, scale means or anomaly scores. Standardized
+values center/scale in normalized coordinates, including a 1e15 baseline; constant
+standardization, entirely missing fill columns and entirely nonpositive logs refuse
+invalid estimates. Scale means use the stable mean and finite complete observations;
+reverse arithmetic avoids intermediate overflow. New scale recipes retain the same
+eligible complete rows and observed reverse range as the displayed reliability fit.
+
+- `check_stats.py`: 168 fixed values plus strict Welch gate. Seventeen new values
+  use NumPy/SciPy arithmetic references; transformation values require relative
+  1e-12 + absolute 1e-300. Includes formula copy, log/z, shifted z, mean/KNN fill,
+  cap, ordinary scale mean and representable scale means near 1e308.
+- `check_transform_precision.js`: actual formula action, exact stored source copy,
+  independent SciPy z values, project and downloaded Python replay at both widths;
+  invalid transform refusal, raw anomaly-score equality and actual reverse-scale
+  action excluding incomplete/excluded extreme rows, with replayed eligibility.
+- 20 sensitivity groups and 46 new-feature checks pass. The feature classifier's
+  valid 2-fold AUC is about .589; its numerical check uses independent pair counts,
+  not a requirement that every dataset produce an attractive predictive score.
+- Scope: these transformations and newly computed values. Previously rounded columns
+  cannot recover discarded precision; regenerate them from retained original data.
