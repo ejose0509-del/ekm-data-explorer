@@ -337,7 +337,7 @@ class Handler(BaseHTTPRequestHandler):
         if (not self.valid_host() or self.headers.get('Origin') != 'http://' + self.server.authority
                 or not secrets.compare_digest(self.headers.get('X-EKM-Token', '').encode(), self.server.token.encode())):
             return self.send_json(403, {'error': 'Open the app from this local service.'})
-        if self.path not in ('/api/explain', '/api/fetch', '/api/sqlite', '/api/search'):
+        if self.path not in ('/api/explain', '/api/fetch', '/api/sqlite', '/api/search', '/api/db', '/api/ai/draft-terms', '/api/ai/pii', '/api/ai/ask', '/api/ai/sql'):
             return self.send_json(404, {'error': 'Not found.'})
         if self.headers.get('Content-Type') != 'application/json':
             return self.send_json(415, {'error': 'JSON required.'})
@@ -377,6 +377,28 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(400, {'error': str(err)})
             except (OSError, urllib.error.URLError, KeyError, TypeError) as err:
                 return self.send_json(502, {'error': 'The search service did not answer (' + str(getattr(err, 'reason', err))[:120] + '). Check the provider key and your connection.'})
+        if self.path in ('/api/db', '/api/ai/draft-terms', '/api/ai/pii', '/api/ai/ask', '/api/ai/sql'):
+            import ontology_ai
+            ontology_ai.QUERY_SQLITE = query_sqlite
+            handler = {'/api/db': lambda p: ontology_ai.run_query(p.get('source') or {}, str(p.get('query') or '')),
+                       '/api/ai/draft-terms': lambda p: ontology_ai.draft_terms(p, self.server.model),
+                       '/api/ai/pii': lambda p: ontology_ai.classify_pii(p, self.server.model),
+                       '/api/ai/ask': lambda p: ontology_ai.ask_analysis(p, self.server.model),
+                       '/api/ai/sql': lambda p: ontology_ai.text_to_sql(p, self.server.model)}[self.path]
+            locked = self.path.startswith('/api/ai/')
+            if locked and not self.server.model_lock.acquire(blocking=False):
+                return self.send_json(429, {'error': 'The local model is busy. Try again shortly.'})
+            try:
+                return self.send_json(200, handler(packet))
+            except ValueError as err:
+                return self.send_json(400, {'error': str(err)})
+            except (OSError, urllib.error.URLError) as err:
+                return self.send_json(502, {'error': 'The local model or database did not answer (' + str(getattr(err, 'reason', err))[:160] + '). Is Ollama running?'})
+            except Exception as err:  # noqa: BLE001 - database drivers raise their own types
+                return self.send_json(400, {'error': str(err).split(chr(10))[0][:300]})
+            finally:
+                if locked:
+                    self.server.model_lock.release()
         if self.path == '/api/sqlite':
             try:
                 return self.send_json(200, query_sqlite(packet.get('path', ''), packet.get('query', '')))

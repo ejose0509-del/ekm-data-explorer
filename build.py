@@ -45,6 +45,9 @@ MODULES = [
     "explain.js",     # Plain headline, everyday effect sizes, how sure, reading level, glossary, data overview
     "discover.js",    # Discover tab: pattern scan with held-out confirmation
     "websearch.js",   # External web context through local mode
+    "aoport.js",      # Exact ports of Auto Ontology's PII rules and date-format inference (Apache-2.0)
+    "ontology.js",    # Glossary tab: catalog, join inference, terms, certification, formulas, coverage, model YAML
+    "aolocal.js",     # Local mode: AI glossary drafts, AI PII review, AI-written answers and SQL, more databases
 ]
 VENDOR = ["vendor/parquet.js"]  # third-party bundles, each in its own <script> (licences in src/vendor)
 

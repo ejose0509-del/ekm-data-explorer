@@ -169,3 +169,29 @@ Regression checks for signed takeaways, scope, reload persistence, privacy, 50,0
 ```bash
 node tests/check_interpretation_integrity.js  # disk and local mode, desktop and 400px
 ```
+
+## Glossary (from NVIDIA Auto Ontology)
+
+```bash
+uv run --python 3.12 --no-project python tests/check_ontology_port.py   # ports identical to the original Python
+node tests/check_glossary.js                                             # 30 browser checks (local mode, mock AI)
+```
+
+The **Glossary** tab brings Auto Ontology's ideas into EKM, rule-based and in the page:
+- **Catalog:** every column's type, uniqueness, distinct and missing counts, most common values, stored date format (validated against real dates, so `13/07/2011` can only be day-first) and mixed-format warnings.
+- **Personal-data rules:** Auto Ontology's 17 rule groups, ported unchanged and proven identical on 10,528 cases. Tags apply automatically at confidence ≥ 0.9; lower confidence is marked for review.
+- **Relationships:** keys inferred between datasets when every sampled value of one column exists in a unique column of another; linking tables detected; the join tool suggests keys and blocks joins whose keys do not match.
+- **Terms and certification:** draft terms from your datasets, rename, describe, add synonyms and certify; results built on certified definitions say so. When running in Claude, only people with edit access can certify.
+- **Formulas:** reusable calculations kept with a term and added to any dataset as recorded steps.
+- **Can this data answer it?:** coverage scoring names what a question asks for that the data lacks; synonyms route questions to columns; predictive questions open Predict an outcome; filter values are checked with near-miss suggestions.
+- **Import and export:** Auto Ontology model YAML (data layer and semantic layer), for exchange with Auto Ontology and through it Apache Ossie.
+
+In **local mode** (`python3 local_ai/server.py`, with Ollama running): AI-drafted terms, AI review of columns the rules cannot decide, an AI-chosen analysis that EKM then runs with its tested statistics, AI-written SQL against SQLite, DuckDB, PostgreSQL or MySQL (read-only, checked, repaired up to three times), all labelled AI-generated.
+
+**MCP server for other AI agents:** save the glossary (Glossary → Import and export → Save for agents), then:
+
+```bash
+python3 local_ai/mcp_server.py --ontology ~/Downloads/ekm-ontology.json
+```
+
+Claude Desktop config: `{"mcpServers": {"ekm": {"command": "python3", "args": ["/path/to/EKM/local_ai/mcp_server.py", "--ontology", "/path/to/ekm-ontology.json"]}}}`. Tools: check_readiness, search_terms, get_term, get_term_columns, get_term_sql_attributes, get_sql_attribute, describe_table, check_answerable, ask_question. Agents never receive rows.
