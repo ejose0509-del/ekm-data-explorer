@@ -90,6 +90,14 @@ for name,n,tied in [('separated30',30,False),('separated120',120,False),('tied12
 pr=np.array([[0,1/3,0],[0,0,1/3],[0,1/3,0]]);fr=pr.sum(1);fc=pr.sum(0);weights=1-np.abs(np.arange(3)[:,None]-np.arange(3)[None,:])/2
 po=(pr*weights).sum();pe=(fr[:,None]*fc*weights).sum();kap=(po-pe)/(1-pe);wr=weights@fc;wc=fr@weights
 v0=(fr[:,None]*fc*(weights-wr[:,None]-wc[None,:])**2).sum();se0=np.sqrt((v0-pe*pe)/((1-pe)**2*3000));ref['tail_kappa']=2*st.norm.sf(abs(kap/se0))
+ref['plan_default_n']=64
+n1,n2,d=65,98,.5;df=n1+n2-2;nc=d*np.sqrt(1/(1/n1+1/n2));crit=st.t.ppf(.975,df)
+ref['plan_unequal_power']=st.nct.sf(crit,df,nc)+st.nct.cdf(-crit,df,nc)
+ref['plan_lower_power']=st.nct.cdf(-st.t.ppf(.95,df),df,-nc)
+ref['plan_prop_lower']=st.norm.cdf(-st.norm.ppf(.95)+.4*np.sqrt(1/(1/45+1/59)))
+n=70;r=-.3;tcrit=st.t.ppf(.95,n-2);rc=np.sqrt(tcrit*tcrit/(tcrit*tcrit+n-2));zr=np.arctanh(r)+r/(2*(n-1))
+ref['plan_corr_lower']=st.norm.cdf((-zr-np.arctanh(rc))*np.sqrt(n-3))
+ref['plan_recruit']=260;ref['plan_clusters']=26
 bad = 0
 for k, v in ref.items():
     actual=ekm.get(k)

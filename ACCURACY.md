@@ -12,7 +12,7 @@ rounding done before import cannot be recovered. Numerical tolerances are explic
 | E4 | Prediction recipes omit validation context; duplicate source headers fail replay | Verified for the acceptance cases below | Gap/filter preservation, original-header mapping and generated workflow execution |
 | E5 | Sensitivity lost in append and derived columns | Verified for the acceptance cases below | Conservative metadata propagation, CSV exclusion and project persistence |
 | E6 | Weighted agreement and ordinal interpretation mismatch | Verified for the acceptance cases below | Raw vs weighted agreement explicitly separated; headline uses selected primary statistic |
-| E7 | Plan invalid input and lost settings | Pending | Domain validation, no invalid result/write-up, project save/open and reload |
+| E7 | Plan invalid input and lost settings | Verified for the acceptance cases below | Domain validation, no invalid result/write-up, project save/open and reload |
 | E8 | Rare-class CV averages undefined folds | Pending | Validation uses a feasible split or refuses it explicitly; valid fold counts match headline |
 | E9 | Premature rounding in cleaning, formulas and scale columns (found during this repair) | Pending | Stored transformations retain binary64 precision; each changed operation has an independent numerical case |
 
@@ -171,3 +171,33 @@ exact/permutation verification. This repair does not introduce a new rank estima
 - The 80 interpretation/integrity checks also pass in disk and local-server modes.
 - Scope: these computed-primary and wording cases. This does not certify all
   assumption selection or supply missing rank-effect confidence intervals.
+
+## E7 acceptance record
+
+Plan validates active inputs against the supported ranges, preserves blank drafts
+without reusing an old value, and blocks result/curve/sensitivity/write-up output
+when invalid. Fractional sample/group/cluster counts are rejected. Effect fields
+are explicit magnitudes; one-sided smaller calculations use the negative direction.
+Unequal allocation uses an actual integer second-group size in the power calculation
+and text. Recruitment is rounded to whole clusters, with design-effect inflation
+identified as an approximation. Helpers retain zero and computed precision; alpha
+and small effects are not rounded to zero in the justification.
+
+Projects preserve plan settings and finite invalid drafts; malformed schema rejects
+before live state changes. Legacy files without a plan get defaults. Open helper
+and dropout sections stay open through input changes. Follow-up planning does not
+silently turn a primary rank effect into a Pearson/mean model; Cramer's V converts
+to Cohen's w using the displayed table's dimensions and transfers its df.
+
+- `check_plan_integrity.js`: 18 groups at 1440px/400px, including all seven designs
+  in three solve modes, 23 invalid configurations per width, actual input changes,
+  helpers, unequal allocation, whole clusters, project download/open, real reload,
+  atomic schema rejection and legacy defaults.
+- `check_stats.py`: 148 fixed values plus the strict Welch gate; seven new planning
+  values use SciPy's noncentral t/normal references and published Fisher-z formula.
+  Example: n1=65, ratio=1.5 uses n2=98; recruiting for 160 independent observations,
+  m=10, ICC=.05, dropout=10% produces 260 recruits in 26 whole clusters.
+- 46 new-feature checks and 10 prediction/source-replay groups also pass.
+- Scope: supported input ranges and these power-model cases. Clustering inflation
+  does not provide a mixed-model power guarantee; correlation/proportion models
+  remain approximations. A finite invalid draft can be saved but cannot yield prose.

@@ -263,7 +263,7 @@ function runAnalysis(ds) {
     var rk = Object.keys(ra).sort(function (p, q) { return ra[q] - ra[p]; }).slice(0, 12), ck = Object.keys(cb).sort(function (p, q) { return cb[q] - cb[p]; }).slice(0, 8);
     if (rk.length < 2 || ck.length < 2 || s.g === s.g2) return need(R, "two different category columns with at least two values each");
     var table = rk.map(function (r) { return ck.map(function (k) { return cells[JSON.stringify([String(r), String(k)])] || 0; }); }), ch = S.chisq(table);
-    R.summary = {test: "Chi-square test of independence", rows: s.g, columns: s.g2, x2: ch.x2, df: ch.df, p: ch.p, cramers_v: ch.v, n: ch.n};
+    R.summary = {test: "Chi-square test of independence", rows: s.g, columns: s.g2, x2: ch.x2, df: ch.df, p: ch.p, cramers_v: ch.v, table_shape: [rk.length, ck.length], n: ch.n};
     R.head = figs([["Chi-square", f3(ch.x2)], ["p-value", fp(ch.p)], ["Strength (Cramér's V)", f3(ch.v)], ["Rows used", ch.n]], true) +
       '<div class="tablewrap"><table class="nosort"><thead><tr><th>' + esc(s.g) + " \\ " + esc(s.g2) + "</th>" + ck.map(function (k) { return "<th>" + esc(k) + "</th>"; }).join("") + "</tr></thead><tbody>" +
       rk.map(function (r, i) { var tot = table[i].reduce(function (x, y) { return x + y; }, 0); return "<tr><td>" + esc(r) + "</td>" + table[i].map(function (v) { return '<td class="num">' + v + ' <span class="count">' + Math.round(v / tot * 100) + "%</span></td>"; }).join("") + "</tr>"; }).join("") + "</tbody></table></div>";

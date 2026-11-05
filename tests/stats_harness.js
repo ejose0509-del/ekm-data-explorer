@@ -73,4 +73,10 @@ for(const [name,aa,bb] of [['near',Array.from({length:30},(_,i)=>[1,2,3][i%3]),A
 }
 for(const [name,n,tied] of [['separated30',30,false],['separated120',120,false],['tied120',120,true]])result['tail_mw_'+name]=S2.mannWhitney(Array.from({length:n},(_,i)=>tied?i%3:i),Array.from({length:n},(_,i)=>tied?10+i%5:i+n)).p;
 const ka=Array.from({length:3000},(_,i)=>[1,2,3][i%3]),kb_=Array.from({length:3000},(_,i)=>[2,3,2][i%3]);result.tail_kappa=S3.kappa(ka,kb_,'linear').p;
+eval(src('plan.js').split('function plCurve(')[0]);
+result.plan_default_n=plSolve().n;
+PL=Object.assign(plDefaults(),{ratio:1.5,n:65,solve:'power'});result.plan_unequal_power=plPower(65,.5);PL.alt='smaller';result.plan_lower_power=plPower(65,.5);
+PL=Object.assign(plDefaults(),{design:'prop',ratio:1.3,alt:'smaller'});result.plan_prop_lower=plPower(45,.4);
+PL=Object.assign(plDefaults(),{design:'corr',alt:'smaller'});result.plan_corr_lower=plPower(70,.3);
+PL=Object.assign(plDefaults(),{m:10,icc:.05,drop:10});const inflated=plInflate(160);result.plan_recruit=inflated.n;result.plan_clusters=inflated.clusters;
 console.log(JSON.stringify(result));
