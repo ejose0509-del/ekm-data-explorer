@@ -8,7 +8,7 @@ rounding done before import cannot be recovered. Numerical tolerances are explic
 |---|---|---|---|
 | E1 | Welch cancellation with a large common baseline | Verified for the acceptance cases below | Decimal moments + SciPy tails and CI; offset/scale/order cases; actual import, analysis and exported replay |
 | E2 | Refresh loses metadata, exclusions, source fidelity and rollback | Verified for the acceptance cases below | Reordered stable IDs, no-ID refusal, changed schema, replay failure rollback, latest-request handling, original CSV and project round-trip |
-| E3 | PCA/factor score columns refit excluded data | Pending | Same fitted parameters and eligible rows as displayed; scores and replay verified |
+| E3 | PCA/factor score columns refit excluded data | Verified for the acceptance cases below | Same fitted parameters and eligible rows as displayed; scores and replay verified |
 | E4 | Prediction recipes omit validation context; duplicate source headers fail replay | Pending | Gap/filter preservation, original-header mapping and generated workflow execution |
 | E5 | Sensitivity lost in append and derived columns | Pending | Conservative metadata propagation, CSV exclusion and project persistence |
 | E6 | Weighted agreement and ordinal interpretation mismatch | Pending | Raw vs weighted agreement explicitly separated; headline uses selected primary statistic |
@@ -60,3 +60,27 @@ recipes still replay on an unchanged source, but require review before source re
   also passes the fixed and strict Welch gates.
 - Scope: loaded datasets, current tagged identifiers and matching source-column names.
   Source schema/identifier changes are refused where they prevent safe replay.
+
+## E3 acceptance record
+
+Score columns use the displayed fit's means, sample SDs, loadings, factor ordering
+and signs. Correlated-factor regression uses the structure matrix L Phi, following
+[FactorAnalyzer.transform](https://factor-analyzer.readthedocs.io/en/latest/_modules/factor_analyzer/factor_analyzer.html).
+Factor correlations receive the same sign/order changes as the loadings. The fit
+and eligibility selection are recorded in the score recipe and reused on replay or
+refresh; refresh does not silently train a replacement model. Incomplete, excluded
+and filtered-out rows get null scores. Scores retain full binary64 precision rather
+than being truncated to six significant digits. Legacy recipes without a recorded
+fit/scope refuse replay and require regeneration from the intended analysis.
+
+- `node tests/check_score_integrity.js`: 14 cases at 1440px/400px, 2,054 score
+  values. Sample moments, SciPy linear-solve weights and NumPy scores match within
+  relative 1e-9 / absolute 1e-10. Maximum observed absolute score error: 4.4e-15.
+- Includes missing observations, filtering, an excluded cohort offset by 100,
+  changed exclusion settings (cache invalidation), PCA eigenvectors and unit sample
+  variance, project round-trip and saved-fit replay under different ambient filters.
+- Actual downloaded Python/Node workflow and original CSV execute successfully for
+  the correlated factor case at both widths. 44/44 existing method groups pass.
+- Scope: fitted-score integrity for the listed datasets and ordinary finite ranges.
+  The displayed oblique-factor variance interpretation remains part of pending E6;
+  this entry does not certify every factor-analysis narrative or extreme-scale fit.

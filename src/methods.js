@@ -217,18 +217,8 @@ function opScale(ds, items, rev, name) {
 }
 
 // ---- Factor analysis / PCA ----
-function runFactor(ds) {
-  var R = mkR("factor"), s = A.sel, nums = ds.cols.filter(isNum), rows = filterRows(ds);
-  var fLike = nums.filter(function (c) { return !likelyId(ds, c) && /item|^q\d|question|scale|_\d+$/i.test(c.name); });
-  var items = initCols(ds, "fitems", (fLike.length >= 3 ? fLike : nums.filter(function (c) { return !likelyId(ds, c); })).slice(0, 20), isNum);
-  s.fmeth = s.fmeth || "paf"; s.frot = s.frot || "promax"; s.fk = s.fk || "auto";
-  R.controls = choice("fmeth", "Method", [["paf", "Factor analysis (principal axis)"], ["pca", "Principal components"]], s.fmeth) + choice("fk", "Number of factors", [["auto", "Suggested (parallel analysis)"]].concat([1, 2, 3, 4, 5, 6, 7, 8].filter(function (k) { return k < items.length; }).map(function (k) { return [k, String(k)]; })), s.fk) +
-    choice("frot", "Rotation", [["promax", "Promax (factors may correlate)"], ["varimax", "Varimax (independent factors)"], ["none", "None"]], s.frot) + mselList("fitems", nums, "Items", 3);
-  if (items.length < 3) return need(R, "three or more number columns");
-  var M = completeMatrix(ds, rows, items), X = M.X;
-  if (X.length < items.length + 3) return need(R, "more complete rows than items");
-  var res = memo(ds, ["factor", items, s.fmeth, s.fk, s.frot], function () {
-    var C = S3.corrMatrix(X).R; if (C.some(function (r) { return r.some(function (v) { return !isFinite(v); }); })) return {err: "items that vary"};
+function fitFactor(X, items, s) {
+    var moments = S3.corrMatrix(X), C = moments.R; if (C.some(function (r) { return r.some(function (v) { return !isFinite(v); }); })) return {err: "items that vary"};
     var kb = S3.kmoBartlett(C, X.length); if (!kb) return {err: "items that are not exact combinations of each other (the correlation matrix is singular)"};
     var ev = S3.eigSym(C).values, par = S3.parallel(X.length, items.length, 40, 17), sugg = 0; while (sugg < ev.length && ev[sugg] > par[sugg]) sugg++; sugg = Math.max(1, sugg);
     var k = s.fk === "auto" ? Math.min(sugg, items.length - 1) : Math.min(+s.fk, items.length - 1), L, comm, hey = false;
@@ -239,11 +229,28 @@ function runFactor(ds) {
     else if (k > 1 && s.frot === "promax") { var pr = S3.promax(L, 4); L = pr.loadings; phi = pr.phi; }
     var order = L[0].map(function (_, j) { return j; }), ssl = order.map(function (j) { return L.reduce(function (a, r) { return a + r[j] * r[j]; }, 0); });
     order.sort(function (a, b) { return ssl[b] - ssl[a]; }); L = L.map(function (r) { return order.map(function (j) { return r[j]; }); }); ssl = order.map(function (j) { return ssl[j]; });
-    L[0].forEach(function (_, j) { if (L.reduce(function (a, r) { return a + r[j]; }, 0) < 0) L.forEach(function (r) { r[j] = -r[j]; }); });
-    if (phi) phi = order.map(function (a) { return order.map(function (b) { return phi[a][b]; }); });
-    return {kb: kb, ev: ev, par: par, sugg: sugg, k: k, L: L, comm: comm, ssl: ssl, phi: phi, hey: hey};
-  });
+    var signs = L[0].map(function (_, j) { return L.reduce(function (a, r) { return a + r[j]; }, 0) < 0 ? -1 : 1; });
+    L = L.map(function (r) { return r.map(function (v, j) { return v * signs[j]; }); });
+    if (phi) phi = order.map(function (a, i) { return order.map(function (b, j) { return phi[a][b] * signs[i] * signs[j]; }); });
+    var inverse = S3.inv(C); if (!inverse) return {err: "an invertible item correlation matrix"};
+    var structure = phi ? S3.mul(L, phi) : L, weights = S3.mul(inverse, structure);
+    if (weights.some(function (r) { return r.some(function (v) { return !isFinite(v); }); })) return {err: "a finite score solution"};
+    var fit = {version: 1, items: items.slice(), mean: moments.mean, sd: moments.cov.map(function (r, i) { return Math.sqrt(r[i]); }), weights: weights, loadings: L, phi: phi, method: s.fmeth, rotation: s.frot, trainingN: X.length};
+    return {kb: kb, ev: ev, par: par, sugg: sugg, k: k, L: L, comm: comm, ssl: ssl, phi: phi, hey: hey, fit: fit};
+}
+function runFactor(ds) {
+  var R = mkR("factor"), s = A.sel, nums = ds.cols.filter(isNum), rows = filterRows(ds);
+  var fLike = nums.filter(function (c) { return !likelyId(ds, c) && /item|^q\d|question|scale|_\d+$/i.test(c.name); });
+  var items = initCols(ds, "fitems", (fLike.length >= 3 ? fLike : nums.filter(function (c) { return !likelyId(ds, c); })).slice(0, 20), isNum);
+  s.fmeth = s.fmeth || "paf"; s.frot = s.frot || "promax"; s.fk = s.fk || "auto";
+  R.controls = choice("fmeth", "Method", [["paf", "Factor analysis (principal axis)"], ["pca", "Principal components"]], s.fmeth) + choice("fk", "Number of factors", [["auto", "Suggested (parallel analysis)"]].concat([1, 2, 3, 4, 5, 6, 7, 8].filter(function (k) { return k < items.length; }).map(function (k) { return [k, String(k)]; })), s.fk) +
+    choice("frot", "Rotation", [["promax", "Promax (factors may correlate)"], ["varimax", "Varimax (independent factors)"], ["none", "None"]], s.frot) + mselList("fitems", nums, "Items", 3);
+  if (items.length < 3) return need(R, "three or more number columns");
+  var M = completeMatrix(ds, rows, items), X = M.X;
+  if (X.length < items.length + 3) return need(R, "more complete rows than items");
+  var res = memo(ds, ["factor", items, s.fmeth, s.fk, s.frot, dataVersion(ds), !!s.keepExcluded], function () { return fitFactor(X, items, s); });
   if (res.err) return need(R, res.err);
+  R.scoreFit = clone(res.fit);
   var kb = res.kb, k = res.k, p = items.length, label = s.fmeth === "pca" ? "Component" : "Factor";
   R.summary = {test: (s.fmeth === "pca" ? "Principal component analysis" : "Principal-axis factor analysis") + (k > 1 && s.frot !== "none" ? ", " + s.frot + " rotation" : ""), n: X.length, items: p, factors: k, suggested_by_parallel_analysis: res.sugg, kmo: kb.kmo, bartlett_chi2: kb.chi2, p: kb.p,
     variance_explained: res.ssl.map(function (v) { return v / p; })};
@@ -255,7 +262,7 @@ function runFactor(ds) {
   R.chart = lineChart([{name: "Your data", pts: res.ev.map(function (v, i) { return [i + 1, v]; })}, {name: "Random data (95th percentile)", pts: res.par.map(function (v, i) { return [i + 1, v]; })}], "Component number", "Eigenvalue");
   R.extra = (res.phi ? '<h3 class="sub-h">Factor correlations</h3>' + table([""].concat(res.phi.map(function (_, j) { return "F" + (j + 1); })), res.phi.map(function (r, i) { return ["F" + (i + 1)].concat(r.map(function (v) { return fz(v); })); })) : "") +
     '<p class="count">Loadings of 0.40 or more are shown in bold; MSA is each item\'s sampling adequacy (below 0.50 suggests dropping the item).</p>' +
-    '<div class="slot"><button type="button" class="btn" data-mscores="1">Add ' + label.toLowerCase() + ' scores as columns</button><span class="count">' + (s.fmeth === "pca" ? "Standardized component scores." : "Regression (Thurstone) factor scores.") + "</span></div>";
+    '<div class="slot"><button type="button" class="btn" data-mscores="1">Add ' + label.toLowerCase() + ' scores as columns</button><span class="count">' + (s.fmeth === "pca" ? "Standardized component scores." : "Regression (Thurstone) factor scores.") + " The displayed fit and current eligible rows are recorded and reused on replay or refresh.</span></div>";
   R.reading.push("Parallel analysis suggests " + res.sugg + " " + label.toLowerCase() + (res.sugg > 1 ? "s" : "") + ": " + (res.sugg > 1 ? "that many" : "only the first") + " beat what random data of the same size would give. " + (k !== res.sugg ? "You chose " + k + "." : ""));
   res.L[0].forEach(function (_, j) { var top = items.filter(function (_, i) { var row = res.L[i].map(Math.abs); return row[j] >= 0.4 && row.indexOf(amax(row)) === j; }); if (top.length) R.reading.push(label + " " + (j + 1) + " (" + Math.round(res.ssl[j] / p * 100) + "% of variance) is defined by " + top.map(function (n) { return "“" + esc(n) + "”"; }).join(", ") + "."); });
   var cross = items.filter(function (_, i) { return res.L[i].filter(function (v) { return Math.abs(v) >= 0.4; }).length > 1; }), none = items.filter(function (_, i) { return res.L[i].every(function (v) { return Math.abs(v) < 0.4; }); });
@@ -268,16 +275,30 @@ function runFactor(ds) {
   R.apa = (s.fmeth === "pca" ? "PCA" : "Principal-axis factoring") + (k > 1 && s.frot !== "none" ? " with " + s.frot + " rotation" : "") + " retained " + k + " " + label.toLowerCase() + (k > 1 ? "s" : "") + " explaining " + Math.round(res.ssl.reduce(function (a, b) { return a + b; }, 0) / p * 100) + "% of variance; KMO = " + fz(kb.kmo) + ", Bartlett's χ²(" + kb.df + ") = " + fz(kb.chi2) + ", <i>p</i> " + pAPA(kb.p);
   return R;
 }
-function opScores(ds, items, meth, k, rot, prefix) {
-  var idx = items.map(function (n) { return idxOf(ds, n); }), X = [], at = [];
-  ds.rows.forEach(function (r, i) { var v = idx.map(function (j) { return r[j]; }); if (v.every(function (x) { return typeof x === "number"; })) { X.push(v); at.push(i); } });
-  var C = S3.corrMatrix(X), Z = X.map(function (r) { return r.map(function (v, j) { return (v - C.mean[j]) / Math.sqrt(C.cov[j][j]); }); }), L;
-  if (meth === "pca") L = S3.pca(C.R).loadings.map(function (r) { return r.slice(0, k); }); else L = S3.paf(C.R, k).loadings;
-  if (k > 1 && rot === "varimax") L = S3.varimax(L, true).loadings; else if (k > 1 && rot === "promax") L = S3.promax(L, 4).loadings;
-  var W = S3.mul(S3.inv(C.R), L), sc = S3.mul(Z, W), names = ds.cols.map(function (c) { return c.name; }), newCols = [];
-  for (var j = 0; j < k; j++) { var nm = uniqueColumnName(prefix + " " + (j + 1), names.concat(newCols.map(function (c) { return c.name; }))); newCols.push({name: nm, type: "number"}); }
-  var byRow = Object.create(null); at.forEach(function (i, t) { byRow[i] = sc[t]; });
-  return {rows: ds.rows.map(function (r, i) { return r.concat(newCols.map(function (_, j) { return byRow[i] ? +byRow[i][j].toPrecision(6) : null; })); }), cols: ds.cols.concat(newCols), changed: at.length};
+function scoreSelection(s) { return {f: s.f || "", fv: s.fv || "", where: clone(s.where || null), keepExcluded: !!s.keepExcluded}; }
+function scoreRows(ds, selection) { var before = A.sel; try { A.sel = selection; return filterRows(ds); } finally { A.sel = before; } }
+function opScores(ds, items, meth, k, rot, prefix, spec) {
+  var selection = spec && spec.selection || scoreSelection(A.sel), rows = scoreRows(ds, selection), idx = items.map(function (n) { return idxOf(ds, n); });
+  if (idx.some(function (j) { return j < 0; })) throw new Error("A fitted score input column is missing.");
+  var fit = spec && spec.fit;
+  if (!fit) {
+    var X = completeMatrix(ds, rows, items).X, result = fitFactor(X, items, {fmeth: meth, fk: String(k), frot: rot});
+    if (result.err) throw new Error(result.err); fit = result.fit;
+  }
+  if (fit.version !== 1 || JSON.stringify(fit.items) !== JSON.stringify(items) || fit.weights.length !== items.length || fit.mean.length !== items.length || fit.sd.length !== items.length || fit.weights.some(function (r) { return r.length !== k || r.some(function (v) { return typeof v !== "number" || !isFinite(v); }); }) || fit.mean.some(function (v) { return typeof v !== "number" || !isFinite(v); }) || fit.sd.some(function (v) { return typeof v !== "number" || !(v > 0 && isFinite(v)); })) throw new Error("The recorded score fit is invalid. Regenerate scores from a valid analysis.");
+  var eligible = new Set(rows), names = ds.cols.map(function (c) { return c.name; }), newCols = [], count = 0;
+  for (var j = 0; j < k; j++) { var name = uniqueColumnName(prefix + " " + (j + 1), names.concat(newCols.map(function (c) { return c.name; }))); newCols.push({name: name, type: "number"}); }
+  var scored = ds.rows.map(function (r) {
+    var values = idx.map(function (j) { return r[j]; }), out = new Array(k).fill(null);
+    if (eligible.has(r) && values.every(function (v) { return typeof v === "number" && isFinite(v); })) {
+      var z = values.map(function (v, j) { return (v - fit.mean[j]) / fit.sd[j]; });
+      out = S3.mul([z], fit.weights)[0];
+      if (out.some(function (v) { return !isFinite(v); })) throw new Error("Scores exceed the numerical range. Rescale the input before scoring.");
+      count++;
+    }
+    return r.concat(out);
+  });
+  return {rows: scored, cols: ds.cols.concat(newCols), changed: count};
 }
 
 // ---- Rater agreement ----
@@ -460,7 +481,11 @@ view.addEventListener("change", function (e) {
 view.addEventListener("click", function (e) {
   var b = e.target.closest("button"); if (!b) return; var d = b.dataset, ds = cur(); if (!ds) return;
   if (d.mscale) { var items = A.sel.items || [], rev = A.sel.rev || []; applyStep(ds, {op: "scale", items: items.slice(), rev: rev.slice(), name: "Scale score", text: "Added the scale score (mean of " + items.length + " items)", unit: "rows scored"}, function () { return opScale(ds, items, rev, "Scale score"); }); return; }
-  if (d.mscores) { var r = LAST_R && LAST_R.summary || {}, it = A.sel.fitems || [], meth = A.sel.fmeth, k = r.factors || 1, rot = A.sel.frot, pre = meth === "pca" ? "Component" : "Factor"; applyStep(ds, {op: "scores", items: it.slice(), meth: meth, k: k, rot: rot, prefix: pre, text: "Added " + k + " " + pre.toLowerCase() + " score column" + (k > 1 ? "s" : ""), unit: "rows scored"}, function () { return opScores(ds, it, meth, k, rot, pre); }); return; }
+  if (d.mscores) {
+    if (!LAST_R || LAST_R.valid === false || !LAST_R.scoreFit) return;
+    var r = LAST_R.summary, it = A.sel.fitems || [], meth = A.sel.fmeth, k = r.factors, rot = A.sel.frot, pre = meth === "pca" ? "Component" : "Factor", spec = {fit: clone(LAST_R.scoreFit), selection: scoreSelection(A.sel)};
+    applyStep(ds, {op: "scores", items: it.slice(), meth: meth, k: k, rot: rot, prefix: pre, fit: spec.fit, selection: spec.selection, text: "Added " + k + " " + pre.toLowerCase() + " score column" + (k > 1 ? "s" : "") + " using the displayed fit and eligible rows", unit: "rows scored"}, function () { return opScores(ds, it, meth, k, rot, pre, spec); }); return;
+  }
   if (d.mirun) { var inputRows = ds.rows, inputCols = ds.cols, inputSel = JSON.stringify(A.sel); b.disabled = true; b.textContent = "Imputing…"; setTimeout(function () { if (cur() !== ds || ds.rows !== inputRows || ds.cols !== inputCols || A.kind !== "missing" || JSON.stringify(A.sel) !== inputSel) return; runMI(ds); render(); refocus("[data-mirun]"); }, 20); return; }
   if (d.misave && MI.res && MI.res.imps) {
     var cols = MI.res.cols.map(function (n) { return {name: n, type: "number"}; }).concat([{name: ".imp", type: "category"}]), rows2 = [];
@@ -472,6 +497,6 @@ view.addEventListener("click", function (e) {
 var _replayStep2 = replayStep;
 replayStep = function (ds, st2) {
   if (st2.op === "scale") return opScale(ds, st2.items, st2.rev || [], st2.name || "Scale score");
-  if (st2.op === "scores") return opScores(ds, st2.items, st2.meth, st2.k, st2.rot, st2.prefix);
+  if (st2.op === "scores") { if (!st2.fit || !st2.selection) throw new Error("Legacy score steps have no recorded fit or row scope. Regenerate them from the intended analysis."); return opScores(ds, st2.items, st2.meth, st2.k, st2.rot, st2.prefix, st2); }
   return _replayStep2(ds, st2);
 };
