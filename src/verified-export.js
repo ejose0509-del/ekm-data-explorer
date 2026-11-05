@@ -9,7 +9,7 @@ function replayProgram(stp, cols) {
   return EKM_METHOD_SOURCE + "\n" + helpers + "\n" +
     "var fs = require('fs'), window = globalThis, spec = " + JSON.stringify(spec) + ";\n" +
     "var input = JSON.parse(fs.readFileSync(0, 'utf8')), A = {sel: spec.sel};\n" +
-    "function filterRows(ds) { return ds.rows; }\n" +
+    "function filterRows(ds) { var j=-1; ds.cols.forEach(function(c,i){if(c.tags&&c.tags.role==='rowtag'&&/tag/i.test(c.name))j=i;}); return A.sel.keepExcluded||j<0 ? ds.rows : ds.rows.filter(function(r){return r[j]!=='Exclude';}); }\n" +
     "var ds = {cols: spec.cols, rows: input.rows}, setup = modelSetup(ds);\n" +
     "if (setup.err) throw new Error(setup.err);\n" +
     "var result = syncCV(setup, A.sel.mm, A.sel.mv);\n" +
@@ -25,7 +25,7 @@ function replayCols(stp) {
   var ds = A.sets.filter(function (d) { return d.id === stp.dsId; })[0] || cur();
   var cols = stp.cols || (ds && ds.cols);
   if (!cols) throw new Error("Open the recorded dataset before exporting a model.");
-  return cols.map(function (c) { return {name: c.name, type: c.type}; });
+  return cols.map(function (c) { return {name: c.name, type: c.type, tags: c.tags || null}; });
 }
 function exactModelScript(stp, lang) {
   var cols = replayCols(stp), code = replayProgram(stp, cols), names = cols.map(function (c) { return c.name; });
@@ -54,7 +54,7 @@ rAnalysis = function (stp) { return stp.kind === "model" ? exactModelScript(stp,
 // Whole workflows replay the actual import/cleaning/analysis implementation instead
 // of approximate translations whose package defaults can change the conclusion.
 function workflowReplayProgram(step) {
-  var spec = {kind: step.kind, sel: step.sel, recipe: step.recipe || [], summary: step.summary, sourceCols: step.sourceCols, fp: step.fp, name: step.dsName};
+  var spec = {kind: step.kind, sel: step.sel, recipe: step.recipe || [], summary: step.summary, sourceCols: step.sourceCols, sourceHeaders: step.sourceHeaders, importOptions: step.importOptions || {decimal: ".", missing: "blank"}, fp: step.fp, replayFp: step.replayFp, replayColumns: step.replayColumns, sourceFp: step.sourceFp, name: step.dsName};
   return 'var fs=require("fs"), window=globalThis, innerWidth=1440, navigator={}, location={hash:""}, history={replaceState:function(){}};\n' +
     'function element(){return {addEventListener:function(){},querySelectorAll:function(){return [];},querySelector:function(){return null;},classList:{add:function(){},remove:function(){}},style:{},setAttribute:function(){},innerHTML:"",contains:function(){return false;}};}\n' +
     'var document={getElementById:element,querySelectorAll:function(){return [];},querySelector:function(){return null;},createElement:element,documentElement:element(),body:element(),addEventListener:function(){}};\n' +
@@ -62,21 +62,22 @@ function workflowReplayProgram(step) {
     'window.addEventListener=function(){};window.scrollTo=function(){};window.matchMedia=function(){return {matches:false};};window.fetch=function(){throw new Error("Network is disabled during replay");};\n' +
     'var EKM_STATS_SOURCE="", EKM_METHOD_SOURCE="";\n' + EKM_REPLAY_SOURCE + '\n' +
     'var spec=' + JSON.stringify(spec) + ', input=JSON.parse(fs.readFileSync(0,"utf8"));\n' +
-    'IMPORT.decimal=".";IMPORT.missing="blank";\n' +
+    'if([".",","].indexOf(spec.importOptions.decimal)<0||["blank","tokens"].indexOf(spec.importOptions.missing)<0)throw new Error("Invalid recorded import settings");IMPORT.decimal=spec.importOptions.decimal;IMPORT.missing=spec.importOptions.missing;\n' +
     'var ds=makeSet(spec.name,input.header,input.body);A.sets=[ds];A.cur=ds.id;PROJECT.remember=false;\n' +
-    'if(spec.sourceCols){if(JSON.stringify(input.header)!==JSON.stringify(spec.sourceCols.map(function(c){return c.name;})))throw new Error("Original data columns differ from recorded source");ds.cols=spec.sourceCols;ds.rows=input.body.map(function(r){return ds.cols.map(function(c,j){var v=r[j];if(isMissing(v))return null;if(isNum(c)){var n=parseNum(v);if(typeof n!=="number")throw new Error("Invalid numeric source value in "+c.name);return n;}return String(v);});});}\n' +
+    'if(spec.sourceCols){if(JSON.stringify(input.header)!==JSON.stringify(spec.sourceHeaders||spec.sourceCols.map(function(c){return c.name;})))throw new Error("Original data columns differ from recorded source");ds.cols=spec.sourceCols;ds.rows=input.body.map(function(r){return ds.cols.map(function(c,j){if(r.length!==ds.cols.length)throw new Error("Source row width differs from recorded schema");var v=importedValue(r[j],spec.importOptions);if(isMissing(v))return null;if(isNum(c)){var n=parseNum(v);if(typeof n!=="number"||!isFinite(n))throw new Error("Invalid numeric source value in "+c.name);return n;}return String(v);});});}\n' +
+    'if(spec.sourceFp&&dataFingerprint(ds)!==spec.sourceFp)throw new Error("Original data values differ from recorded source");\n' +
     'spec.recipe.forEach(function(step){var result=replayStep(ds,step);if(!result||!result.rows)throw new Error("Cannot replay data step: "+step.op);ds.rows=result.rows;if(result.cols)ds.cols=result.cols;ds.recipe=(ds.recipe||[]).concat([step]);});\n' +
-    'if(spec.fp&&dataFingerprint(ds)!==spec.fp)throw new Error("Working data differ from the recorded version");\n' +
+    'verifyWorkingReplay(ds,spec);\n' +
     'A.kind=spec.kind;A.sel=spec.sel;MOD.force=true;var result=runAnalysis(ds);if(result.valid===false||!result.reading.length)throw new Error(result.reason||"No valid result");\n' +
     'var differences=[];sameNumbers(spec.summary,result.summary,"",differences);if(differences.length)throw new Error("Replay differs from recorded result: "+differences.join("; "));\n' +
     'var output={verified:true,kind:spec.kind,summary:result.summary};if(spec.kind==="missing"&&(A.sel.mix||[]).length){runMI(ds);output.imputation=MI.res;}\n' +
     'console.log(JSON.stringify(output));\n';
 }
 wfScript = function (lang) {
-  var py = lang === "py", out = [py ? '# EKM exact workflow replay. Python 3 standard library + Node.js on PATH.\nimport csv, json, subprocess, tempfile, os' : '# EKM exact workflow replay. R + jsonlite + Node.js on PATH.\nlibrary(jsonlite)'];
+  var py = lang === "py", out = [py ? '# EKM verified workflow replay. Python 3 standard library + Node.js on PATH.\nimport csv, json, subprocess, tempfile, os' : '# EKM verified workflow replay. R + jsonlite + Node.js on PATH.\nlibrary(jsonlite)'];
   WF.steps.forEach(function (step, i) {
     var engine = workflowReplayProgram(step), filename = slug(step.dsName) + '-original.csv';
-    out.push('# Step ' + (i + 1) + ': ' + String(step.test).replace(/[\r\n]/g, ' ') + '\n# Import, cleaning, filters, validation settings and seeds are replayed; changed results fail explicitly.');
+    out.push('# Step ' + (i + 1) + ': ' + String(step.test).replace(/[\r\n]/g, ' ') + '\n# Original inputs are fingerprinted exactly. New computed numeric columns are checked cell by cell with relative tolerance 1e-12 + absolute 1e-300; all other cells are fingerprinted exactly. Summaries have relative/absolute 1e-9 checks. Changed results fail explicitly.');
     if (py) out.push('_engine = json.loads(' + replayLiteral(engine) + ')' ,
       'with open(' + q(filename) + ', newline="", encoding="utf-8-sig") as _f:\n    _table = list(csv.reader(_f))',
       '_wire = json.dumps({"header": _table[0], "body": _table[1:]}, allow_nan=False)',

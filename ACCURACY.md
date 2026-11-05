@@ -9,11 +9,12 @@ rounding done before import cannot be recovered. Numerical tolerances are explic
 | E1 | Welch cancellation with a large common baseline | Verified for the acceptance cases below | Decimal moments + SciPy tails and CI; offset/scale/order cases; actual import, analysis and exported replay |
 | E2 | Refresh loses metadata, exclusions, source fidelity and rollback | Verified for the acceptance cases below | Reordered stable IDs, no-ID refusal, changed schema, replay failure rollback, latest-request handling, original CSV and project round-trip |
 | E3 | PCA/factor score columns refit excluded data | Verified for the acceptance cases below | Same fitted parameters and eligible rows as displayed; scores and replay verified |
-| E4 | Prediction recipes omit validation context; duplicate source headers fail replay | Pending | Gap/filter preservation, original-header mapping and generated workflow execution |
+| E4 | Prediction recipes omit validation context; duplicate source headers fail replay | Verified for the acceptance cases below | Gap/filter preservation, original-header mapping and generated workflow execution |
 | E5 | Sensitivity lost in append and derived columns | Pending | Conservative metadata propagation, CSV exclusion and project persistence |
 | E6 | Weighted agreement and ordinal interpretation mismatch | Pending | Raw vs weighted agreement explicitly separated; headline uses selected primary statistic |
 | E7 | Plan invalid input and lost settings | Pending | Domain validation, no invalid result/write-up, project save/open and reload |
 | E8 | Rare-class CV averages undefined folds | Pending | Validation uses a feasible split or refuses it explicitly; valid fold counts match headline |
+| E9 | Premature rounding in cleaning, formulas and scale columns (found during this repair) | Pending | Stored transformations retain binary64 precision; each changed operation has an independent numerical case |
 
 ## E1 acceptance record
 
@@ -84,3 +85,36 @@ fit/scope refuse replay and require regeneration from the intended analysis.
 - Scope: fitted-score integrity for the listed datasets and ordinary finite ranges.
   The displayed oblique-factor variance interpretation remains part of pending E6;
   this entry does not certify every factor-analysis narrative or extreme-scale fit.
+
+## E4 acceptance record
+
+New prediction recipes record an isolated copy of the complete model selection,
+including gap, filters and exclusion policy; replay does not inherit ambient state.
+Legacy recipes missing this context refuse replay. Model defaults are assigned before
+first setup; exclusion settings are part of the model cache key. Prediction columns
+retain the computed precision. Project restoration retains numeric/boolean selections
+instead of turning false into a truthy string.
+
+Workflow records retain original header order (including duplicates/blanks), source
+column tags and import decimal/missing rules. Original-data downloads use the raw
+source values/headers and explicitly identify themselves as unredacted.
+
+- `node tests/check_prediction_replay.js`: 10 groups at 1440px/400px. Time gap 5,
+  category/condition filters, exclusions, grouped and binary logistic prediction
+  columns replay exactly within the browser under different ambient selections.
+  Actual downloaded Python/Node workflows execute after project round-trip, including
+  duplicate/blank headers and decimal-comma/missing-token imports. Changed source
+  headers and source values are refused.
+- Browser vs Node logistic probabilities differed by 1.1e-16 in four rows of this
+  fixture. Original data and other working cells retain exact fingerprints. New
+  computed numeric columns additionally have recorded references (14-digit transport)
+  and cellwise comparison with relative tolerance 1e-12 + absolute 1e-300. Stored
+  working values are never rounded for this comparison. FNV is an accidental-change
+  detector, not a cryptographic identity certificate. Summary comparison remains
+  relative/absolute 1e-9; successful replay is not independent proof of an estimator.
+- Final `check_trust.js`: 26 groups pass, including all 17 analysis kinds in Node
+  and actual Python model exports. An earlier run failed its UI range-message
+  assertion; the next two runs passed without a range-code change. This is an
+  unresolved intermittent test/interaction observation, not a repaired range defect.
+- `check_score_integrity.js` also passes; `check_stats.py` passes its fixed and strict
+  gates. R script execution has not been verified (Rscript is unavailable).

@@ -130,7 +130,7 @@ function crossValidate(st, model, scheme, done, progress) {
   step();
 }
 function syncCV(st, model, scheme) { var r = null; var _st = setTimeout; try { window.setTimeout = function (f) { f(); }; crossValidate(st, model, scheme, function (x) { r = x; }); } finally { window.setTimeout = _st; } return r; }
-function modelCacheKey(ds, extra) { var s = A.sel; return JSON.stringify([ds.id, ds.rows.length, s.mt, s.mp, s.mm, s.mv, s.mvg, s.mvt, s.mpos, s.mdepth, s.mgap, dataVersion(ds), s.f, s.fv, A.sel.where || null, extra || ""]); }
+function modelCacheKey(ds, extra) { var s = A.sel; return JSON.stringify([ds.id, ds.rows.length, s.mt, s.mp, s.mm, s.mv, s.mvg, s.mvt, s.mpos, s.mdepth, s.mgap, !!s.keepExcluded, dataVersion(ds), s.f, s.fv, A.sel.where || null, extra || ""]); }
 function costOf(st, model) { var cells = st.y.length * Math.max(1, st.X[0] ? st.X[0].length : 1); return model === "forest" ? cells * 40 : model === "tree" ? cells * 2 : ["ridge", "lasso", "enet", "logistic"].indexOf(model) >= 0 ? cells * 3 : cells; }
 
 function runModel(ds) {
@@ -139,9 +139,11 @@ function runModel(ds) {
   if (idxOf(ds, s.mt) < 0) s.mt = (ds.cols.filter(function (c) { return isNum(c) && !likelyId(ds, c); })[0] || cand[0]).name;
   if (!Array.isArray(s.mp)) s.mp = cand.filter(function (c) { return c.name !== s.mt && !likelyId(ds, c); }).slice(0, 6).map(function (c) { return c.name; });
   s.mv = s.mv || "k5";
+  var orderCols = ds.cols.filter(function (c) { return c.type !== "empty"; }), grpCols = ds.cols.filter(function (c) { return c.type === "category" || c.type === "text" || c.type === "year"; });
+  if (s.mv === "group" && !s.mvg && grpCols.length) s.mvg = grpCols[0].name;
+  if (s.mv === "time" && !s.mvt && orderCols.length) s.mvt = (ds.cols.filter(function (c) { return c.type === "date" || c.type === "year"; })[0] || orderCols[0]).name;
   var st = modelSetup(ds), list = MODELS[st.task];
   if (!s.mm || !list.some(function (m) { return m[0] === s.mm; })) s.mm = list[0][0];
-  var orderCols = ds.cols.filter(function (c) { return c.type !== "empty"; }), grpCols = ds.cols.filter(function (c) { return c.type === "category" || c.type === "text" || c.type === "year"; });
   R.controls = pick("mt", "Predict", cand, s.mt) + choice("mm", "Model", list, s.mm) + choice("mv", "Validation", SCHEMES, s.mv) +
     (s.mv === "group" && grpCols.length ? pick("mvg", "Groups", grpCols, s.mvg || (s.mvg = grpCols[0].name)) : "") + (s.mv === "time" && orderCols.length ? pick("mvt", "Time order", orderCols, s.mvt || (s.mvt = (ds.cols.filter(function (c) { return c.type === "date" || c.type === "year"; })[0] || orderCols[0]).name)) : "") +
     (st.task === "cls" ? choice("mpos", "Positive class", st.classes.slice().reverse().map(function (c) { return [c, c]; }), s.mpos) : "") +
@@ -242,20 +244,23 @@ caption = function (ds) { if (A.kind !== "model") return _caption4(ds); var st =
 var _localFacts2 = localFacts;
 localFacts = function (R) { var b = _localFacts2(R), s = R.summary || {}; if (R.kind === "model") { if (localNumber(s.cv_mean)) { b.facts.push("Cross-validated " + s.metric + ": " + f3(s.cv_mean) + "."); b.effects.push(s.metric); b.effectFacts.push(s.metric + ": " + f3(s.cv_mean) + "."); } if (localNumber(s.cv_sd)) b.facts.push("Standard deviation across folds: " + f3(s.cv_sd) + "."); if (localNumber(s.calibration_slope)) b.facts.push("Calibration slope: " + f3(s.calibration_slope) + "."); } return b; };
 function opPredict(ds, spec) {
-  var save = JSON.stringify(A.sel); Object.assign(A.sel, spec.sel);
+  var save = A.sel; A.sel = clone(spec.sel);
   try {
     var st = modelSetup(ds), r = syncCV(st, spec.sel.mm, spec.sel.mv); if (!r || r.err) throw new Error((r && r.err) || "Predictions could not be made.");
     var col = new Array(ds.rows.length).fill(null), at = new Map(); ds.rows.forEach(function (rw, i) { at.set(rw, i); });
-    r.oofIdx.forEach(function (t) { var v = r.oof[t], i = at.get(st.rows[st.keep[t]]); if (i != null) col[i] = st.task === "reg" ? +v.toPrecision(8) : st.task === "cls" ? +v.toFixed(4) : st.classes[v.indexOf(amax(v))]; });
+    r.oofIdx.forEach(function (t) { var v = r.oof[t], i = at.get(st.rows[st.keep[t]]); if (i != null) col[i] = st.task === "multi" ? st.classes[v.indexOf(amax(v))] : v; });
     var name = uniqueColumnName(spec.name, ds.cols.map(function (c) { return c.name; })), n = col.filter(function (v) { return v != null; }).length;
     return {rows: ds.rows.map(function (rw, i) { return rw.concat([col[i]]); }), cols: ds.cols.concat([{name: name, type: st.task === "multi" ? "category" : "number"}]), changed: n};
-  } finally { A.sel = JSON.parse(save); }
+  } finally { A.sel = save; }
 }
 view.addEventListener("click", function (e) {
   var b = e.target.closest("button"); if (!b) return; var d = b.dataset, ds = cur(); if (!ds || A.kind !== "model") return;
   if (d.mtrain) { MOD.key = ""; trainAsync(ds, false); return; }
   if (d.mcompare) { trainAsync(ds, true); return; }
-  if (d.mpredcol) { var sel = {mt: A.sel.mt, mp: (A.sel.mp || []).slice(), mm: A.sel.mm, mv: A.sel.mv, mvg: A.sel.mvg, mvt: A.sel.mvt, mpos: A.sel.mpos, mdepth: A.sel.mdepth}, st = modelSetup(ds), nm = "Predicted " + A.sel.mt + (st.task === "cls" ? " (P = " + A.sel.mpos + ")" : ""); applyStep(ds, {op: "predict", sel: sel, name: nm, text: "Added out-of-fold predictions of " + A.sel.mt, unit: "rows predicted"}, function () { return opPredict(ds, {sel: sel, name: nm}); }); }
+  if (d.mpredcol) { var st = modelSetup(ds), sel = clone(A.sel), nm = "Predicted " + A.sel.mt + (st.task === "cls" ? " (P = " + A.sel.mpos + ")" : "");
+    sel.mgap = sel.mgap || "0"; sel.keepExcluded = !!sel.keepExcluded; sel.f = sel.f || ""; sel.fv = sel.fv || ""; sel.where = sel.where || null;
+    applyStep(ds, {op: "predict", contextVersion: 1, sel: sel, name: nm, text: "Added out-of-fold predictions of " + A.sel.mt, unit: "rows predicted"}, function () { return opPredict(ds, {sel: sel, name: nm}); }); }
+
 });
 var _replayStep3 = replayStep;
-replayStep = function (ds, st2) { if (st2.op === "predict") return opPredict(ds, {sel: st2.sel, name: st2.name}); return _replayStep3(ds, st2); };
+replayStep = function (ds, st2) { if (st2.op === "predict") { if (st2.contextVersion !== 1) throw new Error("Legacy prediction steps omit validation context. Regenerate them with the intended filters and time gap."); return opPredict(ds, {sel: st2.sel, name: st2.name}); } return _replayStep3(ds, st2); };

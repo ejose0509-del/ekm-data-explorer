@@ -4,10 +4,10 @@ var AUD = {log: [], msg: "", verified: null};
 
 // Data fingerprint: FNV-1a over column names, types and every value
 function fnv(str, h) { h = h == null ? 0x811c9dc5 : h; for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h >>> 0; }
-function dataFingerprint(ds) {
+function dataFingerprint(ds, omitted) {
   if (!ds || !ds.rows) return "";
   var h = fnv(JSON.stringify(ds.cols.map(function (c) { return [c.name, c.type]; })));
-  for (var i = 0; i < ds.rows.length; i++) h = fnv(JSON.stringify(ds.rows[i]), h);
+  for (var i = 0; i < ds.rows.length; i++) h = fnv(JSON.stringify(omitted ? ds.rows[i].map(function (v, j) { return omitted.indexOf(j) >= 0 ? null : v; }) : ds.rows[i]), h);
   return ("00000000" + h.toString(16)).slice(-8) + "·" + ds.rows.length + "×" + ds.cols.length;
 }
 function clone(v) { return v == null ? v : JSON.parse(JSON.stringify(v)); }
@@ -41,9 +41,26 @@ if (typeof saveFile === "function") { var _saveFileA = saveFile; saveFile = func
 if (typeof nativeDownload === "function") { var _nativeA = nativeDownload; nativeDownload = function (filename, data) { auditLog("Downloaded file", cur(), filename); return _nativeA(filename, data); }; }
 
 // ---- Workflow steps ----
+function replayColumns(ds, source) {
+  var names = source.cols.map(function (c) { return c.name; }), out = [];
+  ds.cols.forEach(function (c, j) { if (isNum(c) && names.indexOf(c.name) < 0) out.push({index: j, name: c.name, values: ds.rows.map(function (r) { return r[j] == null ? null : +r[j].toPrecision(14); })}); });
+  return out;
+}
+function verifyWorkingReplay(ds, spec) {
+  if (!spec.fp || dataFingerprint(ds) === spec.fp) return;
+  var refs = spec.replayColumns || [], omitted = refs.map(function (c) { return c.index; });
+  if (!refs.length || !spec.replayFp || dataFingerprint(ds, omitted) !== spec.replayFp) throw new Error("Working data differ from the recorded version");
+  refs.forEach(function (c) {
+    if (!ds.cols[c.index] || ds.cols[c.index].name !== c.name || c.values.length !== ds.rows.length) throw new Error("Computed column schema differs from the recorded version");
+    c.values.forEach(function (expected, i) { var actual = ds.rows[i][c.index];
+      if (expected == null ? actual !== null : typeof actual !== "number" || !isFinite(actual) || Math.abs(actual - expected) > 1e-12 * Math.max(Math.abs(actual), Math.abs(expected)) + 1e-300) throw new Error("Computed value differs from the recorded version at row " + (i + 1) + ", column " + c.name);
+    });
+  });
+}
 function wfAdd(ds, R) {
   if (!R || R.valid === false || !R.reading.length) { XP.msg = "Only a valid result can be added to the workflow."; render(); return; }
-  WF.steps.push({id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), at: new Date().toISOString(), dsId: ds.id, dsName: ds.name, fp: dataFingerprint(ds), recipe: clone(ds.recipe || []), kind: A.kind, cols: clone(ds.cols), sourceCols: clone((E.orig[ds.id] || ds).cols), sel: clone(A.sel), summary: clone(R.summary), title: caption(ds), test: R.summary.test || KIND_HELP[A.kind].split(" (")[0]});
+  var source = E.orig[ds.id] || ds, refs = replayColumns(ds, source);
+  WF.steps.push({id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), at: new Date().toISOString(), dsId: ds.id, dsName: ds.name, fp: dataFingerprint(ds), replayFp: dataFingerprint(ds, refs.map(function (c) { return c.index; })), replayColumns: refs, sourceFp: dataFingerprint(E.orig[ds.id] || ds), recipe: clone(ds.recipe || []), kind: A.kind, cols: clone(ds.cols), sourceCols: clone((E.orig[ds.id] || ds).cols), sourceHeaders: clone(ds.sourceHeaders || (E.orig[ds.id] || ds).cols.map(function (c) { return c.name; })), importOptions: clone(ds.importOptions || {decimal: ".", missing: "blank"}), sel: clone(A.sel), summary: clone(R.summary), title: caption(ds), test: R.summary.test || KIND_HELP[A.kind].split(" (")[0]});
   WF.results = null; auditLog("Recorded analysis", ds, R.summary.test || A.kind);
   XP.msg = "Recorded in the workflow (" + WF.steps.length + " step" + (WF.steps.length === 1 ? "" : "s") + "). See Write-up → Reproducible workflow."; render();
 }
@@ -237,7 +254,7 @@ if (typeof projectSnapshot === "function") {
         var v = sel[k];
         if (ARRAY_SEL.indexOf(k) >= 0) { if (!Array.isArray(v) || v.some(function (x) { return typeof x !== "string"; })) throw new Error("Invalid analysis selection: " + k + "."); extra[k] = v.slice(); }
         else if (k === "where") { if (v != null) { if (typeof v !== "object" || !Array.isArray(v.conds) || v.conds.some(function (c) { return !c || typeof c.col !== "string" || typeof c.op !== "string"; })) throw new Error("Invalid filter conditions."); extra.where = {any: !!v.any, conds: v.conds.map(function (c) { return {col: c.col, op: c.op, v: String(c.v == null ? "" : c.v), v2: String(c.v2 == null ? "" : c.v2)}; })}; } }
-        else if (typeof v === "number" || typeof v === "boolean") copy[k] = String(v);
+        else if (typeof v === "number" || typeof v === "boolean") { copy[k] = String(v); extra[k] = v; }
         else copy[k] = v;
       });
       p = Object.assign({}, p, {selection: copy});
@@ -245,7 +262,7 @@ if (typeof projectSnapshot === "function") {
     var out = _validA(p); Object.assign(out.selection, extra);
     var metaById = Object.create(null); (Array.isArray(p.meta) ? p.meta : []).forEach(function (m) { if (m && typeof m.id === "string" && Array.isArray(m.cols)) metaById[m.id] = m; });
     out.datasets.forEach(function (ds) { var m = metaById[ds.id]; if (!m) return; ds.cols = ds.cols.map(function (c) { var mc = m.cols.filter(function (x) { return x && x.name === c.name; })[0]; if (!mc) return c; var nc = Object.assign({}, c); if (typeof mc.label === "string" && mc.label) nc.label = mc.label.slice(0, 80); if (typeof mc.unit === "string" && mc.unit) nc.unit = mc.unit.slice(0, 24); if (mc.values && typeof mc.values === "object") { var vv = {}; Object.keys(mc.values).slice(0, 200).forEach(function (k) { if (typeof mc.values[k] === "string") vv[String(k)] = mc.values[k].slice(0, 80); }); nc.values = vv; } return nc; }); if (m.source && typeof m.source === "object" && typeof m.source.kind === "string") ds.sourceSpec = {kind: m.source.kind, url: typeof m.source.url === "string" ? m.source.url : "", path: typeof m.source.path === "string" ? m.source.path : "", query: typeof m.source.query === "string" ? m.source.query : ""}; });
-    out.workflow = Array.isArray(p.workflow) ? p.workflow.filter(function (s) { return s && typeof s.kind === "string" && typeof s.dsName === "string" && s.sel && typeof s.sel === "object"; }).map(function (s) { return {id: String(s.id || ""), at: String(s.at || ""), dsId: String(s.dsId || ""), dsName: s.dsName, fp: String(s.fp || ""), recipe: Array.isArray(s.recipe) ? s.recipe : [], kind: s.kind, sourceCols: Array.isArray(s.sourceCols) ? s.sourceCols.map(function (c) { if (!c || typeof c.name !== "string" || ["number","year","date","category","text","empty"].indexOf(c.type) < 0) throw new Error("Invalid source column."); return {name: c.name, type: c.type}; }) : undefined, cols: Array.isArray(s.cols) ? s.cols.map(function (c) { if (!c || typeof c.name !== "string" || ["number","year","date","category","text","empty"].indexOf(c.type) < 0) throw new Error("Invalid recorded column."); return {name: c.name, type: c.type}; }) : undefined, sel: s.sel, summary: s.summary && typeof s.summary === "object" ? s.summary : {}, title: esc(String(s.title || "")), test: esc(String(s.test || ""))}; }) : [];
+    out.workflow = Array.isArray(p.workflow) ? p.workflow.filter(function (s) { return s && typeof s.kind === "string" && typeof s.dsName === "string" && s.sel && typeof s.sel === "object"; }).map(function (s) { return {id: String(s.id || ""), at: String(s.at || ""), dsId: String(s.dsId || ""), dsName: s.dsName, fp: String(s.fp || ""), replayFp: String(s.replayFp || ""), replayColumns: Array.isArray(s.replayColumns) ? s.replayColumns.map(function (c) { if (!c || !Number.isInteger(c.index) || c.index < 0 || typeof c.name !== "string" || !Array.isArray(c.values) || c.values.some(function (v) { return v !== null && (typeof v !== "number" || !isFinite(v)); })) throw new Error("Invalid computed-column reference."); return c; }) : [], sourceFp: String(s.sourceFp || ""), recipe: Array.isArray(s.recipe) ? s.recipe : [], kind: s.kind, sourceHeaders: Array.isArray(s.sourceHeaders) ? s.sourceHeaders.map(function (h) { if (typeof h !== "string") throw new Error("Invalid original source header."); return h; }) : null, importOptions: s.importOptions || null, sourceCols: Array.isArray(s.sourceCols) ? s.sourceCols.map(function (c) { if (!c || typeof c.name !== "string" || ["number","year","date","category","text","empty"].indexOf(c.type) < 0) throw new Error("Invalid source column."); return {name: c.name, type: c.type, tags: c.tags ? cleanTags(c.tags) : null}; }) : undefined, cols: Array.isArray(s.cols) ? s.cols.map(function (c) { if (!c || typeof c.name !== "string" || ["number","year","date","category","text","empty"].indexOf(c.type) < 0) throw new Error("Invalid recorded column."); return {name: c.name, type: c.type, tags: c.tags ? cleanTags(c.tags) : null}; }) : undefined, sel: s.sel, summary: s.summary && typeof s.summary === "object" ? s.summary : {}, title: esc(String(s.title || "")), test: esc(String(s.test || ""))}; }) : [];
     out.audit = Array.isArray(p.audit) ? p.audit.filter(function (e) { return e && typeof e.hash === "string"; }).map(function (e) { return {at: String(e.at), who: String(e.who), action: String(e.action), dataset: String(e.dataset), fp: String(e.fp), detail: String(e.detail), prev: String(e.prev), hash: String(e.hash)}; }) : [];
     return out;
   };
@@ -265,7 +282,7 @@ function workflowCard() {
       ' <button type="button" class="linkbtn" data-wfopen="' + i + '">Open</button> <button type="button" class="linkbtn" data-wfrm="' + i + '">Remove</button></li>';
   }).join("") + "</ol>" : '<p class="count">Press <b>Add to workflow</b> under any result. Each step records the dataset version, its cleaning steps and the exact settings, so the whole sequence can be rerun and checked, or exported as Python or R code.</p>';
   return '<section class="card" aria-labelledby="wf-h"><h2 id="wf-h">Reproducible workflow</h2>' + list + (WF.msg ? '<p class="how" role="status">' + esc(WF.msg) + "</p>" : "") +
-    '<div class="slot">' + (steps.length ? '<button type="button" class="btn btn-primary" data-wfrun="1">Rerun and check</button><button type="button" class="btn" data-wfexp="py">Python script</button><button type="button" class="btn" data-wfexp="r">R script</button><button type="button" class="btn" data-wfexp="json">Workflow file</button><button type="button" class="btn" data-wfdata="1">Original data (CSV)</button>' : "") +
+    '<div class="slot">' + (steps.length ? '<button type="button" class="btn btn-primary" data-wfrun="1">Rerun and check</button><button type="button" class="btn" data-wfexp="py">Python script</button><button type="button" class="btn" data-wfexp="r">R script</button><button type="button" class="btn" data-wfexp="json">Workflow file</button><button type="button" class="btn" data-wfdata="1">Original data (CSV, unredacted)</button>' : "") +
     '<label class="btn" for="wffile">Load a workflow file</label><input type="file" id="wffile" accept=".json" class="sr-file"></div></section>';
 }
 function auditCard() {
@@ -299,8 +316,8 @@ view.addEventListener("click", function (e) {
   }
   if (d.wfdata) {
     var seen = Object.create(null);
-    WF.steps.forEach(function (s3) { if (seen[s3.dsId]) return; seen[s3.dsId] = 1; var ds3 = A.sets.filter(function (x) { return x.id === s3.dsId; })[0]; if (!ds3) return; var o = E.orig[ds3.id] || ds3; saveFile(slug(s3.dsName) + "-original.csv", csvText({cols: o.cols, rows: o.rows})); });
-    WF.msg = "Saved the data as it was before any cleaning steps. Keep it next to the script."; render(); return;
+    WF.steps.forEach(function (s3) { if (seen[s3.dsId]) return; seen[s3.dsId] = 1; var ds3 = A.sets.filter(function (x) { return x.id === s3.dsId; })[0]; if (!ds3) return; saveFile(slug(s3.dsName) + "-original.csv", originalCSV(ds3)); });
+    WF.msg = "Saved unmodified source values and headers, including all sensitive original columns. Keep the CSV beside the script."; render(); return;
   }
   if (d.auver) { AUD.verified = auditVerify(); render(); return; }
   if (d.auexp) { saveFile("ekm-audit-" + today() + ".csv", "time,who,action,dataset,data fingerprint,detail,previous hash,hash\n" + AUD.log.map(function (e) { return [e.at, e.who, e.action, e.dataset, e.fp, e.detail, e.prev, e.hash].map(function (v) { v = String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(","); }).join("\n") + "\n"); return; }

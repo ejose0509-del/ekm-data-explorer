@@ -55,9 +55,13 @@ VIEWS.data = function () {
   if (ds && ds.rawRows) h += '<section class="card"><h2>Original values</h2><p class="count">Unmodified imported values. Cleaning and type changes affect the working table; this source copy remains unchanged. Its download includes ALL original columns, including sensitive values, for faithful backup and workflow replay.</p><button class="btn" type="button" data-source-csv="1">Original data (.csv, unredacted)</button><details><summary>Preview original rows</summary><div class="tablewrap"><table><thead><tr>' + ds.rawColumns.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' + ds.rawRows.slice(0, 12).map(function (r) { return '<tr>' + r.map(function (v) { return '<td>' + esc(v) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div></details></section>';
   return h;
 };
+function originalCSV(ds) {
+  var source = ds.rawRows ? {cols: (ds.sourceHeaders || ds.rawColumns).map(function (name) { return {name: name}; }), rows: ds.rawRows} : E.orig[ds.id] || ds;
+  return (typeof _csvTextT === "function" ? _csvTextT : csvText)(source);
+}
 view.addEventListener('change', function (e) { if (e.target.id === 'import-decimal') IMPORT.decimal = e.target.value; if (e.target.id === 'import-missing') IMPORT.missing = e.target.value; });
 view.addEventListener('click', function (e) {
   var b = e.target.closest('button'); if (!b) return;
-  if (b.dataset.sourceCsv && cur()) saveFile(slug(cur().name) + '-original.csv', _csvTextT({cols: (cur().sourceHeaders || cur().rawColumns).map(function (n) { return {name:n}; }), rows: cur().rawRows}));
+  if (b.dataset.sourceCsv && cur()) saveFile(slug(cur().name) + '-original.csv', originalCSV(cur()));
   if (b.dataset.importSheet && IMPORT.workbook) { try { var w = IMPORT.workbook, i = +document.getElementById('import-sheet').value, aoa = w.reader.utils.sheet_to_json(w.book.Sheets[w.names[i]], {header:1, raw:true, defval:''}); aoa = aoa.filter(function(r){return r.some(function(v){return String(v).trim()!=='';});}); var ds = makeSet(w.name+' ('+w.names[i]+')',aoa[0]||[],aoa.slice(1)); if (!ds.rows.length) throw new Error('This worksheet has no data rows.'); A.sets.unshift(ds); pickSet(ds.id); saveSet(ds); render(); } catch(err) { A.msg=err.message; render(); } }
 });
