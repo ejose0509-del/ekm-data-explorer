@@ -83,8 +83,15 @@ var S = (function () {
   }
   function ttest(a, b) {   // Welch
     a = nums(a); b = nums(b);
-    var scale = 0; a.concat(b).forEach(function (v) { scale = Math.max(scale, Math.abs(v)); }); scale = scale || 1;
-    var A = describe(a.map(function (v) { return v / scale; })), B = describe(b.map(function (v) { return v / scale; })), va = A.sd * A.sd / A.n, vb = B.sd * B.sd / B.n, t = (A.mean - B.mean) / Math.sqrt(va + vb);
+    // Subtract a common origin BEFORE scaling. Scaling absolute values first
+    // destroys small mean differences on a large shared baseline (e.g. 1e15).
+    // Half-summing the endpoints keeps the origin and centered differences finite
+    // even when the full min-to-max span would overflow binary64.
+    var low = Infinity, high = -Infinity;
+    a.concat(b).forEach(function (v) { low = Math.min(low, v); high = Math.max(high, v); });
+    var origin = low / 2 + high / 2, scale = 0;
+    a.concat(b).forEach(function (v) { scale = Math.max(scale, Math.abs(v - origin)); }); scale = scale || 1;
+    var A = describe(a.map(function (v) { return (v - origin) / scale; })), B = describe(b.map(function (v) { return (v - origin) / scale; })), va = A.sd * A.sd / A.n, vb = B.sd * B.sd / B.n, t = (A.mean - B.mean) / Math.sqrt(va + vb);
     var df = (va + vb) * (va + vb) / (va * va / (A.n - 1) + vb * vb / (B.n - 1)), sp = Math.sqrt(((A.n - 1) * A.sd * A.sd + (B.n - 1) * B.sd * B.sd) / (A.n + B.n - 2));
     var tc = tCrit(df), diff = A.mean - B.mean, se = Math.sqrt(va + vb);
     return {t: t, df: df, p: pT(t, df), d: diff / sp, diff: diff * scale, ciLo: (diff - tc * se) * scale, ciHi: (diff + tc * se) * scale, A: describe(a), B: describe(b)};

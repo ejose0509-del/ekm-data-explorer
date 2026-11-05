@@ -71,6 +71,11 @@ for name in ['huge','tiny']:
 missing_x = np.array([1.,2.,np.nan,4.,5.,6.,7.,8.,9.,10.,11.,12.]); missing_y = np.array([3.,np.nan,4.,1.,7.,6.,np.nan,9.,8.,10.,11.,12.])
 mask = np.isfinite(missing_x) & np.isfinite(missing_y); missing_rank = st.spearmanr(missing_x[mask], missing_y[mask])
 ref['discover_missing_r'] = missing_rank.statistic; ref['discover_missing_p'] = missing_rank.pvalue
+baseline_fixture=json.load(open(os.path.join(HERE,'fixtures/welch_baseline.json')))
+ba=np.array(baseline_fixture['a'],dtype=float);bb_=np.array(baseline_fixture['b'],dtype=float)
+bt=st.ttest_ind(ba,bb_,equal_var=False);bci=bt.confidence_interval()
+bd=(ba.mean()-bb_.mean())/np.sqrt(((len(ba)-1)*ba.var(ddof=1)+(len(bb_)-1)*bb_.var(ddof=1))/(len(ba)+len(bb_)-2))
+for key,value in dict(t=bt.statistic,df=bt.df,p=bt.pvalue,diff=ba.mean()-bb_.mean(),lo=bci.low,hi=bci.high,d=bd).items():ref['baseline_welch_'+key]=value
 bad = 0
 for k, v in ref.items():
     actual=ekm.get(k)
@@ -78,4 +83,6 @@ for k, v in ref.items():
     bad += not ok
     print(('PASS ' if ok else 'FAIL ') + k.ljust(24), str(actual) if actual is None else '%.10g' % actual, '%.10g' % float(v))
 print('\n%d of %d match SciPy' % (len(ref) - bad, len(ref)))
+if not bad:
+    subprocess.run([sys.executable,os.path.join(HERE,'check_welch_accuracy.py')],check=True)
 sys.exit(1 if bad else 0)

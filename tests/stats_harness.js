@@ -1,7 +1,13 @@
 // Runs EKM's statistics on fixed data and prints JSON. Used by check_stats.py.
 const fs = require("fs"), path = require("path");
-const src = (f) => fs.readFileSync(path.join(__dirname, "..", "src", f), "utf8");
+const src = (f) => fs.readFileSync(f === "stats.js" && process.env.EKM_STATS_FILE ? process.env.EKM_STATS_FILE : path.join(__dirname, "..", "src", f), "utf8");
 eval(src("stats.js") + src("stats2.js") + ";globalThis.S=S;globalThis.S2=S2;");
+// Batched, independent reference cases supplied by the Python accuracy gate.
+if (process.argv.includes('--welch-cases')) {
+ const cases = JSON.parse(fs.readFileSync(0,'utf8'));
+ fs.writeFileSync(1, JSON.stringify(cases.map(c => {const t=S.ttest(c.a,c.b), scale=c.unit || 1;return {t:t.t,df:t.df,p:t.p,d:t.d,diff:t.diff/scale,lo:t.ciLo/scale,hi:t.ciHi/scale};})));
+ process.exit(0);
+}
 const a = [5.1,4.9,6.2,5.8,6.0,5.5,5.3,7.1,6.6,5.9,5.5,6.0], b = [4.1,4.5,5.0,4.8,5.2,4.4,4.9,4.7,4.9], c = [6.5,7.0,6.8,7.4,6.9,7.7,7.0];
 const x = [1.2,2.3,2.1,3.8,4.0,4.4,5.9,6.1,7.3,8.8,9.1,10.5,11.2,12.0,30.0], y = [1.0,2.6,2.0,3.5,4.6,4.1,6.3,5.8,7.9,8.1,9.8,10.0,11.9,12.2,15.0];
 const t = S.ttest(a, b), an = S.anova([a, b, c]), ch = S.chisq([[20,15,5],[10,25,25]]), co = S.correlate(x, y);
@@ -59,4 +65,7 @@ for (const [name, scale] of [["huge",1e300],["tiny",1e-300]]) {
 const missingDs = {cols:[{name:'X'},{name:'Y'}],rows:[1,2,null,4,5,6,7,8,9,10,11,12].map((v,i)=>[v,[3,null,4,1,7,6,null,9,8,10,11,12][i]])};
 const missingRank = testFor(missingDs,{type:'link',a:'X',b:'Y'},missingDs.rows.map((_,i)=>i));
 result.discover_missing_r=missingRank.r;result.discover_missing_p=missingRank.p;
+const baselineFixture = JSON.parse(fs.readFileSync(path.join(__dirname,'fixtures/welch_baseline.json'),'utf8'));
+const baselineWelch = S.ttest(baselineFixture.a.map(v=>v+baselineFixture.offset),baselineFixture.b.map(v=>v+baselineFixture.offset));
+for(const [key, field] of [['t','t'],['df','df'],['p','p'],['diff','diff'],['lo','ciLo'],['hi','ciHi'],['d','d']])result['baseline_welch_'+key]=baselineWelch[field];
 console.log(JSON.stringify(result));
