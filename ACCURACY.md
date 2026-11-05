@@ -15,7 +15,7 @@ rounding done before import cannot be recovered. Numerical tolerances are explic
 | E7 | Plan invalid input and lost settings | Verified for the acceptance cases below | Domain validation, no invalid result/write-up, project save/open and reload |
 | E8 | Rare-class CV averages undefined folds | Verified for the acceptance cases below | Validation uses a feasible split or refuses it explicitly; valid fold counts match headline |
 | E9 | Premature rounding in cleaning, formulas and scale columns (found during this repair) | Verified for the acceptance cases below | Stored transformations retain binary64 precision; each changed operation has an independent numerical case |
-| E10 | Model calculations lose translation/scale stability (found during E8) | Pending | Regression tree split/values, standardization and validation metrics against independent references on shifted/scaled inputs |
+| E10 | Model calculations lose translation/scale stability (found during E8) | Verified for the acceptance cases below | Regression tree split/values, standardization and validation metrics against independent references on shifted/scaled inputs |
 | E11 | Background scan redraw corrupts in-progress input (reproduced after E4) | Pending | No scan redraw during editing; repeated real field interactions and saved ranges preserve the entered values |
 
 ## E1 acceptance record
@@ -258,3 +258,37 @@ eligible complete rows and observed reverse range as the displayed reliability f
   not a requirement that every dataset produce an attractive predictive score.
 - Scope: these transformations and newly computed values. Previously rounded columns
   cannot recover discarded precision; regenerate them from retained original data.
+
+## E10 acceptance record
+
+Regression trees now compute split losses in local normalized coordinates; midpoint
+construction avoids overflow. Feature scaling and linear predictions use centered
+coordinates rather than subtracting a rounded physical mean/intercept. Response
+scaling preserves the elastic-net objective including its L1 term. Forest and
+training-only baseline averages avoid overflow. Regression metrics normalize errors
+before squaring. Non-converged fits and non-finite inner-validation candidates are
+refused rather than reported as successful estimates.
+
+- Reproduced old failure: X=0..59, outcomes 0/10 split at 29.5 with variance 25;
+  adding 1e9 previously removed the split and predicted 5 for every row. Adding
+  1e15 also produced an incorrect split. Both shifted cases now retain the split
+  and the two correct leaf values.
+- Mandatory `check_stats.py`: 171 fixed values, 1,017 strict Welch cases/7,119
+  values, and 195 model cases/1,755 comparisons, all passing. The model gate uses
+  exact Fraction moments and CART partitions, 100-digit Decimal roots, independent
+  convex KKT conditions and SciPy logistic score-equation solutions. Covers offsets
+  through 1e15 and magnitudes from 1e-150 through 1e300. The old ML source fails
+  905 gate comparisons (including the new convergence-reporting requirement).
+- Independent optimizer references require their own convergence check; SciPy
+  minimizers sometimes stopped at a loss plateau before adequate score convergence,
+  so their solutions are refined with independent score-equation roots.
+- Regression validation references use exact represented-input moments: sklearn's
+  direct large-baseline R-squared differed by 2.45e-5 in a browser fixture. EKM
+  matches exact-input arithmetic, rather than reproducing that reference error.
+- 44 method groups, 20 CV groups, 10 prediction/source replay groups and 46 feature
+  checks pass. Four actual CSV/model/prediction browser groups pass at 1440 and
+  400 pixels, including 10,000 rows and a financial-style 1e15 baseline, with
+  independent fold metrics and no overflow/page errors.
+- Scope: these model arithmetic and optimization cases. IEEE-754 storage remains
+  finite precision. Unrepresentable coefficients/metrics require rescaling; these
+  repairs do not certify all statistical methods over all extreme input ranges.

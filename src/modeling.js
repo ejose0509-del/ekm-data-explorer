@@ -75,26 +75,28 @@ function tune(model, X, y, task) {   // inner 3-fold CV over a grid of penalties
   var innerK = 3;
   if (task !== "reg") { var counts = [0, 0]; y.forEach(function (v) { counts[v]++; }); innerK = Math.min(3, counts[0], counts[1]); if (innerK < 2) throw new Error("Logistic penalty tuning needs at least two observations of each class inside every training fold."); }
   var grid, rnd = ML.rng(97), folds = task === "reg" ? ML.kfold(y.length, innerK, rnd) : ML.stratified(y, innerK, rnd), rho = model === "lasso" ? 1 : model === "enet" ? 0.5 : 0;
-  if (task === "reg") { var amax = rho ? ML.alphaMax(X, y, rho) : 100, amin = rho ? amax * 1e-3 : 1e-4; grid = []; for (var i = 0; i < 12; i++) grid.push(amax * Math.pow(amin / amax, i / 11)); }
+  if (task === "reg") { var penaltyMax = rho ? ML.alphaMax(X, y, rho) : 100, penaltyMin = rho ? penaltyMax * 1e-3 : 1e-4; if (!(penaltyMax > 0 && isFinite(penaltyMax))) throw new Error("Penalty grid is outside the numerical range; rescale the outcome."); grid = []; for (var i = 0; i < 12; i++) grid.push(penaltyMax * Math.pow(penaltyMin / penaltyMax, i / 11)); }
   else grid = [1e-4, 0.01, 0.1, 1, 10];
-  var best = null;
+  var best = null, lossScale = task === "reg" ? amax(y.map(Math.abs)) || 1 : 1;
   grid.forEach(function (a) {
-    var loss = 0;
+    var loss = 0, failed = false;
     folds.forEach(function (f) {
+      if (failed) return;
       var Xt = pickRows(X, f.train), yt = pickRows(y, f.train), Xs = pickRows(X, f.test), ys = pickRows(y, f.test);
-      if (task === "reg") { var m = ML.enet(Xt, yt, a, rho); Xs.forEach(function (x, t) { var e = m.predict(x) - ys[t]; loss += e * e; }); }
-      else { var lg = ML.logit(Xt, yt, a); Xs.forEach(function (x, t) { var p = Math.min(1 - 1e-12, Math.max(1e-12, lg.predict(x))); loss -= ys[t] ? Math.log(p) : Math.log(1 - p); }); }
+      if (task === "reg") { var m = ML.enet(Xt, yt, a, rho); if (!m.converged) { failed = true; return; } var rmse = ML.regMetrics(ys, Xs.map(m.predict)).rmse / lossScale; loss += rmse * rmse * ys.length; }
+      else { var lg = ML.logit(Xt, yt, a); if (!lg.converged) { failed = true; return; } Xs.forEach(function (x, t) { var p = Math.min(1 - 2.220446049250313e-16, Math.max(2.220446049250313e-16, lg.predict(x))); loss -= ys[t] ? Math.log(p) : Math.log1p(-p); }); }
     });
-    if (!isFinite(loss)) throw new Error("Inner validation has an undefined loss; rescale inputs or change the model.");
+    if (failed || !isFinite(loss)) return;
     if (!best || loss < best.loss) best = {a: a, loss: loss};
   });
+  if (!best) throw new Error("No converged finite inner-validation fit is available. Rescale inputs or change the model.");
   return best.a;
 }
 function fitModel(model, X, y, st, seed) {
   var K = st.task === "reg" ? 0 : st.task === "cls" ? 2 : st.classes.length, rnd = ML.rng(seed || 7), p = X[0].length;
-  if (model === "linear") { var m0 = ML.enet(X, y, 0, 0); return {predict: m0.predict, coef: m0.coef, intercept: m0.intercept, std: m0.std}; }
-  if (model === "ridge" || model === "lasso" || model === "enet") { var a = tune(model, X, y, "reg"), m = ML.enet(X, y, a, model === "lasso" ? 1 : model === "enet" ? 0.5 : 0); return {predict: m.predict, coef: m.coef, intercept: m.intercept, std: m.std, alpha: a}; }
-  if (model === "logistic") { var lam = tune(model, X, y, "cls"), lg = ML.logit(X, y, lam); return {predict: lg.predict, coef: lg.coef, intercept: lg.intercept, std: lg.std, alpha: lam}; }
+  if (model === "linear") { var m0 = ML.enet(X, y, 0, 0); if (!m0.converged || m0.coef.some(function (v) { return !isFinite(v); })) throw new Error("Linear fitting did not converge or coefficients exceed the numerical range. Rescale the variables."); return {predict: m0.predict, coef: m0.coef, intercept: m0.intercept, std: m0.std}; }
+  if (model === "ridge" || model === "lasso" || model === "enet") { var a = tune(model, X, y, "reg"), m = ML.enet(X, y, a, model === "lasso" ? 1 : model === "enet" ? 0.5 : 0); if (!m.converged || m.coef.some(function (v) { return !isFinite(v); })) throw new Error("Penalized fitting did not converge or coefficients exceed the numerical range. Rescale the variables."); return {predict: m.predict, coef: m.coef, intercept: m.intercept, std: m.std, alpha: a}; }
+  if (model === "logistic") { var lam = tune(model, X, y, "cls"), lg = ML.logit(X, y, lam); if (!lg.converged || lg.coef.some(function (v) { return !isFinite(v); })) throw new Error("Logistic fitting did not converge or coefficients exceed the numerical range. Rescale the variables."); return {predict: lg.predict, coef: lg.coef, intercept: lg.intercept, std: lg.std, alpha: lam}; }
   var depth = +(st.settings || A.sel).mdepth || (model === "tree" ? 4 : 0);
   if (model === "tree") { var t = ML.tree(X, y, {classes: K, maxDepth: depth, minLeaf: 5}); return {predict: function (x) { var v = ML.treePredict(t, x); return K === 2 ? v[1] : v; }, tree: t, importance: t.importance}; }
   var F = ML.forest(X, y, {trees: X.length > 4000 ? 60 : 100, classes: K, maxDepth: depth || undefined, minLeaf: 2, maxFeatures: K ? Math.max(1, Math.round(Math.sqrt(p))) : p, rnd: rnd});
@@ -130,7 +132,7 @@ function crossValidate(st, model, scheme, done, progress) {
       var m = fitModel(model, Xt, yt, st, 11 + fi), pr = Xs.map(m.predict);
       var finitePrediction = function (v) { return typeof v === "number" && isFinite(v) && (st.task === "reg" || v >= 0 && v <= 1); };
       if (pr.some(function (v) { return st.task === "multi" ? !Array.isArray(v) || v.length !== st.classes.length || !v.every(finitePrediction) || Math.abs(v.reduce(function (a, x) { return a + x; }, 0) - 1) > 1e-8 : !finitePrediction(v); })) throw new Error("A fold produced invalid predictions. Rescale inputs or change the model.");
-      var prior = st.task === "reg" ? S.mean(yt) : st.classes.map(function (_, c) { return yt.filter(function (v) { return v === c; }).length / yt.length; });
+      var prior = st.task === "reg" ? ML.mean(yt) : st.classes.map(function (_, c) { return yt.filter(function (v) { return v === c; }).length / yt.length; });
       var bp = Xs.map(function () { return st.task === "reg" ? prior : st.task === "cls" ? prior[1] : prior.slice(); });
       f.test.forEach(function (i, t) { baseline[i] = bp[t]; }); baselineFolds.push(scoreOf(st, ys, bp));
       f.test.forEach(function (i, t) { oof[i] = pr[t]; });

@@ -1,6 +1,7 @@
 // Runs EKM's statistics on fixed data and prints JSON. Used by check_stats.py.
 const fs = require("fs"), path = require("path");
 const src = (f) => fs.readFileSync(f === "stats.js" && process.env.EKM_STATS_FILE ? process.env.EKM_STATS_FILE : path.join(__dirname, "..", "src", f), "utf8");
+eval(src("core.js").split("\n").filter(l=>/^function am(in|ax)\(/.test(l)).join("\n"));
 eval(src("stats.js") + src("stats2.js") + src("stats3.js") + ";globalThis.S=S;globalThis.S2=S2;globalThis.S3=S3;");
 // Batched, independent reference cases supplied by the Python accuracy gate.
 if (process.argv.includes('--welch-cases')) {
@@ -80,6 +81,8 @@ PL=Object.assign(plDefaults(),{design:'prop',ratio:1.3,alt:'smaller'});result.pl
 PL=Object.assign(plDefaults(),{design:'corr',alt:'smaller'});result.plan_corr_lower=plPower(70,.3);
 PL=Object.assign(plDefaults(),{m:10,icc:.05,drop:10});const inflated=plInflate(160);result.plan_recruit=inflated.n;result.plan_clusters=inflated.clusters;
 eval(src('ml.js')+';globalThis.ML=ML;');
+const shiftedY=Array.from({length:60},(_,i)=>1e15+(i<30?0:10)), shiftedTree=ML.tree(shiftedY.map((_,i)=>[i]),shiftedY,{maxDepth:3,minLeaf:3});
+result.model_shift_variance=shiftedTree.root.impurity;result.model_shift_threshold=shiftedTree.root.thr;result.model_shift_prediction=ML.treePredict(shiftedTree,[59])-1e15;
 const priorMetrics=ML.clsMetrics([0,0,0,1],[.25,.25,.25,.25]);result.baseline_accuracy=priorMetrics.accuracy;result.baseline_brier=priorMetrics.brier;result.baseline_rmse=ML.regMetrics([2,5,8,11],[3,3,3,3]).rmse;
 eval(src('analyzer.js').slice(src('analyzer.js').indexOf('function colVals('),src('analyzer.js').indexOf('function idxOf(')));
 const enh=src('enhancer.js'),dt=src('datatools.js'),met=src('methods.js'),input=src('input-integrity.js');

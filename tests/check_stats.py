@@ -105,6 +105,7 @@ for i,value in enumerate(np.log10(precise)):ref['transform_log_'+str(i)]=value
 for i,value in enumerate(st.zscore([0.,0.,1.],ddof=1)):ref['transform_offset_z_'+str(i)]=value
 ref['transform_copy']=precise[0];ref['transform_mean']=np.mean(precise);ref['transform_knn']=np.mean(np.append(precise,.567890123456789))
 q1,q3=np.quantile(np.append(precise,10.123456789),[.25,.75]);ref['transform_cap']=q3+1.5*(q3-q1)
+ref.update(model_shift_variance=np.var([0.]*30+[10.]*30),model_shift_threshold=29.5,model_shift_prediction=10.)
 ref['transform_scale']=np.mean(precise[:2]);ref['transform_huge_scale_unit']=1.
 bad = 0
 for k, v in ref.items():
@@ -116,4 +117,5 @@ for k, v in ref.items():
 print('\n%d of %d match SciPy' % (len(ref) - bad, len(ref)))
 if not bad:
     subprocess.run([sys.executable,os.path.join(HERE,'check_welch_accuracy.py')],check=True)
+    subprocess.run([sys.executable,os.path.join(HERE,'check_model_numerics.py')],check=True)
 sys.exit(1 if bad else 0)
