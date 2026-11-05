@@ -46,20 +46,58 @@ function importSpec(spec, name) {
     A.sets.unshift(ds); pickSet(ds.id); CN.busy = ""; CN.msg = "Imported " + t.body.length + " rows" + (t.truncated ? " (the first rows only; narrow the query to get the rest)" : "") + "."; saveSet(ds); render();
   }).catch(function (e) { CN.busy = ""; CN.msg = e.message || "Could not import from that source."; render(); });
 }
-// Refresh: load the source again and replay this dataset's recorded cleaning steps on the new data
+// Refresh prepares a separate table, then publishes it only after strict replay.
+var REFRESH_JOBS = new WeakMap();
+function refreshSignature(ds) { return JSON.stringify([dataVersion(ds), ds.cols, ds.recipe || [], ds.importOptions || null, ds.sourceSpec]); }
+function refreshColumns(cols, metadata) {
+  return cols.map(function (c) { var old = metadata[c.name]; if (!old) return c; var copy = Object.assign({}, c); ["label", "unit", "values", "tags", "limits"].forEach(function (k) { if (old[k] != null) copy[k] = clone(old[k]); }); return copy; });
+}
+function checkRefreshTable(ds) {
+  if (!ds.cols.length || !ds.rows.length || ds.rows.length > 1000000 || ds.cols.length > 2000 || ds.rows.length * ds.cols.length > 8000000) throw new Error("Refreshed table is empty or exceeds the row/column/cell budget.");
+  ds.rows.forEach(function (r) { if (!Array.isArray(r) || r.length !== ds.cols.length) throw new Error("Refresh produced an invalid row."); r.forEach(function (v, j) { if (v != null && (typeof v === "object" || typeof v === "number" && !isFinite(v) || isNum(ds.cols[j]) && typeof v !== "number")) throw new Error("Refresh produced an invalid value in " + ds.cols[j].name); }); });
+}
 function refreshSet(ds, quiet) {
   if (!ds.sourceSpec) return Promise.resolve();
+  var job = {}, signature = refreshSignature(ds), steps = clone(ds.recipe || []), metadata = Object.create(null);
+  ds.cols.forEach(function (c) { metadata[c.name] = clone(c); }); REFRESH_JOBS.set(ds, job);
   if (!quiet) { CN.busy = "Refreshing " + ds.name + "…"; render(); }
-  return loadSpec(ds.sourceSpec).then(function (t) {
-    var fresh = makeSet(ds.name, t.header, t.body), steps = (ds.recipe || []).filter(function (s) { return !s.replayed || true; }), meta = Object.create(null);
-    ds.cols.forEach(function (c) { if (c.label || c.unit || c.values) meta[c.name] = {label: c.label, unit: c.unit, values: c.values}; });
-    var before = ds.rows.length; ds.rows = fresh.rows; ds.cols = fresh.cols.map(function (c) { return meta[c.name] ? Object.assign({}, c, meta[c.name]) : c; }); ds.recipe = [];
-    E.orig[ds.id] = {rows: ds.rows, cols: JSON.parse(JSON.stringify(ds.cols)), recipe: []}; E.undo[ds.id] = [];
-    var r = steps.length ? replayAll(ds, steps) : {done: 0, skipped: 0};
-    ds.refreshedAt = new Date().toISOString(); A.ai = Object.create(null);
-    auditLog("Refreshed data", ds, before + " → " + ds.rows.length + " rows; " + r.done + " cleaning steps replayed" + (r.skipped ? ", " + r.skipped + " skipped" : ""));
-    CN.busy = ""; CN.msg = ds.name + " refreshed: " + ds.rows.length + " rows" + (steps.length ? ", " + r.done + " of " + steps.length + " cleaning steps replayed" : "") + "."; saveSet(ds); render();
-  }).catch(function (e) { CN.busy = ""; CN.msg = "Refresh failed: " + (e.message || "the source could not be reached") + ". The previous data is kept."; render(); });
+  return Promise.resolve().then(function () { return loadSpec(ds.sourceSpec); }).then(function (t) {
+    if (REFRESH_JOBS.get(ds) !== job) return;
+    if (A.sets.indexOf(ds) < 0 || refreshSignature(ds) !== signature) throw new Error("Data or settings changed while the source was loading. Retry with the current version.");
+    if (!t || t.truncated) throw new Error("The source was truncated. Narrow the query before refreshing.");
+    if (steps.some(function (s) { return s.op === "rowtag" && !s.identity; })) throw new Error("Row tags without recorded stable identifiers cannot be refreshed safely. Keep this copy and review/reapply those tags with a unique identifier.");
+    var oldOptions = {decimal: IMPORT.decimal, missing: IMPORT.missing}, log = auditLog, fresh;
+    try {
+      IMPORT.decimal = (ds.importOptions || oldOptions).decimal; IMPORT.missing = (ds.importOptions || oldOptions).missing;
+      auditLog = function () {}; // parsing a candidate is not a committed import
+      fresh = makeSet(ds.name, t.header, t.body);
+    } finally { IMPORT.decimal = oldOptions.decimal; IMPORT.missing = oldOptions.missing; auditLog = log; }
+    fresh.id = ds.id; fresh.cols = refreshColumns(fresh.cols, metadata); checkRefreshTable(fresh);
+    var original = {rows: fresh.rows, cols: clone(fresh.cols), recipe: []}, undo = [];
+    fresh.recipe = [];
+    steps.forEach(function (step) {
+      // replayStep never publishes the candidate or writes its dataset to storage.
+      var before = {rows: fresh.rows, cols: clone(fresh.cols), recipe: fresh.recipe.slice()}, result = replayStep(fresh, step);
+      if (!result || !Array.isArray(result.rows)) throw new Error("Cannot safely replay " + (step.text || step.op));
+      fresh.rows = result.rows; if (result.cols) fresh.cols = result.cols;
+      fresh.cols = refreshColumns(fresh.cols, metadata); checkRefreshTable(fresh);
+      fresh.recipe.push(Object.assign({}, step, {changed: result.changed || 0, replayed: true})); undo.push(before);
+    });
+    if (REFRESH_JOBS.get(ds) !== job) return;
+    if (refreshSignature(ds) !== signature) throw new Error("Data changed during refresh. Retry with the current version.");
+    var beforeCount = ds.rows.length;
+    ["rows", "cols", "recipe", "rawRows", "rawColumns", "sourceHeaders", "importOptions"].forEach(function (k) { ds[k] = fresh[k]; });
+    E.orig[ds.id] = original; E.undo[ds.id] = undo; ds.refreshedAt = new Date().toISOString(); A.ai = Object.create(null);
+    auditLog("Refreshed data", ds, beforeCount + " → " + ds.rows.length + " rows; " + steps.length + " steps replayed with stable identity");
+    CN.busy = ""; CN.msg = ds.name + " refreshed: " + ds.rows.length + " rows; " + steps.length + " steps replayed.";
+    // Storage failure does not undo a successfully prepared source refresh.
+    try { Promise.resolve(saveSet(ds)).catch(function () { CN.msg = "Refresh completed, but storage failed. Save a project file."; render(); }); }
+    catch (e) { CN.msg = "Refresh completed, but storage failed. Save a project file."; }
+    render();
+  }).catch(function (e) {
+    if (REFRESH_JOBS.get(ds) !== job) return;
+    CN.busy = ""; CN.msg = "Refresh failed: " + (e.message || "the source could not be reached") + ". The previous data is kept."; render();
+  });
 }
 function schedule(ds) {
   if (CN.timers[ds.id]) { clearInterval(CN.timers[ds.id]); delete CN.timers[ds.id]; }

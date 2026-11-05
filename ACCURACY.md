@@ -7,7 +7,7 @@ rounding done before import cannot be recovered. Numerical tolerances are explic
 | ID | Issue | Status | Required evidence |
 |---|---|---|---|
 | E1 | Welch cancellation with a large common baseline | Verified for the acceptance cases below | Decimal moments + SciPy tails and CI; offset/scale/order cases; actual import, analysis and exported replay |
-| E2 | Refresh loses metadata, exclusions, source fidelity and rollback | Pending | Reordered stable IDs, no-ID refusal, changed schema, replay failure rollback, latest-request handling, original CSV and project round-trip |
+| E2 | Refresh loses metadata, exclusions, source fidelity and rollback | Verified for the acceptance cases below | Reordered stable IDs, no-ID refusal, changed schema, replay failure rollback, latest-request handling, original CSV and project round-trip |
 | E3 | PCA/factor score columns refit excluded data | Pending | Same fitted parameters and eligible rows as displayed; scores and replay verified |
 | E4 | Prediction recipes omit validation context; duplicate source headers fail replay | Pending | Gap/filter preservation, original-header mapping and generated workflow execution |
 | E5 | Sensitivity lost in append and derived columns | Pending | Conservative metadata propagation, CSV exclusion and project persistence |
@@ -37,3 +37,26 @@ scale overflow/underflow. The Welch–Satterthwaite definition is unchanged.
   Browser and replay summary numbers match exactly. Overflowing intervals are refused.
 - Scope: Welch only. Other methods and the seven remaining ledger entries are not
   certified by this record. IEEE-754 representation limits remain.
+
+## E2 acceptance record
+
+Refresh builds and strictly replays an isolated candidate before committing any table,
+original-source snapshot or undo history. It preserves confirmed metadata by column
+name and refreshes the raw source copy together with the working table. It retains
+valid no-op steps for future refreshes. A late response or edits during loading abort
+publication. Truncated sources and failed schema/replay operations are refused.
+
+New row-tag steps record a unique identifier and its typed values. Refresh refuses
+legacy positional tags, absent/duplicate identifiers, or a missing tagged record;
+it does not infer that a row position identifies the same person. Existing positional
+recipes still replay on an unchanged source, but require review before source refresh.
+
+- `node tests/check_refresh_integrity.js`: 16 groups at 1440px/400px, including actual
+  source import/refresh/download controls, identity and project round-trip, atomic
+  failure, races, ranges, import settings and no-op recipes.
+- The same suite against commit 60fd20b fails its first metadata assertion (health tag lost).
+- `node tests/check_tags_patterns.js`: 42 checks; `node tests/check_new_features.js`: 46
+  checks including SQLite refresh and cleaning replay. `python3 tests/check_stats.py`
+  also passes the fixed and strict Welch gates.
+- Scope: loaded datasets, current tagged identifiers and matching source-column names.
+  Source schema/identifier changes are refused where they prevent safe replay.

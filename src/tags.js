@@ -107,13 +107,30 @@ function opRowTag(ds, rows, tag, note) {
   data = data.map(function (r, i) { if (!set[i]) return r; var r2 = r.slice(); r2[ti] = tag || null; if (ni >= 0 && note != null) r2[ni] = note || null; n++; return r2; });
   return {rows: data, cols: cols, changed: n};
 }
+// Record identity at the moment of tagging, not after a source has reordered.
+function tagIdentity(ds, indices) {
+  var choices = ds.cols.filter(function (c) { return tagOf(c).role === "id"; });
+  for (var q = 0; q < choices.length; q++) {
+    var name = choices[q].name, j = idxOf(ds, name), seen = Object.create(null), valid = true;
+    ds.rows.forEach(function (r) { var v = r[j], key = JSON.stringify([typeof v, v]); if (v == null || seen[key]) valid = false; seen[key] = true; });
+    if (valid) return {col: name, values: indices.map(function (i) { return ds.rows[i][j]; })};
+  }
+  return null;
+}
+function tagRowIndices(ds, step) {
+  if (!step.identity) return step.rows || [];
+  var j = idxOf(ds, step.identity.col); if (j < 0) throw new Error("The row-tag identifier column is missing: " + step.identity.col);
+  var at = Object.create(null);
+  ds.rows.forEach(function (r, i) { var v = r[j], key = JSON.stringify([typeof v, v]); if (v == null || Object.prototype.hasOwnProperty.call(at, key)) throw new Error("Row-tag identifiers must be present and unique."); at[key] = i; });
+  return step.identity.values.map(function (v) { var key = JSON.stringify([typeof v, v]); if (!Object.prototype.hasOwnProperty.call(at, key)) throw new Error("A tagged record is missing from the refreshed source. Review its identifier before refreshing."); return at[key]; });
+}
 function tagRows(ds, idx, tag, note, how) {
   if (!idx.length) { TAGS.msg = "No rows to tag."; render(); return; }
-  applyStep(ds, {op: "rowtag", rows: idx.slice(), tag: tag, note: note || "", text: (tag ? "Tagged " + idx.length + " row" + (idx.length > 1 ? "s" : "") + " “" + tag + "”" : "Cleared the tag on " + idx.length + " rows") + (how ? " (" + how + ")" : "") + (note ? ": " + note : ""), unit: "rows"}, function () { return opRowTag(ds, idx, tag, note); });
+  applyStep(ds, {op: "rowtag", rows: idx.slice(), identity: tagIdentity(ds, idx), tag: tag, note: note || "", text: (tag ? "Tagged " + idx.length + " row" + (idx.length > 1 ? "s" : "") + " “" + tag + "”" : "Cleared the tag on " + idx.length + " rows") + (how ? " (" + how + ")" : "") + (note ? ": " + note : ""), unit: "rows"}, function () { return opRowTag(ds, idx, tag, note); });
   TAGS.picked = Object.create(null);
 }
 var _replayStepT = replayStep;
-replayStep = function (ds, s2) { if (s2.op === "rowtag") return opRowTag(ds, s2.rows || [], s2.tag, s2.note); return _replayStepT(ds, s2); };
+replayStep = function (ds, s2) { if (s2.op === "rowtag") return opRowTag(ds, tagRowIndices(ds, s2), s2.tag, s2.note); return _replayStepT(ds, s2); };
 if (typeof pyStep === "function") {
   var _pyStepT = pyStep; pyStep = function (s2, ds) { if (s2.op !== "rowtag") return _pyStepT(s2, ds); return "if \"Row tag\" not in df: df[\"Row tag\"] = None\ndf.loc[df.index[" + JSON.stringify(s2.rows || []) + "], \"Row tag\"] = " + (s2.tag ? JSON.stringify(s2.tag) : "None") + (s2.tag === "Exclude" ? "\ndf = df[df[\"Row tag\"] != \"Exclude\"]  # EKM leaves Exclude rows out of analyses" : ""); };
   var _rStepT = rStep; rStep = function (s2, ds) { if (s2.op !== "rowtag") return _rStepT(s2, ds); return "if (!\"Row tag\" %in% names(df)) df[[\"Row tag\"]] <- NA\ndf[c(" + (s2.rows || []).map(function (i) { return i + 1; }).join(", ") + "), \"Row tag\"] <- " + (s2.tag ? JSON.stringify(s2.tag) : "NA") + (s2.tag === "Exclude" ? "\ndf <- df[is.na(df[[\"Row tag\"]]) | df[[\"Row tag\"]] != \"Exclude\", , drop = FALSE]" : ""); };
