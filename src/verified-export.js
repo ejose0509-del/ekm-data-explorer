@@ -14,9 +14,9 @@ function replayProgram(stp, cols) {
     "if (setup.err) throw new Error(setup.err);\n" +
     "var result = syncCV(setup, A.sel.mm, A.sel.mv);\n" +
     "if (!result || result.err) throw new Error(result && result.err || 'Validation failed');\n" +
-    "var metric = mainMetric(setup), values = result.folds.map(function (f) { return f[metric[0]]; }).filter(isFinite), mean = S.mean(values);\n" +
+    "var metric = mainMetric(setup), values = result.folds.map(function (f) { return f[metric[0]]; }), mean = S.mean(values);\n" +
     "var sd = values.length > 1 ? Math.sqrt(values.reduce(function (a, v) { return a + (v - mean) * (v - mean); }, 0) / (values.length - 1)) : null;\n" +
-    "if (!isFinite(mean)) throw new Error('Undefined validation score');\n" +
+    "if (values.length!==result.nFolds||values.some(function(v){return !isFinite(v);})||!isFinite(mean)) throw new Error('Undefined validation score; all requested folds must be valid');\n" +
     "var actual = {cv_mean: mean, folds: result.nFolds}; if (sd != null) actual.cv_sd = sd;\n" +
     "Object.keys(actual).forEach(function (k) { var want = spec.expected[k]; if (typeof want === 'number' && Math.abs(want - actual[k]) > 1e-9 * Math.max(1, Math.abs(want))) throw new Error('Replay differs for ' + k + ': recorded ' + want + ', computed ' + actual[k]); });\n" +
     "console.log(JSON.stringify({verified: true, metric: metric[1], cv_mean: mean, cv_sd: sd, classes: setup.classes, folds: result.nFolds, sizes: result.sizes, overall: result.overall}));\n";

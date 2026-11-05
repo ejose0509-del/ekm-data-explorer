@@ -7,7 +7,7 @@ var MODELS = {
   cls: [["logistic", "Logistic regression"], ["tree", "Decision tree"], ["forest", "Random forest"]],
   multi: [["tree", "Decision tree"], ["forest", "Random forest"]]
 };
-var SCHEMES = [["k5", "5-fold cross-validation"], ["k10", "10-fold cross-validation"], ["group", "Grouped folds (keep each group together)"], ["time", "Time-ordered (train on past, test on future)"], ["holdout", "Single 80/20 holdout"]];
+var SCHEMES = [["k2", "2-fold cross-validation"], ["k5", "5-fold cross-validation"], ["k10", "10-fold cross-validation"], ["group", "Grouped folds (keep each group together)"], ["time", "Time-ordered (train on past, test on future)"], ["holdout", "Single holdout (approximately 80/20)"]];
 
 function modelSetup(ds) {
   var s = A.sel, rows = filterRows(ds), ti = idxOf(ds, s.mt), tc = ds.cols[ti];
@@ -56,15 +56,25 @@ function foldsFor(st, scheme, seed) {
       f.train.forEach(function (j) { if (j < last) train = train.concat(buckets[j]); });
       f.test.forEach(function (j) { test = test.concat(buckets[j]); });
       return {train: train, test: test};
-    }).filter(function (f) { return f.train.length >= 3 && f.test.length > 0; });
+    });
   }
-  if (scheme === "holdout") { var f = st.task === "reg" ? ML.kfold(n, 5, rnd) : ML.stratified(st.y, 5, rnd); return [f[0]]; }
-  var k = scheme === "k10" ? 10 : 5;
+  if (scheme === "holdout") {
+    if (st.task === "reg") return [ML.kfold(n, 5, rnd)[0]];
+    var test = [], train = [];
+    st.classes.forEach(function (_, c) { var indices = []; st.y.forEach(function (v, i) { if (v === c) indices.push(i); });
+      for (var q = indices.length - 1; q > 0; q--) { var j = Math.floor(rnd() * (q + 1)), tmp = indices[q]; indices[q] = indices[j]; indices[j] = tmp; }
+      var take = Math.max(1, Math.min(indices.length - 1, Math.round(indices.length * .2))); test = test.concat(indices.slice(0, take)); train = train.concat(indices.slice(take));
+    });
+    return [{train: train.sort(function (a, b) { return a - b; }), test: test.sort(function (a, b) { return a - b; })}];
+  }
+  var k = scheme === "k10" ? 10 : scheme === "k2" ? 2 : 5;
   return st.task === "reg" ? ML.kfold(n, k, rnd) : ML.stratified(st.y, k, rnd);
 }
 function pickRows(M, idx) { return idx.map(function (i) { return M[i]; }); }
 function tune(model, X, y, task) {   // inner 3-fold CV over a grid of penalties; returns the best
-  var grid, rnd = ML.rng(97), folds = task === "reg" ? ML.kfold(y.length, 3, rnd) : ML.stratified(y, 3, rnd), rho = model === "lasso" ? 1 : model === "enet" ? 0.5 : 0;
+  var innerK = 3;
+  if (task !== "reg") { var counts = [0, 0]; y.forEach(function (v) { counts[v]++; }); innerK = Math.min(3, counts[0], counts[1]); if (innerK < 2) throw new Error("Logistic penalty tuning needs at least two observations of each class inside every training fold."); }
+  var grid, rnd = ML.rng(97), folds = task === "reg" ? ML.kfold(y.length, innerK, rnd) : ML.stratified(y, innerK, rnd), rho = model === "lasso" ? 1 : model === "enet" ? 0.5 : 0;
   if (task === "reg") { var amax = rho ? ML.alphaMax(X, y, rho) : 100, amin = rho ? amax * 1e-3 : 1e-4; grid = []; for (var i = 0; i < 12; i++) grid.push(amax * Math.pow(amin / amax, i / 11)); }
   else grid = [1e-4, 0.01, 0.1, 1, 10];
   var best = null;
@@ -75,6 +85,7 @@ function tune(model, X, y, task) {   // inner 3-fold CV over a grid of penalties
       if (task === "reg") { var m = ML.enet(Xt, yt, a, rho); Xs.forEach(function (x, t) { var e = m.predict(x) - ys[t]; loss += e * e; }); }
       else { var lg = ML.logit(Xt, yt, a); Xs.forEach(function (x, t) { var p = Math.min(1 - 1e-12, Math.max(1e-12, lg.predict(x))); loss -= ys[t] ? Math.log(p) : Math.log(1 - p); }); }
     });
+    if (!isFinite(loss)) throw new Error("Inner validation has an undefined loss; rescale inputs or change the model.");
     if (!best || loss < best.loss) best = {a: a, loss: loss};
   });
   return best.a;
@@ -98,16 +109,32 @@ function mainMetric(st) { return st.task === "reg" ? ["r2", "R² (out of sample)
 // Cross-validate one model, a fold at a time so the page stays responsive
 function crossValidate(st, model, scheme, done, progress) {
   if (st.err) { done({err: st.err}); return; }
-  var folds = foldsFor(st, scheme), oof = new Array(st.y.length), out = [], fi = 0, imp = null, rnd = ML.rng(5);
+  var folds = foldsFor(st, scheme), oof = new Array(st.y.length), baseline = new Array(st.y.length), out = [], baselineFolds = [], fi = 0, imp = null, rnd = ML.rng(5);
   if (!folds || !folds.length) { done({err: scheme === "group" ? "Grouped folds need at least two groups." : "Not enough rows to validate."}); return; }
+  // Validate every requested fold before fitting; no undefined fold is omitted.
+  for (var q = 0; q < folds.length; q++) {
+    var split = folds[q], label = "Fold " + (q + 1) + ": ";
+    if (split.train.length < 3 || split.test.length < (st.task === "reg" ? 2 : 1)) { done({err: label + "too few training/test rows after the split and gap. Adjust the validation scheme or gap."}); return; }
+    if (st.task !== "reg") {
+      var trainCounts = st.classes.map(function () { return 0; }), testCounts = st.classes.map(function () { return 0; });
+      split.train.forEach(function (i) { trainCounts[st.y[i]]++; }); split.test.forEach(function (i) { testCounts[st.y[i]]++; });
+      if (trainCounts.some(function (n) { return !n; }) || testCounts.some(function (n) { return !n; })) { done({err: label + "every class must occur in training and testing. Train counts: " + trainCounts.join("/") + "; test counts: " + testCounts.join("/") + ". The requested folds are infeasible for these class counts/groups/times; choose fewer folds or collect more observations."}); return; }
+      if (model === "logistic" && amin(trainCounts) < 2) { done({err: label + "logistic inner tuning needs at least two observations per class in training. Use more observations or an untuned tree model."}); return; }
+    } else { var values = pickRows(st.y, split.test); if (values.every(function (v) { return v === values[0]; })) { done({err: label + "R² is undefined because test outcomes are constant. Change the split or collect varied outcomes."}); return; } }
+  }
   function step() {
     if (st.active && !st.active()) { done({cancelled: true, err: "Inputs changed; validation discarded."}); return; }
     try {
       var f = folds[fi], Xt = pickRows(st.X, f.train), yt = pickRows(st.y, f.train), Xs = pickRows(st.X, f.test), ys = pickRows(st.y, f.test);
       if (st.task !== "reg" && Object.keys(yt.reduce(function (o, v) { o[v] = 1; return o; }, {})).length < 2) throw new Error("A training fold contains only one class. Use fewer folds or more rows.");
       var m = fitModel(model, Xt, yt, st, 11 + fi), pr = Xs.map(m.predict);
+      var finitePrediction = function (v) { return typeof v === "number" && isFinite(v) && (st.task === "reg" || v >= 0 && v <= 1); };
+      if (pr.some(function (v) { return st.task === "multi" ? !Array.isArray(v) || v.length !== st.classes.length || !v.every(finitePrediction) || Math.abs(v.reduce(function (a, x) { return a + x; }, 0) - 1) > 1e-8 : !finitePrediction(v); })) throw new Error("A fold produced invalid predictions. Rescale inputs or change the model.");
+      var prior = st.task === "reg" ? S.mean(yt) : st.classes.map(function (_, c) { return yt.filter(function (v) { return v === c; }).length / yt.length; });
+      var bp = Xs.map(function () { return st.task === "reg" ? prior : st.task === "cls" ? prior[1] : prior.slice(); });
+      f.test.forEach(function (i, t) { baseline[i] = bp[t]; }); baselineFolds.push(scoreOf(st, ys, bp));
       f.test.forEach(function (i, t) { oof[i] = pr[t]; });
-      var sc = scoreOf(st, ys, pr); out.push(sc);
+      var sc = scoreOf(st, ys, pr); if (typeof sc[mainMetric(st)[0]] !== "number" || !isFinite(sc[mainMetric(st)[0]])) throw new Error("Fold " + (fi + 1) + " has an undefined " + mainMetric(st)[1] + ". No fold average is reported."); out.push(sc);
       // Permutation importance on the held-out fold: shuffle one predictor's columns together
       var base = sc[mainMetric(st)[0]], gN = st.parts.length; imp = imp || new Array(gN).fill(0);
       for (var g = 0; g < gN; g++) {
@@ -115,7 +142,7 @@ function crossValidate(st, model, scheme, done, progress) {
         for (var rep = 0; rep < 3; rep++) {
           var perm = Xs.map(function (_, i) { return i; }); for (var i = perm.length - 1; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)), tmp = perm[i]; perm[i] = perm[j]; perm[j] = tmp; }
           var Xp = Xs.map(function (x, i) { var x2 = x.slice(); cols.forEach(function (c) { x2[c] = Xs[perm[i]][c]; }); return x2; });
-          var v = scoreOf(st, ys, Xp.map(m.predict))[mainMetric(st)[0]]; drop += (base - v) / 3;
+          var v = scoreOf(st, ys, Xp.map(m.predict))[mainMetric(st)[0]]; if (typeof v !== "number" || !isFinite(v)) throw new Error("Permutation validation produced an undefined score; rescale inputs or change the model."); drop += (base - v) / 3;
         }
         imp[g] += drop / folds.length;
       }
@@ -123,7 +150,7 @@ function crossValidate(st, model, scheme, done, progress) {
       if (fi < folds.length) { if (progress) progress(fi, folds.length); setTimeout(step, 0); }
       else {
         var idx = oof.map(function (v, i) { return v === undefined ? -1 : i; }).filter(function (i) { return i >= 0; });
-        done({folds: out, nFolds: folds.length, oof: oof, oofIdx: idx, overall: scoreOf(st, pickRows(st.y, idx), pickRows(oof, idx)), importance: imp, model: model, scheme: scheme, sizes: folds.map(function (f) { return [f.train.length, f.test.length]; })});
+        done({folds: out, nFolds: folds.length, oof: oof, oofIdx: idx, overall: scoreOf(st, pickRows(st.y, idx), pickRows(oof, idx)), importance: imp, baseline: {folds: baselineFolds, overall: scoreOf(st, pickRows(st.y, idx), pickRows(baseline, idx))}, model: model, scheme: scheme, sizes: folds.map(function (f) { return [f.train.length, f.test.length]; })});
       }
     } catch (e) { done({err: e.message || "This model could not be validated."}); }
   }
@@ -159,16 +186,20 @@ function runModel(ds) {
   if (!res && !MOD.busy && (MOD.force || costOf(st, s.mm) * (s.mv === "k10" ? 10 : 5) < 4e6)) { res = syncCV(st, s.mm, s.mv); MOD.key = key; MOD.res = res; }
   var run = '<div class="slot"><button type="button" class="btn btn-primary" data-mtrain="1"' + (MOD.busy ? " disabled" : "") + ">" + (res ? "Retrain" : "Train and validate") + '</button><button type="button" class="btn" data-mcompare="1"' + (MOD.busy ? " disabled" : "") + ">Compare all models</button>" + (MOD.busy ? '<span class="count" role="status">' + esc(MOD.busy) + "</span>" : "") + "</div>";
   if (!res) { R.head = '<p class="count">' + st.y.length + " complete rows, " + st.names.length + " predictor columns after encoding categories. This model takes a few seconds to validate.</p>" + run; R.reading = []; return R; }
-  if (res.err) { R.head = '<p class="warn">' + esc(res.err) + "</p>" + run; return R; }
-  var mm = mainMetric(st), vals = res.folds.map(function (f) { return f[mm[0]]; }).filter(isFinite), mean = S.mean(vals), sd = vals.length > 1 ? Math.sqrt(vals.reduce(function (a, v) { return a + (v - mean) * (v - mean); }, 0) / (vals.length - 1)) : NaN;
+  if (res.err) { R.valid = false; R.reason = res.err; R.head = '<p class="warn">' + esc(res.err) + "</p>" + run; return R; }
+  var mm = mainMetric(st), vals = res.folds.map(function (f) { return f[mm[0]]; });
+  if (vals.length !== res.nFolds || vals.some(function (v) { return typeof v !== "number" || !isFinite(v); })) return need(R, "a defined primary metric in every requested fold; no undefined folds can be averaged away");
+  var mean = S.mean(vals), sd = vals.length > 1 ? Math.sqrt(vals.reduce(function (a, v) { return a + (v - mean) * (v - mean); }, 0) / (vals.length - 1)) : NaN;
   var full = memo(ds, ["fullfit", key], function () { return fitModel(s.mm, st.X, st.y, st, 3); }), ov = res.overall, label = (list.filter(function (m) { return m[0] === s.mm; })[0] || [0, s.mm])[1], scheme = (SCHEMES.filter(function (x) { return x[0] === s.mv; })[0] || [0, ""])[1];
-  var prev = st.task !== "reg" ? st.y.reduce(function (a, v) { return a + (v === 1 ? 1 : 0); }, 0) / st.y.length : 0, maj = st.task !== "reg" ? amax(st.classes.map(function (_, c) { return st.y.filter(function (v) { return v === c; }).length; })) / st.y.length : 0;
-  R.summary = {test: label + ", " + scheme, n: st.y.length, task: st.task === "reg" ? "regression" : "classification", metric: mm[1], cv_mean: mean, folds: res.nFolds};
+  var maj = st.task !== "reg" ? res.baseline.overall.accuracy : 0;
+  R.summary = {test: label + ", " + scheme, n: st.y.length, task: st.task === "reg" ? "regression" : "classification", metric: mm[1], cv_mean: mean, folds: res.nFolds, evaluated_folds: vals.length, evaluated_rows: res.oofIdx.length};
+  if (st.task === "reg") { R.summary.baseline_rmse = res.baseline.overall.rmse; R.summary.pooled_rmse = ov.rmse; R.summary.pooled_mae = ov.mae; } else { R.summary.baseline_accuracy = res.baseline.overall.accuracy; R.summary.pooled_accuracy = ov.accuracy; R.summary.class_counts = st.classes.map(function (label, c) { return {label: label, n: st.y.filter(function (v) { return v === c; }).length}; }); }
+  if (st.task === "cls") { R.summary.baseline_brier = res.baseline.overall.brier; R.summary.pooled_brier = ov.brier; R.summary.pooled_auc = ov.auc; }
   if (isFinite(sd)) R.summary.cv_sd = sd;
-  var figsList = [[mm[1], f3(mean) + (isFinite(sd) ? " ± " + f3(sd) : "")]];
-  if (st.task === "reg") figsList.push(["RMSE", f3(ov.rmse)], ["MAE", f3(ov.mae)], ["Rows", st.y.length + (st.dropped ? " · " + st.dropped + " skipped" : "")]);
-  else if (st.task === "cls") figsList.push(["Accuracy", Math.round(ov.accuracy * 1000) / 10 + "%"], ["Balanced accuracy", Math.round(ov.balanced * 1000) / 10 + "%"], ["Brier score", f3(ov.brier)], ["Rows", st.y.length + (st.dropped ? " · " + st.dropped + " skipped" : "")]);
-  else figsList.push(["Balanced accuracy", Math.round(ov.balanced * 1000) / 10 + "%"], ["Log loss", f3(ov.logloss)], ["Rows", st.y.length]);
+  var figsList = [[mm[1] + (isFinite(sd) ? " · fold mean ± SD" : " · holdout"), f3(mean) + (isFinite(sd) ? " ± " + f3(sd) : "")]];
+  if (st.task === "reg") figsList.push(["RMSE", f3(ov.rmse)], ["MAE", f3(ov.mae)], ["Held-out rows", res.oofIdx.length + " of " + st.y.length + " eligible"]);
+  else if (st.task === "cls") figsList.push(["Accuracy", Math.round(ov.accuracy * 1000) / 10 + "%"], ["Balanced accuracy", Math.round(ov.balanced * 1000) / 10 + "%"], ["Brier score", f3(ov.brier)], ["Held-out rows", res.oofIdx.length + " of " + st.y.length + " eligible"]);
+  else figsList.push(["Balanced accuracy", Math.round(ov.balanced * 1000) / 10 + "%"], ["Log loss", f3(ov.logloss)], ["Held-out rows", res.oofIdx.length + " of " + st.y.length + " eligible"]);
   var foldHead = st.task === "reg" ? ["Fold", "Train / test rows", "R²", "RMSE", "MAE"] : st.task === "cls" ? ["Fold", "Train / test rows", "AUC", "Accuracy", "F1", "Brier"] : ["Fold", "Train / test rows", "Accuracy", "Balanced", "Log loss"];
   R.head = figs(figsList, true) + table(foldHead, res.folds.map(function (f, i) { var sz = res.sizes[i][0] + " / " + res.sizes[i][1]; return st.task === "reg" ? [String(i + 1), sz, f3(f.r2), f3(f.rmse), f3(f.mae)] : st.task === "cls" ? [String(i + 1), sz, f3(f.auc), f3(f.accuracy), f3(f.f1), f3(f.brier)] : [String(i + 1), sz, f3(f.accuracy), f3(f.balanced), f3(f.logloss)]; })) + run;
   var ys = pickRows(st.y, res.oofIdx), ps = pickRows(res.oof, res.oofIdx);
@@ -181,11 +212,11 @@ function runModel(ds) {
     var cal = ML.calibration(ys, ps, 10);
     ex += '<h3 class="sub-h">Calibration</h3><p class="count">Do predicted probabilities match how often “' + esc(s.mpos) + "” actually happens? Points on the diagonal are well calibrated.</p>" +
       xyLines([{name: "Model", pts: cal.bins.map(function (b) { return [b.pred, b.obs]; })}, {name: "Perfect calibration", pts: [[0, 0], [1, 1]], dash: true}], "Predicted probability", "Observed share", [0, 1]) +
-      figs([["Expected calibration error", f3(cal.ece)], ["Calibration slope", f3(cal.slope)], ["Calibration intercept", f3(cal.intercept)], ["Brier score (baseline " + f3(prev * (1 - prev)) + ")", f3(ov.brier)]]) +
+      figs([["Expected calibration error", f3(cal.ece)], ["Calibration slope", f3(cal.slope)], ["Calibration intercept", f3(cal.intercept)], ["Brier score (training-prior baseline " + f3(res.baseline.overall.brier) + ")", f3(ov.brier)]]) +
       '<h3 class="sub-h">Confusion matrix at probability 0.5</h3>' + table(["", "Predicted " + esc(st.classes[0]), "Predicted " + esc(st.classes[1])], [["Actual " + esc(st.classes[0]), String(ov.cm[0][0]), String(ov.cm[0][1])], ["Actual " + esc(st.classes[1]), String(ov.cm[1][0]), String(ov.cm[1][1])]]);
-    R.summary.calibration_slope = cal.slope; R.summary.brier = ov.brier;
+    if (isFinite(cal.slope)) R.summary.calibration_slope = cal.slope; else R.caveats.push("Calibration slope is not estimable: the unpenalized calibration fit did not converge. This does not establish calibrated probabilities."); R.summary.brier = ov.brier;
   }
-  if (full.coef) ex += '<h3 class="sub-h">Coefficients (fit on all rows)</h3>' + (full.alpha != null ? '<p class="count">Penalty chosen by inner 3-fold cross-validation: ' + f3(full.alpha) + ".</p>" : "") + table(["Predictor", st.task === "reg" ? "Change in " + esc(s.mt) + " per unit" : "Log-odds per unit", "Per SD (standardized)"], st.names.map(function (n, j) { return [esc(n), f3(full.coef[j]), full.std[j] === 0 ? '<span class="nd">0 (dropped)</span>' : f3(full.std[j])]; }));
+  if (full.coef) ex += '<h3 class="sub-h">Coefficients (fit on all rows)</h3>' + (full.alpha != null ? '<p class="count">Penalty chosen by inner cross-validation (up to 3 feasible folds): ' + f3(full.alpha) + ".</p>" : "") + table(["Predictor", st.task === "reg" ? "Change in " + esc(s.mt) + " per unit" : "Log-odds per unit", "Per SD (standardized)"], st.names.map(function (n, j) { return [esc(n), f3(full.coef[j]), full.std[j] === 0 ? '<span class="nd">0 (dropped)</span>' : f3(full.std[j])]; }));
   if (full.tree) ex += '<h3 class="sub-h">The tree (fit on all rows)</h3><pre class="rules">' + esc(ML.treeRules(full.tree, st.names, f3, st.classes, 40).join("\n")) + "</pre>";
   if (full.oob) { var oi = full.oob.map(function (v, i) { return v == null ? -1 : i; }).filter(function (i) { return i >= 0; }), om = scoreOf(st, pickRows(st.y, oi), pickRows(full.oob, oi)); ex += '<p class="count">Out-of-bag ' + mm[1] + " on all rows: " + f3(om[mm[0]]) + " (" + full.forest.trees.length + " trees).</p>"; }
   var cmpKey = modelCacheKey(ds, "compare");
@@ -193,12 +224,13 @@ function runModel(ds) {
   ex += '<div class="slot"><button type="button" class="btn" data-mpredcol="1">Add out-of-fold predictions as a column</button><span class="count">Each row is predicted by a model that never saw it.</span></div>';
   R.extra = ex;
   // Reading
-  if (st.task === "reg") R.reading.push("On rows it did not see, the " + label.toLowerCase() + " explains " + Math.round(Math.max(0, mean) * 100) + "% of the variation in " + esc(s.mt) + " (R² = " + fz(mean) + (isFinite(sd) ? " ± " + fz(sd) + " across folds" : "") + "). Typical error: " + f3(ov.mae) + " (MAE)." + (mean <= 0 ? " That is no better than predicting the average for everyone." : ""));
-  else if (st.task === "cls") R.reading.push("On held-out rows, the model ranks a random “" + esc(s.mpos) + "” above a random “" + esc(st.classes[0]) + "” " + Math.round(ov.auc * 100) + "% of the time (AUC = " + fz(ov.auc) + "; 0.5 is chance). Accuracy is " + Math.round(ov.accuracy * 100) + "% against " + Math.round(maj * 100) + "% from always guessing the most common class.");
-  else R.reading.push("On held-out rows, the model picks the right category " + Math.round(ov.accuracy * 100) + "% of the time, against " + Math.round(maj * 100) + "% from always guessing the most common one.");
+  if (st.task === "reg") R.reading.push("Mean held-out R² = " + fz(mean) + (isFinite(sd) ? " ± " + fz(sd) + " across folds" : "") + ". Negative R² is worse than each test fold's own mean, the metric's reference. Training-mean baseline RMSE = " + f3(res.baseline.overall.rmse) + "; model MAE = " + f3(ov.mae) + ".");
+  else if (st.task === "cls") R.reading.push("Pooling the held-out rows, the model ranks a random “" + esc(s.mpos) + "” above a random “" + esc(st.classes[0]) + "” " + Math.round(ov.auc * 100) + "% of the time (AUC = " + fz(ov.auc) + "; 0.5 is chance). Accuracy is " + Math.round(ov.accuracy * 100) + "% against " + Math.round(maj * 100) + "% for a baseline using each training fold's class frequencies.");
+  else R.reading.push("On held-out rows, the model picks the right category " + Math.round(ov.accuracy * 100) + "% of the time, against " + Math.round(maj * 100) + "% for a baseline using each training fold's class frequencies.");
   if (gimp[0] && gimp[0][1] > 0) R.reading.push("Predictions rely most on " + esc(gimp[0][0]) + (gimp[1] && gimp[1][1] > 0 ? ", then " + esc(gimp[1][0]) : "") + ". Importance shows what the model uses, not what causes the outcome.");
-  if (st.task === "cls") { var cal2 = ML.calibration(ys, ps, 10); R.reading.push(Math.abs(cal2.slope - 1) < 0.2 ? "Predicted probabilities are reasonably calibrated (slope " + fz(cal2.slope) + ")." : cal2.slope < 1 ? "Predicted probabilities are too extreme (calibration slope " + fz(cal2.slope) + " < 1): the model is overconfident." : "Predicted probabilities are too cautious (calibration slope " + fz(cal2.slope) + " > 1)."); }
-  if (s.mv === "k5" || s.mv === "k10") R.caveats.push(st.groups == null && ds.cols.some(function (c) { return /id|subject|patient|participant|school|site/i.test(c.name); }) ? "If several rows come from the same person or site, ordinary folds leak information between training and testing. Choose grouped folds." : "Rows are assumed independent. Use grouped or time-ordered folds when rows share a person, site or period.");
+  if (st.task === "cls") { var cal2 = ML.calibration(ys, ps, 10); if (isFinite(cal2.slope)) R.reading.push("Estimated calibration slope = " + fz(cal2.slope) + ". This point estimate alone does not establish calibration; its uncertainty is not estimated here."); }
+  if (s.mv === "k2" || s.mv === "k5" || s.mv === "k10") R.caveats.push(st.groups == null && ds.cols.some(function (c) { return /id|subject|patient|participant|school|site/i.test(c.name); }) ? "If several rows come from the same person or site, ordinary folds leak information between training and testing. Choose grouped folds." : "Rows are assumed independent. Use grouped or time-ordered folds when rows share a person, site or period.");
+  if (st.task !== "reg" && st.classes.some(function (_, c) { return st.y.filter(function (v) { return v === c; }).length < 10; })) R.caveats.push("Fewer than ten observations in at least one class: performance estimates are unstable. Across-fold SD is not a confidence interval.");
   if (s.mv === "holdout") R.caveats.push("A single holdout split gives a noisy estimate; cross-validation averages over several splits.");
   if (st.dropped) R.caveats.push(st.dropped + " rows with a missing value in the outcome or a predictor were skipped. Impute first (Missing data) if many are missing.");
   R.caveats.push("Cross-validated scores estimate performance on new data like these rows; they do not guarantee performance in a different population or period.");

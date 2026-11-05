@@ -122,7 +122,7 @@ var ML = (function () {
   function alphaMax(X, y, rho) { var st = standardize(X), n = X.length, ym = y.reduce(function (a, b) { return a + b; }, 0) / n, m = 0; for (var j = 0; j < X[0].length; j++) { var g = 0; st.Z.forEach(function (r, i) { g += r[j] * (y[i] - ym); }); m = Math.max(m, Math.abs(g) / n); } return m / Math.max(rho, 1e-3); }
   // Binary logistic regression with an L2 penalty (λ/2)||b||² on standardized predictors; intercept unpenalized (sklearn C = 1/λ)
   function logit(X, y, lambda) {
-    var st = standardize(X), Z = st.Z, n = Z.length, p = Z[0].length + 1, w = new Array(p).fill(0);
+    var st = standardize(X), Z = st.Z, n = Z.length, p = Z[0].length + 1, w = new Array(p).fill(0), converged = false;
     for (var it = 0; it < 100; it++) {
       var g = new Array(p).fill(0), H = S3.zeros(p, p);
       Z.forEach(function (z, i) { var x = [1].concat(z), e = x.reduce(function (s, v, j) { return s + v * w[j]; }, 0), pr = 1 / (1 + Math.exp(-e)), wt = pr * (1 - pr);
@@ -130,10 +130,10 @@ var ML = (function () {
       for (var a = 1; a < p; a++) { g[a] -= lambda * w[a]; H[a][a] += lambda; }
       var Hi = S3.inv(H); if (!Hi) break;
       var step = Hi.map(function (r) { return r.reduce(function (s, v, j) { return s + v * g[j]; }, 0); }), mx = 0;
-      step.forEach(function (v, j) { w[j] += v; mx = Math.max(mx, Math.abs(v)); }); if (mx < 1e-12) break;
+      step.forEach(function (v, j) { w[j] += v; mx = Math.max(mx, Math.abs(v)); }); if (mx < 1e-12) { converged = true; break; }
     }
     var coef = w.slice(1).map(function (v, j) { return v / st.sd[j]; }), icpt = w[0] - coef.reduce(function (s, c, j) { return s + c * st.mu[j]; }, 0);
-    return {coef: coef, intercept: icpt, std: w.slice(1), predict: function (x) { var e = icpt + x.reduce(function (s, v, j) { return s + v * coef[j]; }, 0); return 1 / (1 + Math.exp(-e)); }};
+    return {coef: coef, intercept: icpt, std: w.slice(1), converged: converged, predict: function (x) { var e = icpt + x.reduce(function (s, v, j) { return s + v * coef[j]; }, 0); return 1 / (1 + Math.exp(-e)); }};
   }
 
   // ---- Validation schemes (index lists) ----
@@ -200,7 +200,7 @@ var ML = (function () {
     // Calibration intercept and slope: logistic regression of the outcome on logit(prob)
     var lg = prob.map(function (p) { var c = Math.min(1 - 1e-9, Math.max(1e-9, p)); return [Math.log(c / (1 - c))]; }), fit = null;
     try { fit = logit(lg, y, 0); } catch (e) {}
-    return {bins: out, ece: ece, slope: fit ? fit.coef[0] : NaN, intercept: fit ? fit.intercept : NaN};
+    return {bins: out, ece: ece, slope: fit && fit.converged ? fit.coef[0] : NaN, intercept: fit && fit.converged ? fit.intercept : NaN};
   }
   function rng(seed) { var r = S3.rngN(seed); return r.u; }
   return {tree: tree, treePredict: treePredict, treeRules: treeRules, forest: forest, forestPredict: forestPredict, standardize: standardize, enet: enet, alphaMax: alphaMax, logit: logit,

@@ -13,8 +13,10 @@ rounding done before import cannot be recovered. Numerical tolerances are explic
 | E5 | Sensitivity lost in append and derived columns | Verified for the acceptance cases below | Conservative metadata propagation, CSV exclusion and project persistence |
 | E6 | Weighted agreement and ordinal interpretation mismatch | Verified for the acceptance cases below | Raw vs weighted agreement explicitly separated; headline uses selected primary statistic |
 | E7 | Plan invalid input and lost settings | Verified for the acceptance cases below | Domain validation, no invalid result/write-up, project save/open and reload |
-| E8 | Rare-class CV averages undefined folds | Pending | Validation uses a feasible split or refuses it explicitly; valid fold counts match headline |
+| E8 | Rare-class CV averages undefined folds | Verified for the acceptance cases below | Validation uses a feasible split or refuses it explicitly; valid fold counts match headline |
 | E9 | Premature rounding in cleaning, formulas and scale columns (found during this repair) | Pending | Stored transformations retain binary64 precision; each changed operation has an independent numerical case |
+| E10 | Model calculations lose translation/scale stability (found during E8) | Pending | Regression tree split/values, standardization and validation metrics against independent references on shifted/scaled inputs |
+| E11 | Background scan redraw corrupts in-progress input (reproduced after E4) | Pending | No scan redraw during editing; repeated real field interactions and saved ranges preserve the entered values |
 
 ## E1 acceptance record
 
@@ -201,3 +203,29 @@ to Cohen's w using the displayed table's dimensions and transfers its df.
 - Scope: supported input ranges and these power-model cases. Clustering inflation
   does not provide a mixed-model power guarantee; correlation/proportion models
   remain approximations. A finite invalid draft can be saved but cannot yield prose.
+
+## E8 acceptance record
+
+Every requested fold must have enough rows, all outcome classes in training/testing,
+and a defined finite primary score. No undefined folds are filtered out. An explicit
+2-fold option supports feasible rare-class tree/forest evaluation. Logistic tuning
+uses up to three feasible inner folds and refuses training subsets with fewer than
+two observations per class. Group/time constraints are retained; gaps that make an
+early fold infeasible refuse validation instead of silently dropping that fold.
+
+Classification holdout is stratified per class, with integer rounding and counts
+shown explicitly. Baselines use only each training fold's mean/class frequencies,
+scored on the same held-out rows. Summary/headline counts identify evaluated folds
+and rows. Calibration requires a converged unpenalized fit; separation no longer
+produces a spurious finite calibration conclusion. Fold SD is labelled as SD, not CI.
+
+- `check_cv_integrity.js`: 20 groups at 1440px/400px, all three classifiers, rare
+  binary/multiclass cases, 2/5/10-fold and holdout, inner tuning, grouped/time splits,
+  gap failure, constant regression test folds, injected undefined metrics, actual
+  saved Python/Node workflow and independent sklearn fold/baseline comparisons.
+- 151 fixed SciPy values plus strict Welch gate; 44/44 method groups. 26 trust groups
+  (all 17 analysis kinds and actual Python model exports) and 10 source/prediction
+  replay groups pass. R code is generated but Rscript execution remains unverified.
+- Scope: validation integrity and these classification/metric cases. Rare-class
+  results remain unstable even when estimable. No performance confidence interval
+  is implemented. The separate shifted-tree numerical failure is tracked as E10.

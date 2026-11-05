@@ -79,4 +79,6 @@ PL=Object.assign(plDefaults(),{ratio:1.5,n:65,solve:'power'});result.plan_unequa
 PL=Object.assign(plDefaults(),{design:'prop',ratio:1.3,alt:'smaller'});result.plan_prop_lower=plPower(45,.4);
 PL=Object.assign(plDefaults(),{design:'corr',alt:'smaller'});result.plan_corr_lower=plPower(70,.3);
 PL=Object.assign(plDefaults(),{m:10,icc:.05,drop:10});const inflated=plInflate(160);result.plan_recruit=inflated.n;result.plan_clusters=inflated.clusters;
+eval(src('ml.js')+';globalThis.ML=ML;');
+const priorMetrics=ML.clsMetrics([0,0,0,1],[.25,.25,.25,.25]);result.baseline_accuracy=priorMetrics.accuracy;result.baseline_brier=priorMetrics.brier;result.baseline_rmse=ML.regMetrics([2,5,8,11],[3,3,3,3]).rmse;
 console.log(JSON.stringify(result));

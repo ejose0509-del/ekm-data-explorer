@@ -98,6 +98,7 @@ ref['plan_prop_lower']=st.norm.cdf(-st.norm.ppf(.95)+.4*np.sqrt(1/(1/45+1/59)))
 n=70;r=-.3;tcrit=st.t.ppf(.95,n-2);rc=np.sqrt(tcrit*tcrit/(tcrit*tcrit+n-2));zr=np.arctanh(r)+r/(2*(n-1))
 ref['plan_corr_lower']=st.norm.cdf((-zr-np.arctanh(rc))*np.sqrt(n-3))
 ref['plan_recruit']=260;ref['plan_clusters']=26
+ref['baseline_accuracy']=.75;ref['baseline_brier']=np.mean((np.array([0,0,0,1])-.25)**2);ref['baseline_rmse']=np.sqrt(np.mean((np.array([2,5,8,11])-3)**2))
 bad = 0
 for k, v in ref.items():
     actual=ekm.get(k)
