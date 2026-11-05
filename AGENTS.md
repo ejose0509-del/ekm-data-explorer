@@ -12,7 +12,7 @@ node tests/check_trust.js         # versioning, time gaps, fidelity, ranges and 
 node tests/check_new_features.js  # browser checks for Plan, new analyses, editing, workflow, connectors, exports
 ```
 
-Open `dist/index.html` in a browser to use it. Run the stats check after any change to `src/stats.js` or `src/stats2.js`; all 117 fixed values plus the 1,017-case Welch accuracy gate (including the original 30) must match SciPy. Run the methods check after any change to `src/stats3.js` or `src/ml.js`; all 44 groups must match (it needs `pip install numpy scipy pandas statsmodels scikit-learn pingouin factor_analyzer`). Browser suites need Playwright (`PLAYWRIGHT_MODULE`, `BROWSER_CHANNEL=chrome`); set `EKM_PYTHON` to a Python with those packages so the new-feature suite also runs the exported Python script and checks it reproduces EKM's numbers.
+Open `dist/index.html` in a browser to use it. Run the stats check after any change to `src/stats.js` or `src/stats2.js`; all 141 fixed values plus the 1,017-case Welch accuracy gate (including the original 30) must match SciPy. Run the methods check after any change to `src/stats3.js` or `src/ml.js`; all 44 groups must match (it needs `pip install numpy scipy pandas statsmodels scikit-learn pingouin factor_analyzer`). Browser suites need Playwright (`PLAYWRIGHT_MODULE`, `BROWSER_CHANNEL=chrome`); set `EKM_PYTHON` to a Python with those packages so the new-feature suite also runs the exported Python script and checks it reproduces EKM's numbers.
 
 ## Layout
 

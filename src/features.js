@@ -33,9 +33,11 @@ function enrich(R, ds) {
     var G = groupsOf(ds, rows, s.y, s.g), names = Array.isArray(sm.groups) ? sm.groups : Object.keys(G).filter(function (k) { return G[k].length >= 2; }).sort(function (a, b) { return S.mean(G[b]) - S.mean(G[a]); }), gs = names.map(function (k) { return G[k]; });
     var sws = names.map(function (k) { return S2.shapiro(G[k]); }), nonNormal = sws.some(function (w) { return w && w.p < 0.05; }), lev = S2.levene(gs);
     R.extra += swTable(names.slice(0, 12).map(function (k) { return swRow(k, G[k]); }).join("")) + '<p class="count">Levene (equal spreads): F(' + lev.df1 + ", " + lev.df2 + ") = " + lev.F.toFixed(2) + ", p " + (lev.p < 0.001 ? "< 0.001" : "= " + fp(lev.p)) + " " + chipYes(lev.p >= 0.05, "Spreads similar", "Spreads differ") + "</p>";
+    sm.rank_normality_failed = nonNormal;
     var n = gs.reduce(function (a, g) { return a + g.length; }, 0), an = S.anova(gs);
     if (names.length === 2) {
       var mw = S2.mannWhitney(gs[0], gs[1]), pw = S2.powerD(sm.cohen_d, gs[0].length, gs[1].length), bf = S2.bfR2(an.eta2, n, 1);
+      sm.rank_summary = {test: "Mann–Whitney rank distributions", statistic_label: "U", statistic: mw.U, effect_label: "Rank-biserial r", effect: mw.r, p: mw.p, n: n, ci95: null};
       R.extra += '<h3 class="sub-h">Rank-based check</h3>' + figs([["Mann–Whitney U", f3(mw.U)], ["p-value", fp(mw.p)], ["Rank effect (r)", f3(mw.r)]]);
       R.reading.push(((mw.p < .05) === (sm.p < .05) ? "The rank-based Mann–Whitney test gives the same decision at the .05 threshold: " : "The rank-based Mann–Whitney test differs at the .05 threshold. These methods test different hypotheses; with small groups their approximations are especially uncertain: ") + "U = " + f3(mw.U) + ", p " + (mw.p < 0.001 ? "< 0.001" : "= " + fp(mw.p)) + ".");
       if (nonNormal) R.caveats.push('A normality check flags at least one group. Consider the rank-based alternative, checking independence and distribution shape; it tests a different hypothesis from a comparison of means.');
@@ -46,6 +48,7 @@ function enrich(R, ds) {
       R.apa = "Welch's <i>t</i>(" + sm.df.toFixed(1) + ") = " + sm.t.toFixed(2) + ", " + apaP(sm.p) + ", <i>d</i> = " + fz(sm.cohen_d) + "; Mann–Whitney <i>U</i> = " + f3(mw.U) + ", " + apaP(mw.p);
     } else {
       var kw = S2.kruskal(gs), pairs = S2.pairwise(names, gs), bf2 = S2.bfR2(an.eta2, n, names.length - 1);
+      sm.rank_summary = {test: "Kruskal–Wallis rank distributions", statistic_label: "H", statistic: kw.H, effect_label: "Rank ε²", effect: kw.eps2, p: kw.p, n: n, ci95: null};
       R.extra += '<h3 class="sub-h">Rank-based check</h3>' + figs([["Kruskal–Wallis H", f3(kw.H)], ["p-value", fp(kw.p)], ["Effect (ε²)", f3(kw.eps2)]]) +
         '<h3 class="sub-h">Which groups differ (post-hoc)</h3><div class="tablewrap"><table class="nosort"><thead><tr><th>Pair</th><th>Difference</th><th>d</th><th>p (Holm-adjusted)</th></tr></thead><tbody>' +
         pairs.slice(0, 45).map(function (q) { return "<tr><td>" + esc(q.a) + " vs " + esc(q.b) + '</td><td class="num">' + f3(q.diff) + '</td><td class="num">' + f3(q.d) + '</td><td class="num">' + fp(q.padj) + " " + (q.padj < 0.05 ? '<span class="chip q-verified">differs</span>' : "") + "</td></tr>"; }).join("") + "</tbody></table></div>" +
@@ -61,7 +64,10 @@ function enrich(R, ds) {
   }
   if (A.kind === "relate" && sm.r != null) {
     var xs = getCol(ds, rows, s.x), ys = getCol(ds, rows, s.y), swx = S2.shapiro(xs), swy = S2.shapiro(ys), pr = S2.powerR(sm.r, sm.n), bf3 = S2.bfR2(sm.r * sm.r, sm.n, 1);
-    R.extra += swTable(swRow(s.x, xs) + swRow(s.y, ys));
+    var complete = S.correlate(xs, ys); swx = S2.shapiro(complete.x); swy = S2.shapiro(complete.y);
+    sm.rank_normality_failed = !!((swx && swx.p < .05) || (swy && swy.p < .05));
+    sm.rank_summary = {test: "Spearman rank correlation", statistic_label: "ρ", statistic: sm.spearman, effect_label: "Spearman ρ", effect: sm.spearman, p: sm.spearman_p, n: sm.n, ci95: null};
+    R.extra += swTable(swRow(s.x, complete.x) + swRow(s.y, complete.y));
     if ((swx && swx.p < 0.05) || (swy && swy.p < 0.05)) R.reading.push("At least one column is not normally distributed, so the rank-based Spearman ρ = " + f3(sm.spearman) + " is the safer measure of the link.");
     R.reading.push(bfLine(bf3));
     R.caveats.push("Power: about " + Math.round(pr.power * 100) + "% to detect a correlation this size with " + sm.n + " rows; " + pr.need + " rows would give 80%.");
@@ -86,6 +92,8 @@ function runPaired(ds) {
   if (!t || t.n < 3) return need(R, "at least three rows with both values");
   var sw = S2.shapiro(diffs), need80 = Math.ceil(Math.pow((1.959964 + 0.841621) / Math.abs(t.dz || 1e-9), 2));
   R.summary = {test: "Paired t-test and Wilcoxon signed-rank", before: s.x, after: s.y, n: t.n, mean_change: t.mean, ci95: [t.ciLo, t.ciHi], t: t.t, df: t.df, p: t.p, dz: t.dz, wilcoxon_p: w ? w.p : null};
+  R.summary.rank_normality_failed = !!(sw && sw.p < .05);
+  if (w) R.summary.rank_summary = {test: "Wilcoxon signed-rank", statistic_label: "T", statistic: w.T, effect_label: "|z| / √nonzero pairs", effect: w.r, p: w.p, n: w.n, ci95: null};
   R.head = figs([["Average change", f3(t.mean)], ["95% range", f3(t.ciLo) + " to " + f3(t.ciHi)], ["p-value", fp(t.p)], ["Pairs", t.n]], true);
   R.chart = histogram(diffs, "Change (" + s.y + " − " + s.x + ")");
   R.extra = swTable(swRow("Changes", diffs)) + (w ? '<h3 class="sub-h">Rank-based check</h3>' + figs([["Wilcoxon T", f3(w.T)], ["p-value", fp(w.p)], ["Effect (r)", f3(w.r)]]) : "");

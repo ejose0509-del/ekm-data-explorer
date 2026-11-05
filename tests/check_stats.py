@@ -76,10 +76,25 @@ ba=np.array(baseline_fixture['a'],dtype=float);bb_=np.array(baseline_fixture['b'
 bt=st.ttest_ind(ba,bb_,equal_var=False);bci=bt.confidence_interval()
 bd=(ba.mean()-bb_.mean())/np.sqrt(((len(ba)-1)*ba.var(ddof=1)+(len(bb_)-1)*bb_.var(ddof=1))/(len(ba)+len(bb_)-2))
 for key,value in dict(t=bt.statistic,df=bt.df,p=bt.pvalue,diff=ba.mean()-bb_.mean(),lo=bci.low,hi=bci.high,d=bd).items():ref['baseline_welch_'+key]=value
+for name,aa,bb in [('near',[1,2,3]*10,[2,3,2]*10),('irregular',[1,1,10,10,100,100,100],[1,10,1,10,100,10,100])]:
+    cats=sorted(set(aa+bb));tab=np.zeros((len(cats),len(cats)))
+    for a_,b_ in zip(aa,bb):tab[cats.index(a_),cats.index(b_)]+=1
+    pr=tab/tab.sum();expected=st.contingency.expected_freq(tab)/tab.sum()
+    distance=np.abs(np.arange(len(cats))[:,None]-np.arange(len(cats))[None,:])/(len(cats)-1)
+    for weight,power in [('linear',1),('quadratic',2)]:
+        weights=1-distance**power;po=(pr*weights).sum();pe=(expected*weights).sum()
+        for key,value in dict(rawPo=np.trace(pr),rawPe=np.trace(expected),po=po,pe=pe,kappa=(po-pe)/(1-pe)).items():ref['agreement_'+name+'_'+weight+'_'+key]=value
+for name,n,tied in [('separated30',30,False),('separated120',120,False),('tied120',120,True)]:
+    aa=np.arange(n)%3 if tied else np.arange(n);bb=np.arange(n)%5+10 if tied else np.arange(n)+n
+    ref['tail_mw_'+name]=st.mannwhitneyu(aa,bb,method='asymptotic',use_continuity=True).pvalue
+pr=np.array([[0,1/3,0],[0,0,1/3],[0,1/3,0]]);fr=pr.sum(1);fc=pr.sum(0);weights=1-np.abs(np.arange(3)[:,None]-np.arange(3)[None,:])/2
+po=(pr*weights).sum();pe=(fr[:,None]*fc*weights).sum();kap=(po-pe)/(1-pe);wr=weights@fc;wc=fr@weights
+v0=(fr[:,None]*fc*(weights-wr[:,None]-wc[None,:])**2).sum();se0=np.sqrt((v0-pe*pe)/((1-pe)**2*3000));ref['tail_kappa']=2*st.norm.sf(abs(kap/se0))
 bad = 0
 for k, v in ref.items():
     actual=ekm.get(k)
-    ok = actual is not None and abs(actual - float(v)) <= 1e-6 * max(1.0, abs(float(v)))
+    tolerance = 1e-8 * abs(float(v)) + 1e-300 if k.startswith("tail_") else 1e-6 * max(1.0, abs(float(v)))
+    ok = actual is not None and abs(actual - float(v)) <= tolerance
     bad += not ok
     print(('PASS ' if ok else 'FAIL ') + k.ljust(24), str(actual) if actual is None else '%.10g' % actual, '%.10g' % float(v))
 print('\n%d of %d match SciPy' % (len(ref) - bad, len(ref)))

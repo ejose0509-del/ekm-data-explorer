@@ -256,7 +256,7 @@ var S3 = (function () {
     var starts = q === 1 ? [[1], [0.3], [3], [0.05]] : [[1, 0, 0.5], [0.5, 0, 0.1], [2, 0.1, 1], [0.2, 0, 0.05]], best = null;
     starts.forEach(function (s0) { var r = nelderMead(obj, s0, 0.3, 6000); r = nelderMead(obj, r.x, 0.02, 6000); if (!best || r.f < best.f) best = r; });
     var P = parts(best.x), s2 = P.rVr / (N - p), L = P.L, Psi = mul(L, T(L)).map(function (r) { return r.map(function (v) { return v * s2; }); });
-    var fe = P.beta.map(function (b, i) { var se = Math.sqrt(s2 * P.XVXi[i][i]), z = b / se; return {name: xnames[i], b: b, se: se, z: z, p: 2 * (1 - pnorm(Math.abs(z))), lo: b - 1.959963984540054 * se, hi: b + 1.959963984540054 * se}; });
+    var fe = P.beta.map(function (b, i) { var se = Math.sqrt(s2 * P.XVXi[i][i]), z = b / se; return {name: xnames[i], b: b, se: se, z: z, p: 2 * pnorm(-Math.abs(z)), lo: b - 1.959963984540054 * se, hi: b + 1.959963984540054 * se}; });
     // REML deviance at the fitted values and with no random effects, for a boundary-corrected likelihood-ratio test
     var dev = best.f + (N - p) * (1 + Math.log(2 * Math.PI / (N - p))), dev0 = obj(q === 1 ? [0] : [0, 0, 0]) + (N - p) * (1 + Math.log(2 * Math.PI / (N - p)));
     var lr = Math.max(0, dev0 - dev), pLR = q === 1 ? 0.5 * (1 - pchisq(lr, 1)) : 0.5 * (1 - pchisq(lr, 2)) + 0.5 * (1 - pchisq(lr, 3));
@@ -282,7 +282,7 @@ var S3 = (function () {
     var beta = mul(xb.B, r.fe.map(function (c) { return [c.b]; }));
     var V = mul(mul(xb.B, r.covariance), T(xb.B)).map(function (row) { return row.map(function (v) { return v * ys * ys; }); });
     r.fe = beta.map(function (row, i) { var b = row[0] * ys + (i ? 0 : ym), se = Math.sqrt(Math.max(0, V[i][i])), z = b / se;
-      return {name: xnames[i], b: b, se: se, z: z, p: 2 * (1 - pnorm(Math.abs(z))), lo: b - 1.959963984540054 * se, hi: b + 1.959963984540054 * se}; });
+      return {name: xnames[i], b: b, se: se, z: z, p: 2 * pnorm(-Math.abs(z)), lo: b - 1.959963984540054 * se, hi: b + 1.959963984540054 * se}; });
     r.covariance = V; r.scale *= ys * ys;
     r.Psi = mul(mul(zb.B, r.Psi), T(zb.B)).map(function (row) { return row.map(function (v) { return v * ys * ys; }); });
     if (Z[0].length === 1) r.icc = r.Psi[0][0] / (r.Psi[0][0] + r.scale);
@@ -390,7 +390,7 @@ var S3 = (function () {
     var k = cats.length, at = Object.create(null); cats.forEach(function (c, i) { at[c] = i; });
     var tab = zeros(k, k); a.forEach(function (v, i) { tab[at[v]][at[b[i]]]++; });
     var n = a.length, pr = tab.map(function (r) { return r.map(function (v) { return v / n; }); }), fr = pr.map(function (r) { return r.reduce(function (s, v) { return s + v; }, 0); }), fc = T(pr).map(function (r) { return r.reduce(function (s, v) { return s + v; }, 0); });
-    var wts = zeros(k, k), sc = numeric ? cats.map(Number) : cats.map(function (_, i) { return i; }), span = sc[k - 1] - sc[0] || 1;
+    var wts = zeros(k, k), sc = cats.map(function (_, i) { return i; }), span = sc[k - 1] - sc[0] || 1;
     for (var i = 0; i < k; i++) for (var j = 0; j < k; j++) wts[i][j] = !weight ? (i === j ? 0 : 1) : weight === "linear" ? Math.abs(sc[i] - sc[j]) / span : Math.pow(sc[i] - sc[j], 2) / (span * span);
     var w = wts.map(function (r) { return r.map(function (v) { return 1 - v; }); }), po = 0, pe = 0;
     for (i = 0; i < k; i++) for (j = 0; j < k; j++) { po += w[i][j] * pr[i][j]; pe += w[i][j] * fr[i] * fc[j]; }
@@ -399,7 +399,7 @@ var S3 = (function () {
     var se = Math.sqrt((ta - Math.pow(kap - pe * (1 - kap), 2)) / (Math.pow(1 - pe, 2) * n)), v0 = 0;
     for (i = 0; i < k; i++) for (j = 0; j < k; j++) v0 += fr[i] * fc[j] * Math.pow(w[i][j] - (wr[i] + wc[j]), 2);
     var se0 = Math.sqrt((v0 - pe * pe) / (Math.pow(1 - pe, 2) * n)), z = kap / se0;
-    return {kappa: kap, se: se, lo: kap - 1.959963984540054 * se, hi: kap + 1.959963984540054 * se, z: z, p: 2 * (1 - pnorm(Math.abs(z))), po: po, pe: pe, n: n, cats: cats, table: tab};
+    return {kappa: kap, se: se, lo: kap - 1.959963984540054 * se, hi: kap + 1.959963984540054 * se, z: z, p: 2 * pnorm(-Math.abs(z)), po: po, pe: pe, rawPo: pr.reduce(function (s, r, i) { return s + r[i]; }, 0), rawPe: fr.reduce(function (s, v, i) { return s + v * fc[i]; }, 0), n: n, cats: cats, table: tab};
   }
   function fleiss(ratings) {   // ratings: subjects × raters (category labels); Fleiss (1971) with Fleiss, Nee & Landis (1979) null SE
     var cats = [], seen = Object.create(null); ratings.forEach(function (r) { r.forEach(function (v) { if (!seen[v]) { seen[v] = 1; cats.push(v); } }); });
@@ -407,7 +407,7 @@ var S3 = (function () {
     ratings.forEach(function (r) { var c = cats.map(function (k) { return r.filter(function (v) { return v === k; }).length; }); c.forEach(function (v, j) { pj[j] += v / (N * m); }); P += (c.reduce(function (s, v) { return s + v * v; }, 0) - m) / (m * (m - 1)); });
     P /= N; var Pe = pj.reduce(function (s, v) { return s + v * v; }, 0), kap = (P - Pe) / (1 - Pe), sq = pj.reduce(function (s, v) { return s + v * (1 - v); }, 0);
     var se0 = Math.sqrt(2) / (sq * Math.sqrt(N * m * (m - 1))) * Math.sqrt(sq * sq - pj.reduce(function (s, v) { return s + v * (1 - v) * (1 - 2 * v); }, 0)), z = kap / se0;
-    return {kappa: kap, Po: P, Pe: Pe, se0: se0, z: z, p: 2 * (1 - pnorm(Math.abs(z))), n: N, raters: m, cats: cats, prop: pj};
+    return {kappa: kap, Po: P, Pe: Pe, se0: se0, z: z, p: 2 * pnorm(-Math.abs(z)), n: N, raters: m, cats: cats, prop: pj};
   }
   function icc(Y) {   // Shrout & Fleiss forms with McGraw & Wong intervals, as pingouin
     var n = Y.length, k = Y[0].length, G = 0, rm = Y.map(function (r) { return r.reduce(function (a, b) { return a + b; }, 0) / k; }), cm = new Array(k).fill(0);

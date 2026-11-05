@@ -1,7 +1,7 @@
 // Runs EKM's statistics on fixed data and prints JSON. Used by check_stats.py.
 const fs = require("fs"), path = require("path");
 const src = (f) => fs.readFileSync(f === "stats.js" && process.env.EKM_STATS_FILE ? process.env.EKM_STATS_FILE : path.join(__dirname, "..", "src", f), "utf8");
-eval(src("stats.js") + src("stats2.js") + ";globalThis.S=S;globalThis.S2=S2;");
+eval(src("stats.js") + src("stats2.js") + src("stats3.js") + ";globalThis.S=S;globalThis.S2=S2;globalThis.S3=S3;");
 // Batched, independent reference cases supplied by the Python accuracy gate.
 if (process.argv.includes('--welch-cases')) {
  const cases = JSON.parse(fs.readFileSync(0,'utf8'));
@@ -68,4 +68,9 @@ result.discover_missing_r=missingRank.r;result.discover_missing_p=missingRank.p;
 const baselineFixture = JSON.parse(fs.readFileSync(path.join(__dirname,'fixtures/welch_baseline.json'),'utf8'));
 const baselineWelch = S.ttest(baselineFixture.a.map(v=>v+baselineFixture.offset),baselineFixture.b.map(v=>v+baselineFixture.offset));
 for(const [key, field] of [['t','t'],['df','df'],['p','p'],['diff','diff'],['lo','ciLo'],['hi','ciHi'],['d','d']])result['baseline_welch_'+key]=baselineWelch[field];
+for(const [name,aa,bb] of [['near',Array.from({length:30},(_,i)=>[1,2,3][i%3]),Array.from({length:30},(_,i)=>[2,3,2][i%3])],['irregular',[1,1,10,10,100,100,100],[1,10,1,10,100,10,100]]]) {
+ for(const weight of ['linear','quadratic']){const k=S3.kappa(aa,bb,weight);for(const key of ['rawPo','rawPe','po','pe','kappa'])result['agreement_'+name+'_'+weight+'_'+key]=k[key];}
+}
+for(const [name,n,tied] of [['separated30',30,false],['separated120',120,false],['tied120',120,true]])result['tail_mw_'+name]=S2.mannWhitney(Array.from({length:n},(_,i)=>tied?i%3:i),Array.from({length:n},(_,i)=>tied?10+i%5:i+n)).p;
+const ka=Array.from({length:3000},(_,i)=>[1,2,3][i%3]),kb_=Array.from({length:3000},(_,i)=>[2,3,2][i%3]);result.tail_kappa=S3.kappa(ka,kb_,'linear').p;
 console.log(JSON.stringify(result));

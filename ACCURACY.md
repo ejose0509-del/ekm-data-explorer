@@ -11,7 +11,7 @@ rounding done before import cannot be recovered. Numerical tolerances are explic
 | E3 | PCA/factor score columns refit excluded data | Verified for the acceptance cases below | Same fitted parameters and eligible rows as displayed; scores and replay verified |
 | E4 | Prediction recipes omit validation context; duplicate source headers fail replay | Verified for the acceptance cases below | Gap/filter preservation, original-header mapping and generated workflow execution |
 | E5 | Sensitivity lost in append and derived columns | Verified for the acceptance cases below | Conservative metadata propagation, CSV exclusion and project persistence |
-| E6 | Weighted agreement and ordinal interpretation mismatch | Pending | Raw vs weighted agreement explicitly separated; headline uses selected primary statistic |
+| E6 | Weighted agreement and ordinal interpretation mismatch | Verified for the acceptance cases below | Raw vs weighted agreement explicitly separated; headline uses selected primary statistic |
 | E7 | Plan invalid input and lost settings | Pending | Domain validation, no invalid result/write-up, project save/open and reload |
 | E8 | Rare-class CV averages undefined folds | Pending | Validation uses a feasible split or refuses it explicitly; valid fold counts match headline |
 | E9 | Premature rounding in cleaning, formulas and scale columns (found during this repair) | Pending | Stored transformations retain binary64 precision; each changed operation has an independent numerical case |
@@ -138,3 +138,36 @@ metadata and merge shared-key sensitivity. Type conversion retains column metada
 - Scope: column metadata propagation and default working-CSV exclusion for these paths.
   These labels do not anonymize data or redact analysis/report text. Full projects,
   originals and replay scripts intentionally retain data and require sharing review.
+
+## E6 acceptance record
+
+Cohen agreement now reports exact-match proportions separately from weighted credit
+and their chance baselines. Linear/quadratic weights use distances between ordered
+category positions, including nonconsecutive numeric labels. Fleiss agreement is
+labelled mean pairwise agreement, not unanimous rows. Correlated factor rotations
+no longer claim pattern-loading square sums are additive variance explained.
+
+Ordinal or normality-flagged compare/relate/paired results promote the computed
+rank test to the primary summary, headline, evidence, assistant facts and write-up;
+parametric statistics remain explicitly secondary. An ordinal regression outcome
+refuses unsupported linear interpretation. Rank-effect confidence intervals are
+not implemented: the interface states this and reports the effect plus approximate
+p-value, without substituting a Pearson/mean interval. Small/tied samples still need
+exact/permutation verification. This repair does not introduce a new rank estimator.
+
+- `check_primary_interpretation.js`: 14 groups at 1440px/400px, including actual
+  weighted controls, zero exact matches / 50% partial credit, pairwise/unanimous
+  distinction, Spearman vs SciPy, rank comparisons/pairs, unsupported ordinal
+  regression refusal and correlated-factor wording.
+- `check_stats.py`: 141 fixed values plus the strict Welch gate. New raw/weighted
+  agreement references use SciPy expected frequencies. Additional strict-tail cases
+  use relative 1e-8 + absolute 1e-300, including p=7.14e-41 and p=4.01e-165.
+  Mann–Whitney and kappa/Fleiss tails use the negative normal tail directly to avoid
+  subtracting from one. 44/44 method groups pass.
+- The E1 financial fixture has a normality flag in one group (p≈.0294). Its primary
+  display is consequently now Mann–Whitney; the accurate Welch result p≈.0489879
+  and its mean interval remain available in the labelled secondary summary. The
+  E1 flow regression checks that secondary calculation and the exported replay.
+- The 80 interpretation/integrity checks also pass in disk and local-server modes.
+- Scope: these computed-primary and wording cases. This does not certify all
+  assumption selection or supply missing rank-effect confidence intervals.

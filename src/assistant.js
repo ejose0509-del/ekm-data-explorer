@@ -133,6 +133,11 @@ function localFacts(R) {
     add("Distinct values", s.distinct);
     if (s.top && s.top.length) facts.push("Most common value: “" + s.top[0][0] + "” (" + s.top[0][1] + " rows).");
   }
+  if (s.primary) {
+    facts.push("Primary method: " + s.primary.test + "."); effect(s.primary.effect_label, s.primary.effect); add("Primary approximate p-value", s.primary.p);
+    facts.push("A confidence interval for the rank effect is not estimated here; parametric intervals refer to the secondary analysis.");
+    return {facts: facts, intervals: intervals, effects: effects, effectFacts: effectFacts};
+  }
   if (R.kind === "compare") { if (Array.isArray(s.groups)) facts.push("Mean difference is “" + s.groups[0] + "” minus “" + s.groups[1] + "”."); add("Difference in means", s.diff); effect("Cohen’s d", s.cohen_d); add("ANOVA F", s.F); effect("Eta squared", s.eta2); ci("95% confidence interval for the mean difference", s.ci95); }
   if (R.kind === "relate") { if (s.x && s.y) facts.push("Columns: “" + s.x + "” and “" + s.y + "”."); effect("Pearson r", s.r); effect("Spearman rho (rank-based)", s.spearman); ci("95% confidence interval for Pearson r", s.ci95); }
   if (R.kind === "cross") { add("Chi-square", s.x2); effect("Cramér’s V", s.cramers_v); }

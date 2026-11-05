@@ -10,7 +10,7 @@ for(const width of [1440,400]){
  const csv='Balance,Group\n'+fixture.a.map(v=>(v+fixture.offset)+',A').concat(fixture.b.map(v=>(v+fixture.offset)+',B')).join('\n');
  await page.locator('#afile').setInputFiles({name:'Large balances.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});await page.waitForFunction(()=>!A.busy&&cur());
  await page.locator('#tabs a[href="#analyze"]').click();await page.locator('.analysis-picker > summary').click();await page.locator('[data-akind=compare]').click();await page.locator('#y').selectOption('Balance');await page.locator('#g').selectOption('Group');
- const summary=await page.evaluate(()=>LAST_R.summary);assert(Math.abs(summary.p-0.048987877676774275)<1e-11);assert(Math.abs(Math.abs(summary.diff)-3.2211981566820285)<1e-12);assert(summary.ci95[0]>0);assert(await page.evaluate(()=>cur().rows.every(r=>Number.isSafeInteger(r[0]))));
+ const summary=await page.evaluate(()=>LAST_R.summary);const welch=summary.secondary||summary;assert(Math.abs(welch.p-0.048987877676774275)<1e-11);assert(Math.abs(Math.abs(summary.diff)-3.2211981566820285)<1e-12);assert(welch.ci95[0]>0);assert(await page.evaluate(()=>cur().rows.every(r=>Number.isSafeInteger(r[0]))));
  if(process.env.EKM_SCREENSHOT_DIR){fs.mkdirSync(process.env.EKM_SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.EKM_SCREENSHOT_DIR,'welch-fixed-'+width+'.png')});}
  let d=page.waitForEvent('download');await page.locator('[data-exp=html]').click();const report=fs.readFileSync(await(await d).path(),'utf8');assert(report.includes('.049')&&!report.includes('p = 0.057'));
  await page.locator('[data-wfadd]').click();await page.locator('#tabs a[href="#writeup"]').click();

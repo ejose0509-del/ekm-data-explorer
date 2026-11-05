@@ -73,8 +73,18 @@ runAnalysis = function (ds) {
   var R = _runAnalysisT(ds), j = excludeIndex(ds);
   if (j >= 0 && !A.sel.keepExcluded && R.valid !== false) { var n = ds.rows.filter(function (r) { return r[j] === "Exclude"; }).length; if (n) R.caveats.unshift(n + " row" + (n > 1 ? "s" : "") + " tagged Exclude " + (n > 1 ? "were" : "was") + " left out. See the Row tag column under Your data."); }
   var lv = function (name) { var c = colMeta(ds, name); return c ? tagOf(c).level : ""; };
-  if (R.valid !== false && ["compare", "relate", "regress", "paired"].indexOf(R.kind) >= 0 && (lv(A.sel.y) === "ordinal" || (R.kind === "relate" && lv(A.sel.x) === "ordinal")))
-    R.caveats.unshift("This column is tagged ordinal: its steps are ordered but not necessarily equal, so the rank-based result (Spearman, Mann–Whitney, Kruskal–Wallis, Wilcoxon) is the primary one to report.");
+  var ordinal = lv(A.sel.y) === "ordinal" || ((R.kind === "relate" || R.kind === "paired") && lv(A.sel.x) === "ordinal");
+  if (R.valid !== false && ordinal && R.kind === "regress") return need(R, "an interval/ratio outcome for ordinary linear regression; ordinal regression is not implemented here. Use a rank association or a dedicated ordinal-regression tool");
+  if (R.valid !== false && R.summary.rank_summary && (ordinal || R.summary.rank_normality_failed)) {
+    var sm = R.summary, primary = clone(sm.rank_summary), secondary = {test: sm.test, p: sm.p, ci95: sm.ci95}, oldHead = R.head, oldReading = R.reading.slice(), oldApa = R.apa;
+    if (typeof primary.p !== "number" || !isFinite(primary.p) || !isFinite(primary.effect)) return need(R, "a defined rank-based estimate for the selected rows");
+    sm.primary = primary; sm.secondary = secondary; sm.test = primary.test; sm.p = primary.p; sm.ci95 = null;
+    R.head = figs([[primary.statistic_label, f3(primary.statistic)], [primary.effect_label, f3(primary.effect)], ["Approximate p-value", fp(primary.p)], ["Rows used by rank test", primary.n]], true);
+    R.extra = '<p class="count">Primary rank analysis: ' + (ordinal ? "ordered measurements" : "normality check flagged") + '. A confidence interval for the rank effect is not estimated here.</p><h3 class="sub-h">Secondary parametric summary (different assumptions)</h3>' + oldHead + (R.extra || "");
+    R.reading = [primary.test + ": " + primary.statistic_label + " = " + f3(primary.statistic) + ", " + primary.effect_label + " = " + f3(primary.effect) + ", approximate p " + pTxt(primary.p) + ". A rank-effect confidence interval is not estimated here.", "The rank result is primary because " + (ordinal ? "the selected measurements are ordinal." : "normality checks flagged the selected observations.")].concat(oldReading.map(function (text) { return "Secondary/assumption checks: " + text; }));
+    R.apa = primary.test + ", " + primary.statistic_label + " = " + fz(primary.statistic) + ", " + primary.effect_label + " = " + fz(primary.effect) + ", approximate <i>p</i> " + pAPA(primary.p) + "; rank-effect CI not estimated. Secondary parametric analysis: " + oldApa;
+    R.caveats.unshift("Rank p-values use approximations; small or heavily tied samples need exact/permutation verification. Rank-distribution tests do not by themselves establish a difference in medians or causation.");
+  }
   LAST_R = R; return R;
 };
 // Sensitive columns stay out of exports and sharing unless included on purpose
@@ -280,3 +290,6 @@ melt = function (ds, ids) { var r = _sensitiveMelt(ds, ids), inputs = ds.cols.fi
 widen = function (ds, id, key, value) { var r = _sensitiveWiden(ds, id, key, value), inputs = dependencyColumns(ds, [key, value]); r.cols = r.cols.map(function (c, j) { return j ? inheritedColumn(c, inputs) : c; }); return r; };
 joinSets = function (left, right, kl, kr) { var r = _sensitiveJoin(left, right, kl, kr), payload = right.cols.filter(function (c) { return c.name !== kr; }); r.cols = r.cols.map(function (c, j) { return j >= left.cols.length ? Object.assign({}, payload[j - left.cols.length], c) : c.name === kl ? mergedColumn(colMeta(left, kl), colMeta(right, kr), c) : c; }); return r; };
 joinTyped = function (left, right, kl, kr, type, every) { var r = _sensitiveTypedJoin(left, right, kl, kr, type, every); r.cols = r.cols.map(function (c) { return c.name === kl ? mergedColumn(colMeta(left, kl), colMeta(right, kr), c) : c; }); return r; };
+
+var _primaryFormula = formula;
+formula = function (R) { return R.summary && R.summary.primary ? '<span class="math">Primary: ' + esc(R.summary.primary.test) + '. Rank effect and approximate p-value are shown; the parametric summary is secondary.</span>' : _primaryFormula(R); };

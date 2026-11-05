@@ -253,8 +253,8 @@ function runFactor(ds) {
   R.scoreFit = clone(res.fit);
   var kb = res.kb, k = res.k, p = items.length, label = s.fmeth === "pca" ? "Component" : "Factor";
   R.summary = {test: (s.fmeth === "pca" ? "Principal component analysis" : "Principal-axis factor analysis") + (k > 1 && s.frot !== "none" ? ", " + s.frot + " rotation" : ""), n: X.length, items: p, factors: k, suggested_by_parallel_analysis: res.sugg, kmo: kb.kmo, bartlett_chi2: kb.chi2, p: kb.p,
-    variance_explained: res.ssl.map(function (v) { return v / p; })};
-  R.head = figs([[label + "s kept", k + (s.fk === "auto" ? " (suggested)" : "")], ["Variance explained", Math.round(res.ssl.reduce(function (a, b) { return a + b; }, 0) / p * 100) + "%"], ["KMO", f3(kb.kmo)], ["Bartlett χ²(" + kb.df + ")", f3(kb.chi2) + " · p " + pTxt(kb.p)], ["Rows", X.length + (M.dropped ? " · " + M.dropped + " incomplete" : "")]], true) +
+    method: s.fmeth, rotation: s.frot, oblique: !!res.phi, pattern_loading_sums: res.ssl, variance_explained: res.phi ? null : res.ssl.map(function (v) { return v / p; })};
+  R.head = figs([[label + "s kept", k + (s.fk === "auto" ? " (suggested)" : "")], [res.phi ? "Rotation" : "Variance explained", res.phi ? "Correlated dimensions" : Math.round(res.ssl.reduce(function (a, b) { return a + b; }, 0) / p * 100) + "%"], ["KMO", f3(kb.kmo)], ["Bartlett χ²(" + kb.df + ")", f3(kb.chi2) + " · p " + pTxt(kb.p)], ["Rows", X.length + (M.dropped ? " · " + M.dropped + " incomplete" : "")]], true) +
     table(["Item"].concat(res.L[0].map(function (_, j) { return label.slice(0, 1) + (j + 1); })).concat(["Communality", "MSA"]), items.map(function (nm, i) {
       var main = res.L[i].map(Math.abs).indexOf(amax(res.L[i].map(Math.abs)));
       return [esc(nm)].concat(res.L[i].map(function (v, j) { return Math.abs(v) >= 0.4 ? "<b" + (j === main ? ' class="hi"' : "") + ">" + fz(v) + "</b>" : '<span class="nd">' + fz(v) + "</span>"; })).concat([fz(res.comm[i]), fz(kb.msa[i])]);
@@ -264,7 +264,7 @@ function runFactor(ds) {
     '<p class="count">Loadings of 0.40 or more are shown in bold; MSA is each item\'s sampling adequacy (below 0.50 suggests dropping the item).</p>' +
     '<div class="slot"><button type="button" class="btn" data-mscores="1">Add ' + label.toLowerCase() + ' scores as columns</button><span class="count">' + (s.fmeth === "pca" ? "Standardized component scores." : "Regression (Thurstone) factor scores.") + " The displayed fit and current eligible rows are recorded and reused on replay or refresh.</span></div>";
   R.reading.push("Parallel analysis suggests " + res.sugg + " " + label.toLowerCase() + (res.sugg > 1 ? "s" : "") + ": " + (res.sugg > 1 ? "that many" : "only the first") + " beat what random data of the same size would give. " + (k !== res.sugg ? "You chose " + k + "." : ""));
-  res.L[0].forEach(function (_, j) { var top = items.filter(function (_, i) { var row = res.L[i].map(Math.abs); return row[j] >= 0.4 && row.indexOf(amax(row)) === j; }); if (top.length) R.reading.push(label + " " + (j + 1) + " (" + Math.round(res.ssl[j] / p * 100) + "% of variance) is defined by " + top.map(function (n) { return "“" + esc(n) + "”"; }).join(", ") + "."); });
+  res.L[0].forEach(function (_, j) { var top = items.filter(function (_, i) { var row = res.L[i].map(Math.abs); return row[j] >= 0.4 && row.indexOf(amax(row)) === j; }); if (top.length) R.reading.push(label + " " + (j + 1) + (res.phi ? " is defined by " : " (" + Math.round(res.ssl[j] / p * 100) + "% of variance) is defined by ") + top.map(function (n) { return "“" + esc(n) + "”"; }).join(", ") + "."); });
   var cross = items.filter(function (_, i) { return res.L[i].filter(function (v) { return Math.abs(v) >= 0.4; }).length > 1; }), none = items.filter(function (_, i) { return res.L[i].every(function (v) { return Math.abs(v) < 0.4; }); });
   if (cross.length) R.reading.push(cross.map(function (n) { return "“" + esc(n) + "”"; }).join(", ") + " load" + (cross.length === 1 ? "s" : "") + " on more than one " + label.toLowerCase() + ".");
   if (none.length) R.caveats.push(none.map(function (n) { return "“" + esc(n) + "”"; }).join(", ") + " load" + (none.length === 1 ? "s" : "") + " weakly everywhere; consider dropping " + (none.length === 1 ? "it" : "them") + ".");
@@ -272,7 +272,7 @@ function runFactor(ds) {
   if (res.hey) R.caveats.push("A communality reached 1 (Heywood case): too many factors or too few rows. Try one factor fewer.");
   if (X.length < 5 * p) R.caveats.push("Fewer than five complete rows per item; factor solutions this small are unstable.");
   if (s.fmeth === "pca") R.caveats.push("Principal components summarize total variance; they are not a model of latent factors. Use factor analysis to study constructs.");
-  R.apa = (s.fmeth === "pca" ? "PCA" : "Principal-axis factoring") + (k > 1 && s.frot !== "none" ? " with " + s.frot + " rotation" : "") + " retained " + k + " " + label.toLowerCase() + (k > 1 ? "s" : "") + " explaining " + Math.round(res.ssl.reduce(function (a, b) { return a + b; }, 0) / p * 100) + "% of variance; KMO = " + fz(kb.kmo) + ", Bartlett's χ²(" + kb.df + ") = " + fz(kb.chi2) + ", <i>p</i> " + pAPA(kb.p);
+  R.apa = (s.fmeth === "pca" ? "PCA" : "Principal-axis factoring") + (k > 1 && s.frot !== "none" ? " with " + s.frot + " rotation" : "") + " retained " + k + " " + label.toLowerCase() + (k > 1 ? "s" : "") + (res.phi ? "; correlated dimensions, so pattern square sums are not additive variance explained; KMO = " : " explaining " + Math.round(res.ssl.reduce(function (a, b) { return a + b; }, 0) / p * 100) + "% of variance; KMO = ") + fz(kb.kmo) + ", Bartlett's χ²(" + kb.df + ") = " + fz(kb.chi2) + ", <i>p</i> " + pAPA(kb.p);
   return R;
 }
 function scoreSelection(s) { return {f: s.f || "", fv: s.fv || "", where: clone(s.where || null), keepExcluded: !!s.keepExcluded}; }
@@ -333,17 +333,17 @@ function runAgree(ds) {
     if (raters.length === 2) {
       var kp = S3.kappa(dataS.map(function (r) { return r[0]; }), dataS.map(function (r) { return r[1]; }), s.agw === "none" ? null : s.agw);
       if (!isFinite(kp.kappa) || !isFinite(kp.p)) return need(R, "ratings that use more than one category");
-      R.summary = {test: (s.agw === "none" ? "Cohen's kappa" : "Weighted kappa (" + s.agw + ")"), n: kp.n, kappa: kp.kappa, ci95: [kp.lo, kp.hi], p: kp.p, observed_agreement: kp.po, chance_agreement: kp.pe};
-      R.head = figs([["κ", f3(kp.kappa)], ["95% CI", f3(kp.lo) + " to " + f3(kp.hi)], ["Observed agreement", Math.round(kp.po * 100) + "%"], ["Expected by chance", Math.round(kp.pe * 100) + "%"], ["Rows", kp.n]], true);
+      R.summary = {test: (s.agw === "none" ? "Cohen's kappa" : "Weighted kappa (" + s.agw + ")"), n: kp.n, kappa: kp.kappa, ci95: [kp.lo, kp.hi], p: kp.p, observed_agreement: kp.rawPo, chance_agreement: kp.rawPe, weighted_agreement: kp.po, weighted_chance_agreement: kp.pe, weights: s.agw};
+      R.head = figs([["κ", f3(kp.kappa)], ["95% CI", f3(kp.lo) + " to " + f3(kp.hi)], ["Exact matches", Math.round(kp.rawPo * 100) + "%"], ["Exact matches by chance", Math.round(kp.rawPe * 100) + "%"], ["Rows", kp.n]], true);
       R.extra = kp.cats.length <= 12 ? '<h3 class="sub-h">' + esc(raters[0]) + " (rows) by " + esc(raters[1]) + " (columns)</h3>" + table([""].concat(kp.cats.map(esc)), kp.table.map(function (r, i) { return [esc(kp.cats[i])].concat(r.map(function (v, j) { return i === j ? "<b>" + v + "</b>" : String(v); })); })) : "";
-      R.reading.push("The raters agree on " + Math.round(kp.po * 100) + "% of rows, against " + Math.round(kp.pe * 100) + "% expected by chance: κ = " + fz(kp.kappa) + " (95% CI " + fz(kp.lo) + " to " + fz(kp.hi) + "), " + lk(kp.kappa) + " agreement by Landis & Koch's labels.");
+      R.reading.push("The raters exactly match on " + Math.round(kp.rawPo * 100) + "% of rows. " + (s.agw === "none" ? "Unweighted agreement" : "Weighted agreement credit (not exact matches)") + " is " + Math.round(kp.po * 100) + "%, against " + Math.round(kp.pe * 100) + "% under its chance model: κ = " + fz(kp.kappa) + " (95% CI " + fz(kp.lo) + " to " + fz(kp.hi) + "), " + lk(kp.kappa) + " agreement by Landis & Koch's labels.");
       if (s.agw !== "none") R.reading.push("Weights give partial credit for near misses; categories were ordered " + (kp.cats.every(function (c) { return isFinite(+c); }) ? "numerically" : "alphabetically — check that this matches their real order") + ".");
       R.chart = bars(kp.cats.slice(0, 15).map(function (c, i) { return [c, kp.table[i][i] / Math.max(1, kp.table[i].reduce(function (a, b) { return a + b; }, 0))]; }), "Share of rater 1's category matched");
       R.apa = "κ = " + fz(kp.kappa) + ", 95% CI [" + fz(kp.lo) + ", " + fz(kp.hi) + "], <i>z</i> = " + fz(kp.z) + ", <i>p</i> " + pAPA(kp.p);
     } else {
       var fl = S3.fleiss(dataS);
       if (!isFinite(fl.kappa) || !isFinite(fl.p)) return need(R, "ratings that use more than one category");
-      R.summary = {test: "Fleiss' kappa", n: fl.n, raters: fl.raters, kappa: fl.kappa, p: fl.p, observed_agreement: fl.Po, chance_agreement: fl.Pe};
+      R.summary = {test: "Fleiss' kappa", n: fl.n, raters: fl.raters, agreement_basis: "pairwise", kappa: fl.kappa, p: fl.p, observed_agreement: fl.Po, chance_agreement: fl.Pe};
       R.head = figs([["Fleiss' κ", f3(fl.kappa)], ["z (vs no agreement)", f3(fl.z)], ["p-value", fp(fl.p)], ["Rows × raters", fl.n + " × " + fl.raters]], true);
       R.chart = bars(fl.cats.slice(0, 15).map(function (c, i) { return [c, fl.prop[i]]; }), "Share of all ratings");
       R.reading.push(fl.raters + " raters: Fleiss' κ = " + fz(fl.kappa) + ", " + lk(fl.kappa) + " agreement beyond chance (z = " + f3(fl.z) + ", p " + pTxt(fl.p) + ").");

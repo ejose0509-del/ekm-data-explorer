@@ -49,7 +49,7 @@ var S2 = (function () {
     for (var i = 0; i < n1; i++) R1 += rk.r[i];
     var U1 = R1 - n1 * (n1 + 1) / 2, mu = n1 * n2 / 2, sd = Math.sqrt(n1 * n2 / 12 * ((N + 1) - rk.ties / (N * (N - 1))));
     var z = (U1 - mu - (U1 > mu ? 0.5 : U1 < mu ? -0.5 : 0)) / sd;
-    return {U: U1, z: z, p: Math.min(1, 2 * (1 - pnorm(Math.abs(z)))), r: 2 * U1 / (n1 * n2) - 1, n1: n1, n2: n2};
+    return {U: U1, z: z, p: Math.min(1, 2 * pnorm(-Math.abs(z))), r: 2 * U1 / (n1 * n2) - 1, n1: n1, n2: n2};
   }
   // Kruskal-Wallis H with tie correction
   function kruskal(groups) {

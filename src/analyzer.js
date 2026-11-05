@@ -246,7 +246,7 @@ function runAnalysis(ds) {
     R.controls = pick("x", "First number (across)", c.nums, s.x) + pick("y", "Second number (up)", c.nums, s.y);
     var co = S.correlate(get(s.x), get(s.y));
     if (co.n < 3) return need(R, "at least three rows with both values");
-    R.summary = {test: "Pearson and Spearman correlation", x: s.x, y: s.y, n: co.n, r: co.r, ci95: [co.ciLo, co.ciHi], p: co.p, spearman: co.rho, slope: co.slope, r2: co.r2};
+    R.summary = {test: "Pearson and Spearman correlation", x: s.x, y: s.y, n: co.n, r: co.r, ci95: [co.ciLo, co.ciHi], p: co.p, spearman: co.rho, spearman_p: co.prho, slope: co.slope, r2: co.r2};
     R.head = figs([["Correlation (r)", f3(co.r)], ["95% range for r", f3(co.ciLo) + " to " + f3(co.ciHi)], ["p-value", fp(co.p)], ["Rows used", co.n]], true);
     R.chart = scatter(co.x, co.y, s.x, s.y, co);
     R.reading.push("In these rows, there is an estimated " + rWord(co.r) + " " + (co.r >= 0 ? "positive" : "negative") + " link: when " + esc(s.x) + " is higher, " + esc(s.y) + " tends to be " + (co.r >= 0 ? "higher" : "lower") + ". It is " + pWord(co.p) + ".");
