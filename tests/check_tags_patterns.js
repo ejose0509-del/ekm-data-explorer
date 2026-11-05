@@ -43,7 +43,7 @@ async function scan() { await nav("discover"); await page.locator("[data-drun]")
         const j = await page.evaluate(() => idxOf(cur(), "Hours")); await page.locator('[data-ctag="role"][data-vcol="' + j + '"]').selectOption("outcome");
         const k = await page.evaluate(() => idxOf(cur(), "Score")); await page.locator('[data-ctag="role"][data-vcol="' + k + '"]').selectOption("predictor");
         await page.evaluate(() => { A.sel = Object.create(null); }); await nav("analyze"); await selectAnalysis(page, '[data-akind="describe"]'); assert.equal(await page.evaluate(() => A.sel.y), "Hours");
-        await selectAnalysis(page, '[data-akind="compare"]'); await select("y", "Satisfaction"); await select("g", "Track"); assert(await page.evaluate(() => LAST_R.caveats.some((c) => /tagged ordinal/.test(c))));
+        await selectAnalysis(page, '[data-akind="compare"]'); await select("y", "Satisfaction"); await select("g", "Track"); assert(await page.evaluate(() => LAST_R.summary.primary && /Mann/.test(LAST_R.summary.primary.test) && LAST_R.reading.some(c=>/ordinal/.test(c)) && LAST_R.summary.p===LAST_R.summary.primary.p));
         await page.locator("[data-ctconfirm]").count();
       });
       await check("row tags: tag in the grid, Exclude leaves analyses, and replays", async () => {
@@ -72,7 +72,7 @@ async function scan() { await nav("discover"); await page.locator("[data-drun]")
           if (await page.evaluate(() => LAST_R.valid === false)) return;
           const tk = await page.locator(".takeaway").innerText(); assert(tk.length > 30 && /Evidence:|Describes these rows/.test(tk), tk.slice(0, 120));
         });
-      await check("everyday translation for a group difference", async () => { await nav("analyze"); await selectAnalysis(page, '[data-akind="compare"]'); await select("y", "Score"); await select("g", "Track"); const t = await page.locator(".takeaway").innerText(); assert(/Science.*higher/.test(t) && /of the time/.test(t), t); });
+      await check("everyday translation for a group difference", async () => { await nav("analyze"); await selectAnalysis(page, '[data-akind="compare"]'); await select("y", "Score"); await select("g", "Track"); const t = await page.locator(".takeaway").innerText(); assert(t.includes("Mann–Whitney") && t.includes("Rank-biserial r") && !t.includes("of the time"), t); assert(await page.evaluate(()=>takeaway(cur(),LAST_R).everyday.some(c=>/not estimated/.test(c)))); });
       await check("reading level folds the formula and tables; glossary explains terms", async () => {
         await page.locator('[data-xlvl="new"]').click(); assert(await page.locator(".mathfold").count()); await page.locator('[data-xlvl="researcher"]').click(); assert.equal(await page.locator(".mathfold").count(), 0);
         await page.locator('[data-xlvl="new"]').click(); const term = page.locator("button.term").first(); assert(await term.count(), "no glossary term"); await term.click(); assert((await page.locator(".termdef").innerText()).length > 20);

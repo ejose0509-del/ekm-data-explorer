@@ -292,4 +292,12 @@ joinSets = function (left, right, kl, kr) { var r = _sensitiveJoin(left, right, 
 joinTyped = function (left, right, kl, kr, type, every) { var r = _sensitiveTypedJoin(left, right, kl, kr, type, every); r.cols = r.cols.map(function (c) { return c.name === kl ? mergedColumn(colMeta(left, kl), colMeta(right, kr), c) : c; }); return r; };
 
 var _primaryFormula = formula;
-formula = function (R) { return R.summary && R.summary.primary ? '<span class="math">Primary: ' + esc(R.summary.primary.test) + '. Rank effect and approximate p-value are shown; the parametric summary is secondary.</span>' : _primaryFormula(R); };
+formula = function (R) {
+  var primary = R.summary && R.summary.primary, f;
+  if (!primary) return _primaryFormula(R);
+  if (/Mann/.test(primary.test)) f = mr(mi("r"), mo("="), fr(mr(mn(2), mi("U")), mr(sb(mi("n"), mn(1)), sb(mi("n"), mn(2)))), mo("−"), mn(1));
+  else if (/Kruskal/.test(primary.test)) f = mr(sp(mi("ε"), mn(2)), mo("="), fr(mi("H"), mr(mi("N"), mo("−"), mn(1))));
+  else if (/Wilcoxon/.test(primary.test)) f = mr(mi("r"), mo("="), fr(mr(mo("|"), mi("z"), mo("|")), rt(sb(mi("n"), mi("nonzero")))));
+  else f = mr(mi("ρ"), mo("="), mi("cor"), mo("("), mi("rank"), mo("("), mi("x"), mo(")"), mo(","), mi("rank"), mo("("), mi("y"), mo(")"), mo(")"));
+  return '<div class="math"><math display="block">' + f + '</math></div>';
+};

@@ -316,3 +316,16 @@ to the findings status after that explicit action.
 - Scope: this reproduced background scan/input race. Explicit user actions can
   still redraw views; this is not a proof that every possible asynchronous UI
   interaction is free of defects.
+
+## E6 final presentation follow-up
+
+The final tag/Discover regression run exposed six failures: four assertions still
+expected the replaced ordinal caveat wording or mean-based probability prose; two
+exposed a real beginner formula-fold regression caused by the rank-only text span.
+The primary rank effects now use the existing MathML component and their actual
+implemented definitions (rank-biserial r, H/(N−1), correlation of ranks, or
+|z|/sqrt(nonzero pairs)). No estimator changed. The stale assertions now require
+primary rank results and explicit unavailable uncertainty instead of the previous
+mean-based interpretation. All 42 tag/Discover checks, 14 primary-interpretation
+groups, and 80 interpretation/integrity checks pass. The rebuilt page passes the
+mandatory 171 fixed values, strict Welch gate and 195-case model numerical gate.
