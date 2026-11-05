@@ -9,7 +9,7 @@ var assert = require('assert'), fs = require('fs'), path = require('path'), spaw
   browser = await chromium.launch({headless:true,channel:process.env.BROWSER_CHANNEL||undefined});
   for (var width of [1440,400]) {
    var context = await browser.newContext({viewport:{width:width,height:1000}}), page = await context.newPage(), errors=[];
-   page.on('pageerror',function(e){errors.push(e.message);}); await page.goto(url);
+   page.on('pageerror',function(e){errors.push(e.message);}); await page.goto(((u) => u.includes('#') ? u : u + '#data')(url));
    await page.evaluate(function(){PROJECT.remember=false;});
    async function upload(name,text) { await page.locator('#tabs a[href="#data"]').click(); await page.locator('#afile').setInputFiles({name:name,mimeType:'application/octet-stream',buffer:Buffer.from(text)}); await page.waitForFunction(function(){return !A.busy;}); }
    async function fits() { assert(await page.evaluate(function(){return document.documentElement.scrollWidth<=innerWidth;}),'horizontal page overflow at '+width); }
@@ -62,8 +62,8 @@ var assert = require('assert'), fs = require('fs'), path = require('path'), spaw
    await page.evaluate(function(){window.savedWorker=window.Worker;window.Worker=function(){throw new Error('Worker unavailable');};var d=makeSet('Fallback',['X','Y','Z'],Array.from({length:20},function(_,i){return [i,i*2,i%4];}));A.sets=[d];pickSet(d.id);nav('enhance');});await page.waitForFunction(function(){return REL.cache.get(cur().rows).state==='complete';});assert.equal(await page.evaluate(function(){return REL.cache.get(cur().rows).done;}),3);await page.evaluate(function(){window.Worker=window.savedWorker;});pass(width+'px worker-unavailable yielding fallback');
    await context.close();
   }
-  var context=await browser.newContext(),p1=await context.newPage();await p1.goto(url);await p1.evaluate(function(){A.sets=[makeSet('Original',['X'],[[1],[2]])];A.cur=A.sets[0].id;render();});
-  var p2=await context.newPage();await p2.goto(url);await p2.evaluate(function(){A.sets.unshift(makeSet('Second',['X'],[[3],[4]]));A.cur=A.sets[0].id;render();});await p1.waitForFunction(function(){return PROJECT.conflict;});
+  var context=await browser.newContext(),p1=await context.newPage();await p1.goto(((u) => u.includes('#') ? u : u + '#data')(url));await p1.evaluate(function(){A.sets=[makeSet('Original',['X'],[[1],[2]])];A.cur=A.sets[0].id;render();});
+  var p2=await context.newPage();await p2.goto(((u) => u.includes('#') ? u : u + '#data')(url));await p2.evaluate(function(){A.sets.unshift(makeSet('Second',['X'],[[3],[4]]));A.cur=A.sets[0].id;render();});await p1.waitForFunction(function(){return PROJECT.conflict;});
   await p1.evaluate(function(){A.kind='relate';render();});
   assert.deepEqual(await p1.evaluate(function(){return JSON.parse(localStorage.getItem(PROJECT.key)).datasets.map(function(d){return d.name;});}),['Second','Original']);
   assert(await p1.evaluate(function(){return Object.keys(localStorage).some(function(k){return k.indexOf(PROJECT.key+'-draft-')===0;});}));

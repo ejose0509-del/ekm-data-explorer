@@ -296,3 +296,39 @@ input[type=number] { font: inherit; color: var(--chalk); background: var(--board
 .analysis-picker > summary, .assistant-fold > summary { font-size: var(--t2); cursor: pointer; color: var(--blue); }
 .analysis-picker .kindgroups, .assistant-fold .ask { margin-top: var(--s3); }
 #pattern-detail:focus { outline: 2px solid var(--yellow); outline-offset: var(--s1); }
+
+/* Home: one welcoming board, the path as a ruled list */
+.home { display: grid; gap: var(--s5); max-width: 760px; padding-block: var(--s5) var(--s6) }
+.home-title { font: 600 var(--t6)/1.1 var(--display); text-wrap: balance }
+.home .lede { font-size: var(--t4); max-width: 60ch }
+.home-actions .btn { font-size: var(--t3); padding: 10px 18px }
+.home-steps { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); counter-reset: step }
+.home-steps li { counter-increment: step; display: grid; grid-template-columns: 2.2em minmax(9em, 12em) minmax(0, 1fr); gap: var(--s3); align-items: baseline; padding: var(--s3) 0; border-bottom: 1px solid var(--rule) }
+.home-steps li::before { content: counter(step); font: 600 var(--t4) var(--display); color: var(--yellow) }
+.home-steps .linkbtn { font: 600 var(--t3) var(--ui) } .home-steps span { color: var(--chalk-2); font-size: var(--t3) }
+.home-note { color: var(--chalk-3); font-size: var(--t2); max-width: 68ch }
+@media (max-width: 560px) { .home-steps li { grid-template-columns: 2em minmax(0, 1fr) } .home-steps span { grid-column: 2 } }
+.tk-stat { display: block; margin-top: var(--s2); font: 600 var(--t2)/1.45 var(--ui); color: var(--chalk-2) }
+.reading-sub { margin: var(--s4) 0 var(--s2); font: 600 var(--t1) var(--ui); color: var(--chalk-3) }
+
+/* Settings: a quiet control at the right end of the ledge, sections as ruled rows */
+.ledge-settings { margin-left: auto; display: inline-flex; align-items: center; gap: var(--s2); color: var(--chalk-2); text-decoration: none; font: 600 var(--t2) var(--ui); padding: 8px 0; border-bottom: 3px solid transparent }
+.ledge-settings:hover { color: var(--chalk) } .ledge-settings[aria-current="page"] { color: var(--chalk); border-bottom-color: var(--yellow) }
+@media (max-width: 560px) { .ledge-settings span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0) } }
+.set-sec { display: grid; gap: var(--s3); padding: var(--s5) 0; border-top: 1px solid var(--rule); max-width: 760px }
+.set-sec h2 { font-size: var(--t4) }
+.set-group { border: 0; padding: 0; margin: 0; display: grid; gap: var(--s2) }
+.set-choice { display: flex; gap: var(--s3); align-items: start; padding: var(--s3); border: 1px solid var(--rule); border-radius: 4px; cursor: pointer }
+.set-choice:has(input:checked) { border-color: var(--yellow); background: var(--board-2) }
+.set-choice input { margin-top: 3px; accent-color: var(--yellow) } .set-choice > span { display: grid; gap: 2px }
+/* Analysis panels: each column's grid track can shrink, so wide tables scroll inside their own column */
+.poster > section { grid-template-columns: minmax(0, 1fr) }
+.poster svg { max-width: 100% }
+/* Phone header: brand and Settings share the first row; the tabs get a full row that visibly scrolls */
+@media (max-width: 560px) {
+  .ledge-in { gap: 0 var(--s4); min-height: 0 }
+  .brand { order: 0 } .ledge-settings { order: 1; padding: 12px 0 10px }
+  #tabs { order: 2; flex: 1 0 100%; gap: var(--s4); scrollbar-width: thin; scrollbar-color: var(--rule-2) transparent; scroll-padding-inline: var(--s4) }
+  #tabs::-webkit-scrollbar { height: 3px } #tabs::-webkit-scrollbar-thumb { background: var(--rule-2) }
+}
+.coded p b { color: var(--chalk) }

@@ -74,7 +74,7 @@ VIEWS.enhance = function () {
   var text = job.state === 'complete' ? 'Relationship scan complete: ' + job.done + ' pairs checked.' : job.state === 'cancelled' ? 'Relationship scan cancelled. Column checks remain available.' : 'Relationship scan: ' + job.done + ' of ' + job.total + ' pairs checked. Column checks are available now.';
   return '<section class="card"><h2>Relationship scan</h2><p class="count" role="status" tabindex="-1" data-relationship-status="1">' + esc(text) + '</p>' + (job.state === 'running' ? '<button type="button" class="btn" data-relationship-cancel="1">Cancel relationship scan</button>' : job.state === 'cancelled' ? '<button type="button" class="btn" data-relationship-start="1">Run relationship scan</button>' : '') + '</section>' + html;
 };
-view.addEventListener('click', function (e) { var b = e.target.closest('button'), ds = cur(); if (!b || !ds) return; var job = REL.cache.get(ds.rows); if (b.dataset.relationshipCancel) { stopRelationships(job); relationshipPanel(job); } if (b.dataset.relationshipStart && job) { startRelationships(ds, job); relationshipPanel(job); } if (b.dataset.relationshipShow) { render(); refocus('[data-relationship-status]'); } });
+view.addEventListener('click', function (e) { var b = e.target.closest('button'), ds = cur(); if (!b || !ds) return; var job = REL.cache.get(ds.rows); if (b.dataset.relationshipCancel) { stopRelationships(job); relationshipPanel(job); } else if (b.dataset.relationshipStart && job) { startRelationships(ds, job); relationshipPanel(job); } if (b.dataset.relationshipShow) { render(); refocus('[data-relationship-status]'); } });
 // Keep the keyboard user's position when innerHTML is replaced by any module.
 var _focusRender = render, focusTab = st.tab;
 render = function () {

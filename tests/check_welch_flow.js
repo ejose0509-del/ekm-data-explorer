@@ -6,7 +6,7 @@ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'ekm-welch-'));
 (async()=>{const browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||undefined,headless:true});try{
 for(const width of [1440,400]){
  const context=await browser.newContext({viewport:{width,height:1100},acceptDownloads:true,reducedMotion:"reduce"}),page=await context.newPage(),errors=[];
- page.on('pageerror',e=>errors.push(e.message));await page.goto('file://'+path.join(__dirname,'../dist/index.html'));
+ page.on('pageerror',e=>errors.push(e.message));await page.goto(((u) => u.includes('#') ? u : u + '#data')('file://'+path.join(__dirname,'../dist/index.html')));
  const csv='Balance,Group\n'+fixture.a.map(v=>(v+fixture.offset)+',A').concat(fixture.b.map(v=>(v+fixture.offset)+',B')).join('\n');
  await page.locator('#afile').setInputFiles({name:'Large balances.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});await page.waitForFunction(()=>!A.busy&&cur());
  await page.locator('#tabs a[href="#analyze"]').click();await page.locator('.analysis-picker > summary').click();await page.locator('[data-akind=compare]').click();await page.locator('#y').selectOption('Balance');await page.locator('#g').selectOption('Group');

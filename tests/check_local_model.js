@@ -14,7 +14,7 @@ var assert = require('assert'), spawn = require('child_process').spawn, path = r
     for (var width of [1440, 400]) {
       var page = await browser.newPage({viewport: {width: width, height: 900}}), errors = [];
       page.on('pageerror', function (e) { errors.push(e.message); });
-      await page.goto(url); assert.equal(await page.title(), 'EKM Data Explorer');
+      await page.goto(((u) => u.includes('#') ? u : u + '#data')(url)); assert.equal(await page.title(), 'EKM Data Explorer');
       await page.locator('#afile').setInputFiles({name: 'local.csv', mimeType: 'text/csv', buffer: Buffer.from('Score,Hours\n10,1\n11,3\n15,2\n14,4\n18,5')});
       await page.waitForFunction(function () { return !A.busy; });
       await page.locator('#tabs a[href="#analyze"]').click();

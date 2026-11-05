@@ -48,6 +48,10 @@ MODULES = [
     "aoport.js",      # Exact ports of Auto Ontology's PII rules and date-format inference (Apache-2.0)
     "ontology.js",    # Glossary tab: catalog, join inference, terms, certification, formulas, coverage, model YAML
     "aolocal.js",     # Local mode: AI glossary drafts, AI PII review, AI-written answers and SQL, more databases
+    "welcome.js",     # Home tab, everyday analysis names and plainer page copy, ID columns never defaults
+    "settings.js",    # Settings (top right): local AI model, reading level, chart defaults, privacy and storage
+    "autosave.js",    # Private autosave: browser, IndexedDB for large projects, and the person's own Claude storage
+    "polish.js",      # Real-data test fixes: report wording, plain-word assistant, coded columns, page order, long-format hint
 ]
 VENDOR = ["vendor/parquet.js"]  # third-party bundles, each in its own <script> (licences in src/vendor)
 

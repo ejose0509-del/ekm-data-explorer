@@ -24,7 +24,7 @@ async function waitIdle() { await page.waitForFunction(() => !AIX.busy, null, {t
     for (width of [1440, 400]) {
       const context = await browser.newContext({viewport: {width, height: 1000}, acceptDownloads: true});
       page = await context.newPage(); page.on("pageerror", (e) => errors.push(e.message));
-      await page.goto(url); await page.waitForFunction(() => typeof ONT !== "undefined");
+      await page.goto(((u) => u.includes('#') ? u : u + '#data')(url)); await page.waitForFunction(() => typeof ONT !== "undefined");
       await upload(customers, "customers.csv"); await upload(orders, "orders.csv");
       await check("catalog: ported personal-data rules, uniqueness and stored date formats", async () => {
         await nav("glossary"); const t = await page.locator("#view").innerText();

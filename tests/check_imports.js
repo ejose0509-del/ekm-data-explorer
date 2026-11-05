@@ -36,7 +36,7 @@ var tests=[
   page.on("pageerror", function (e) { errors.push(e.message); });
   page.on("dialog", function (d) { errors.push("Unexpected dialog: " + d.message()); d.dismiss(); });
   async function settled() { await page.waitForFunction(function () { return !A.busy; }, null, {timeout: 15000}); }
-  async function load() { await page.goto(appURL); errors.length = 0; assert.equal(await page.title(), "EKM Data Explorer"); }
+  async function load() { if (/^(http|file)/.test(page.url())) await page.evaluate(() => { localStorage.clear(); indexedDB.deleteDatabase("ekm"); }); await page.goto("about:blank"); await page.goto(((u) => u.includes('#') ? u : u + '#data')(appURL)); errors.length = 0; assert.equal(await page.title(), "EKM Data Explorer"); }
   async function noOverflow() { assert(await page.evaluate(function () { return document.documentElement.scrollWidth <= innerWidth; }), "page overflow"); }
   async function upload(t) {
     var buffer = t.data === undefined ? fs.readFileSync(path.join(fixtureDir, t.file)) : Buffer.from(t.data);
@@ -51,7 +51,7 @@ var tests=[
         await load(); await upload(t);
         var got = await page.evaluate(function () { var ds = cur(); return {msg: A.msg, ds: ds ? {cols: ds.cols.map(function (c) { return c.name; }), rows: ds.rows} : null}; });
         assert.deepEqual(errors, [], t.name);
-        if (t.reject) { assert.equal(got.ds, null, t.name); assert(got.msg, t.name); assert(await page.getByRole("alert").isVisible()); }
+        if (t.reject) { assert.equal(got.ds, null, t.name + " " + JSON.stringify(got).slice(0, 200)); assert(got.msg, t.name); assert(await page.getByRole("alert").isVisible()); }
         else {
           assert(got.ds, t.name);
           if (t.unique) assert.equal(new Set(got.ds.cols).size, got.ds.cols.length, t.name);

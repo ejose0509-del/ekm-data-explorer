@@ -33,7 +33,7 @@ async function download(sel) { const p = page.waitForEvent("download", {timeout:
     for (width of [1440, 400]) {
       const context = await browser.newContext({viewport: {width, height: 1000}, acceptDownloads: true, permissions: ["clipboard-read", "clipboard-write"]});
       page = await context.newPage(); page.on("pageerror", (e) => errors.push(e.message));
-      await page.goto(url); await page.waitForFunction(() => typeof VIEWS !== "undefined");
+      await page.goto(((u) => u.includes('#') ? u : u + '#data')(url)); await page.waitForFunction(() => typeof VIEWS !== "undefined");
 
       await check("plan: sample size, power and ANOVA match statsmodels", async () => {
         await nav("plan"); assert.equal(await page.locator(".fig.key b").first().innerText(), "64");

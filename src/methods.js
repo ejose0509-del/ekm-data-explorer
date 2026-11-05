@@ -134,7 +134,7 @@ function runMixed(ds) {
   if (!nums.length) return need(R, "a number column to explain");
   if (idxOf(ds, s.y) < 0 || !isNum(ds.cols[idxOf(ds, s.y)]) || (!s.myInit && likelyId(ds, ds.cols[idxOf(ds, s.y)]))) s.y = (nums.filter(function (c) { return !likelyId(ds, c); })[0] || nums[0]).name;
   s.myInit = true;
-  var groupable = ds.cols.filter(function (c) { if (c.type === "empty") return false; var u = Object.create(null), j = idxOf(ds, c.name), n = 0; rows.forEach(function (r) { if (r[j] != null) { u[r[j]] = 1; n++; } }); var g = Object.keys(u).length; return g >= 3 && g < n; });
+  var groupable = ds.cols.filter(function (c) { if (c.type === "empty") return false; var u = Object.create(null), j = idxOf(ds, c.name), n = 0; rows.forEach(function (r) { if (r[j] != null) { u[r[j]] = 1; n++; } }); var g = Object.keys(u).length; if (c.type === "number" && !/id|subject|participant|patient|school|class|site|clinic|cluster|person|hospital|ward|centre|center/i.test(c.name) && !likelyId(ds, c) && (g > 20 || /age|weight|height|bmi|pressure|bp$|score|level|count|dose|time|days|years/i.test(c.name) || Object.keys(u).some(function (v) { return +v !== Math.round(+v); }))) return false; return g >= 3 && g < n; });   // measurements such as BMI are not groups
   if (!groupable.length) return need(R, "a column that identifies groups (a person, class or site that appears on several rows)");
   if (idxOf(ds, s.mg) < 0) s.mg = (groupable.filter(function (c) { return /id|subject|participant|school|class|site|clinic|group|cluster|person/i.test(c.name); })[0] || groupable[0]).name;
   var preds = initCols(ds, "mx", [], function (c) { return c.name !== s.y && c.name !== s.mg && c.type !== "text"; });
@@ -392,9 +392,9 @@ function runMissing(ds) {
   return R;
 }
 function patternChart(cols, pats, n) {
-  var show = pats.slice(0, 14), W = CW(), lab = W < 400 ? 70 : 110, cw = Math.max(10, Math.min(36, (W - lab - 50) / cols.length)), H = 90 + show.length * 20, g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="Missing-data patterns">';
-  cols.forEach(function (c, j) { g += '<text transform="translate(' + (lab + j * cw + cw / 2 + 3) + ',78) rotate(-55)" class="tk">' + esc(String(c).slice(0, 14)) + "</text>"; });
-  show.forEach(function (p, i) { var y = 86 + i * 20; g += '<text x="' + (lab - 8) + '" y="' + (y + 13) + '" text-anchor="end" class="tk">' + p.count + " rows</text>"; p.miss.forEach(function (m, j) { g += '<rect x="' + (lab + j * cw + 1) + '" y="' + (y + 1) + '" width="' + (cw - 2) + '" height="16" fill="' + (m ? "var(--pink)" : "var(--blue)") + '" opacity="' + (m ? 0.9 : 0.35) + '"><title>' + esc(cols[j]) + (m ? " missing" : " present") + "</title></rect>"; }); g += '<text x="' + (lab + cols.length * cw + 6) + '" y="' + (y + 13) + '" class="tk">' + p.nMissing + "</text>"; });
+  var show = pats.slice(0, 14), lab = CW() < 400 ? 70 : 110, cw = Math.max(18, Math.min(36, (CW() - lab - 50) / cols.length)), W = Math.max(CW(), lab + cols.length * cw + 40), top = 124, H = top + 12 + show.length * 20, g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="Missing-data patterns">';
+  cols.forEach(function (c, j) { g += '<text transform="translate(' + (lab + j * cw + cw / 2 + 5) + ',' + (top - 6) + ') rotate(-90)" class="tk">' + esc(String(c).slice(0, 13)) + "</text>"; });
+  show.forEach(function (p, i) { var y = top + i * 20; g += '<text x="' + (lab - 8) + '" y="' + (y + 13) + '" text-anchor="end" class="tk">' + p.count + " rows</text>"; p.miss.forEach(function (m, j) { g += '<rect x="' + (lab + j * cw + 1) + '" y="' + (y + 1) + '" width="' + (cw - 2) + '" height="16" fill="' + (m ? "var(--pink)" : "var(--blue)") + '" opacity="' + (m ? 0.9 : 0.35) + '"><title>' + esc(cols[j]) + (m ? " missing" : " present") + "</title></rect>"; }); g += '<text x="' + (lab + cols.length * cw + 6) + '" y="' + (y + 13) + '" class="tk">' + p.nMissing + "</text>"; });
   return g + "</svg>" + '<p class="count">Each row is a pattern: pink = missing, blue = present; the number on the right counts missing columns.' + (pats.length > show.length ? " " + (pats.length - show.length) + " rarer patterns not drawn." : "") + "</p>";
 }
 function miPanel(ds, rows) {

@@ -7,7 +7,7 @@ var assert = require('assert'), path = require('path'), fs = require('fs'), spaw
   browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||undefined,headless:true});
   for(var width of [1440,400]){
    var context=await browser.newContext({viewport:{width:width,height:900}}),page=await context.newPage(),errors=[];page.on('pageerror',function(e){errors.push(e.message);});
-   await page.goto(url);
+   await page.goto(((u) => u.includes('#') ? u : u + '#data')(url));
    async function upload(data){await page.locator('#afile').setInputFiles({name:'Study.csv',mimeType:'text/csv',buffer:Buffer.from(data)});await page.waitForFunction(function(){return !A.busy;});}
    await upload('X,Y,Group\n1,2,A\n1,3,A\n1,4,B\n1,5,B\n1,6,B');
    await page.locator('#tabs a[href="#analyze"]').click();await selectAnalysis(page, '[data-akind="relate"]');

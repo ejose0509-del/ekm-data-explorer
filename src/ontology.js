@@ -185,7 +185,8 @@ askAnswer = function (ds) {
   var cv = coverage(ds, q), pct = Math.round(cv.score * 100);
   var miss = cv.missing.length ? " Nothing in this data covers " + cv.missing.map(function (m) { return "“" + m + "”"; }).join(", ") + "." : "";
   var anchorNote = cv.anchors.length ? " Recognised values: " + cv.anchors.map(function (a) { return "“" + a.value + "” in " + a.col; }).join(", ") + "." : "";
-  A.askmsg = "Coverage " + pct + "%: " + cv.covered.length + " of " + cv.entities.length + " things the question names map to columns, labels or glossary terms." + miss + anchorNote + (cv.score < 1 ? " Rephrase with covered terms, add a glossary synonym, or connect a source that has this information." : " " + A.askmsg);
+  if (cv.score >= 1 && cv.covered.length) { A.askmsg = "I found " + cv.covered.map(function (c) { return "“" + (c.col || c.term || c.name || c.entity || c) + "”"; }).join(" and ") + ", but could not tell which analysis you want without guessing. Try “Compare [number] by [group]”, “Relate [number] and [number]” or “Predict [outcome] from [columns]”."; render(); refocus("#ask-answer"); return; }
+  A.askmsg = (cv.score < 1 ? "I could not answer that without guessing. " : "") + "Coverage " + pct + "%: " + cv.covered.length + " of " + cv.entities.length + " things the question names map to columns, labels or glossary terms." + miss + anchorNote + (cv.score < 1 ? " Rephrase with covered terms, add a glossary synonym, or connect a source that has this information." : " " + A.askmsg);
   render(); refocus("#ask-answer");
 };
 // Filter values are checked against the data, with near-miss suggestions

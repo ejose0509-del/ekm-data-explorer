@@ -10,6 +10,9 @@ python3 tests/check_stats.py      # statistics vs SciPy (needs node, numpy, scip
 python3 tests/check_methods.py    # S3/ML vs statsmodels, scikit-learn, pingouin, factor_analyzer
 node tests/check_trust.js         # versioning, time gaps, fidelity, ranges and verified Python/R replay
 node tests/check_new_features.js  # browser checks for Plan, new analyses, editing, workflow, connectors, exports
+node tests/check_home_settings.js # Home, Settings, model switching, plain names, no overlapping chart labels at 1300 and 400px
+node tests/check_autosave.js      # private autosave: default on, reload, IndexedDB fallback, private Claude copy, delete
+node tests/check_polish.js        # real-data fixes: report wording, plain-word assistant, coded columns, ID columns, reshape hint, phone header
 ```
 
 Open `dist/index.html` in a browser to use it. Run the stats check after any change to `src/stats.js` or `src/stats2.js`; all 171 fixed values plus the 1,017-case Welch accuracy gate (including the original 30) must match SciPy. The same command also runs 195 model numerical cases (1,755 comparisons). Run the methods check after any change to `src/stats3.js` or `src/ml.js`; all 44 groups must match (it needs `pip install numpy scipy pandas statsmodels scikit-learn pingouin factor_analyzer`). Browser suites need Playwright (`PLAYWRIGHT_MODULE`, `BROWSER_CHANNEL=chrome`); set `EKM_PYTHON` to a Python with those packages so the new-feature suite also runs the exported Python script and checks it reproduces EKM's numbers.
@@ -50,6 +53,10 @@ Open `dist/index.html` in a browser to use it. Run the stats check after any cha
 | `src/trust.js` | Row/column versions, cancellation, explicit valid ranges and project metadata |
 | `src/verified-export.js` | Self-contained Python/R workflow replay using Node, with data fingerprints and numerical comparisons |
 | `src/layout.js` | Analysis menu grouped by purpose |
+| `src/welcome.js` | Home tab (`VIEWS.home`, the default route), everyday names for every analysis (`PLAIN_KINDS`), plainer page introductions, ID columns never chosen as default variables, plain first sentence for rank-based results |
+| `src/settings.js` | Settings (gear link at the top right, `#settings`): reading level, local AI model switch (`/api/models`, `/api/model`), chart defaults, sensitive-column export; preferences in localStorage `ekm-settings` |
+| `src/autosave.js` | Private autosave, on by default (`ekm-remember` = `off` turns it off): localStorage, IndexedDB `ekm/projects` for projects too large for it, and inside Claude a chunked copy in `data/users/<id>` (`project`, `project_p<k>`) restored on a new device; Settings section with status and an in-page confirmed "Delete my saved copies" |
+| `src/polish.js` | Report tidying (one statistic stated once, `p < .001`, supporting checks marked with U+2063 and grouped under one lead-in, plain-language summary from the takeaway), plain-word and medical-abbreviation column matching for the assistant, ID columns kept out of `pick`/`mselList`, coded 0/1 column detection with one-step conversion, data before the project-file and scan cards, long-format ratings pointed to a prefilled reshape, active tab kept visible on phones |
 | `src/vendor/parquet.js` | hyparquet bundle (MIT, see `src/vendor/LICENSE-hyparquet.txt`), inlined in its own `<script>` |
 
 **Module order matters.** `build.py` concatenates modules in a fixed order into one `<script>`. Later modules extend earlier ones by wrapping globals: `runAnalysis`, `render`, `formula`, `caption`, `toolsBar`, `chartsView` and `VIEWS.*`. To add behaviour, wrap the existing function in a new or later module instead of editing every caller. Keep the plain ES5 style (`var`, `function`), with no modules or bundler.

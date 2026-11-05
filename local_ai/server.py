@@ -55,6 +55,20 @@ def model_readiness(model):
 
 
 
+def local_models():
+    """Installed Ollama models that run on this computer (GGUF, not cloud or remote)."""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open('http://127.0.0.1:11434/api/tags', timeout=3) as response:
+        models = json.loads(response.read(LIMIT + 1))['models']
+    out = []
+    for m in models:
+        details = m.get('details') or {}
+        if m.get('remote_model') or m.get('remote_host') or details.get('format') != 'gguf' or 'cloud' in str(m.get('name', '')).lower():
+            continue
+        out.append({'name': m.get('name'), 'size_gb': round((m.get('size') or 0) / 1e9, 2), 'parameters': details.get('parameter_size') or '', 'family': details.get('family') or '', 'quantization': details.get('quantization_level') or ''})
+    return out
+
+
 def validate_packet(packet):
     if not isinstance(packet, dict) or set(packet) != {'question', 'evidence'}:
         raise ValueError('Invalid request fields.')
@@ -337,7 +351,7 @@ class Handler(BaseHTTPRequestHandler):
         if (not self.valid_host() or self.headers.get('Origin') != 'http://' + self.server.authority
                 or not secrets.compare_digest(self.headers.get('X-EKM-Token', '').encode(), self.server.token.encode())):
             return self.send_json(403, {'error': 'Open the app from this local service.'})
-        if self.path not in ('/api/explain', '/api/fetch', '/api/sqlite', '/api/search', '/api/db', '/api/ai/draft-terms', '/api/ai/pii', '/api/ai/ask', '/api/ai/sql'):
+        if self.path not in ('/api/explain', '/api/fetch', '/api/sqlite', '/api/search', '/api/models', '/api/model', '/api/db', '/api/ai/draft-terms', '/api/ai/pii', '/api/ai/ask', '/api/ai/sql'):
             return self.send_json(404, {'error': 'Not found.'})
         if self.headers.get('Content-Type') != 'application/json':
             return self.send_json(415, {'error': 'JSON required.'})
@@ -368,6 +382,22 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
+        if self.path in ('/api/models', '/api/model'):
+            try:
+                models = local_models()
+            except (OSError, ValueError, KeyError, TypeError):
+                return self.send_json(502, {'error': 'Ollama is not running. Start the Ollama app, then try again.', 'active': self.server.model, 'models': []})
+            if self.path == '/api/model':
+                name = str(packet.get('model') or '')
+                if name not in [m['name'] for m in models]:
+                    return self.send_json(400, {'error': 'Choose a model that is installed locally (ollama pull <name>).'})
+                if not self.server.model_lock.acquire(blocking=False):
+                    return self.send_json(429, {'error': 'The model is busy. Try again in a moment.'})
+                try:
+                    self.server.model = name
+                finally:
+                    self.server.model_lock.release()
+            return self.send_json(200, {'active': self.server.model, 'models': models, 'search': SEARCH_LABEL.get(SEARCH['provider']) if SEARCH['provider'] else None})
         if self.path == '/api/search':
             if not SEARCH['provider']:
                 return self.send_json(400, {'error': 'Start local mode with --search-provider to search the web.'})

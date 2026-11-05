@@ -16,7 +16,7 @@ var appURL = require("url").pathToFileURL(path.join(__dirname, "..", "dist", "in
       var page = await context.newPage();
       page.on("pageerror", function (e) { errors.push(e.message); });
       page.on("dialog", function (d) { errors.push("Unexpected dialog"); d.dismiss(); });
-      await page.goto(appURL); assert.equal(await page.title(), "EKM Data Explorer");
+      await page.goto(((u) => u.includes('#') ? u : u + '#data')(appURL)); assert.equal(await page.title(), "EKM Data Explorer");
       var data = "Score,Score total,Hours,Group,Year,Outcome,Before,After\n";
       for (var i = 0; i < 30; i++) data += [i === 2 ? "" : 10 + i % 7, 50 + i % 11, 1 + i % 9, i < 15 ? "A" : "B", 2000 + i, i % 3 ? "yes" : "no", 20 + i % 5, 21 + i % 5 + i % 3].join(",") + "\n";
       await page.locator("#afile").setInputFiles({name: "Study.csv", mimeType: "text/csv", buffer: Buffer.from(data)});

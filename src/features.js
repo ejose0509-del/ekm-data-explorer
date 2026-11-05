@@ -11,7 +11,7 @@ function getCol(ds, rows, n) { var j = idxOf(ds, n); return rows.map(function (r
 function groupsOf(ds, rows, y, g) { var yv = getCol(ds, rows, y), gv = getCol(ds, rows, g), m = Object.create(null); yv.forEach(function (v, i) { if (typeof v === "number" && gv[i] != null) (m[gv[i]] = m[gv[i]] || []).push(v); }); return m; }
 function swRow(name, v) { var s = S2.shapiro(v); return s ? "<tr><td>" + esc(name) + '</td><td class="num">' + s.n + '</td><td class="num">' + s.W.toFixed(3) + '</td><td class="num">' + fp(s.p) + "</td><td>" + chipYes(s.p >= 0.05, "Looks normal", "Not normal") + "</td></tr>" : ""; }
 function swTable(rows) { return '<h3 class="sub-h">Assumption checks</h3><div class="tablewrap"><table class="nosort"><thead><tr><th>Shapiro–Wilk</th><th>Rows</th><th>W</th><th>p</th><th></th></tr></thead><tbody>' + rows + "</tbody></table></div>"; }
-function bfLine(bf) { return "Approximate Bayes factor BF<sub>10</sub> = " + (bf > 1000 ? "> 1000" : bf < 0.001 ? "< 0.001" : f3(bf)) + ": " + S2.bfWord(bf) + " (BIC method, Wagenmakers 2007)."; }
+function bfLine(bf) { return "Approximate Bayes factor BF<sub>10</sub> " + (bf > 1000 ? "> 1000" : bf < 0.001 ? "< 0.001" : "= " + f3(bf)) + ": " + S2.bfWord(bf) + " (BIC method, Wagenmakers 2007)."; }
 
 var _runAnalysis = runAnalysis;
 runAnalysis = function (ds) {

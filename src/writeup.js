@@ -35,7 +35,7 @@ function paperHTML(forFile) {
   }).join("");
   var lim = limitations();
   return "<h1 class=\"ptitle\">" + esc(WP.title) + '</h1><p class="pmeta">Draft prepared with EKM · ' + today() + "</p>" +
-    "<h2>Summary in plain language</h2><p>" + WP.items.map(function (it) { return esc(firstSentence(it.reading[0] || "")); }).join(" ") + "</p>" +
+    "<h2>Summary in plain language</h2><p>" + WP.items.map(function (it) { return esc(it.plainLead || firstSentence(it.reading[0] || "")); }).join(" ") + "</p>" +
     "<h2>Methods</h2><p>Data: " + data.map(esc).join("; ") + ". Analyses: " + methods.map(esc).join("; ") + ". Calculations ran in EKM; its statistical implementations are checked against SciPy. Only the analyses listed above are included; see each result for its available statistics.</p>" +
     "<h2>Results</h2>" + res + (lim.length ? "<h2>Limitations</h2><ul>" + lim.map(function (t) { return "<li>" + esc(t) + "</li>"; }).join("") + "</ul>" : "");
 }

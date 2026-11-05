@@ -28,7 +28,7 @@ async function scan() { await nav("discover"); await page.locator("[data-drun]")
     for (width of [1440, 400]) {
       const context = await browser.newContext({viewport: {width, height: 1000}, acceptDownloads: true});
       page = await context.newPage(); page.on("pageerror", (e) => errors.push(e.message));
-      await page.goto(url); await page.waitForFunction(() => typeof VIEWS !== "undefined"); await upload();
+      await page.goto(((u) => u.includes('#') ? u : u + '#data')(url)); await page.waitForFunction(() => typeof VIEWS !== "undefined"); await upload();
       await check("column tags are suggested from names and values", async () => {
         assert.equal((await colTag("Student ID")).role, "id"); assert.equal((await colTag("Email")).sens, "personal"); assert.equal((await colTag("Site")).role, "group");
         assert.equal((await colTag("Satisfaction")).level, "ordinal"); assert.equal((await colTag("Score")).role, "outcome"); assert((await colTag("Hours")).suggested);

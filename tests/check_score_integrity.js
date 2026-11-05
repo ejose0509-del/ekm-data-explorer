@@ -6,7 +6,7 @@ const fixture=JSON.parse(cp.execFileSync(py,[ref,'--fixture'],{encoding:'utf8'})
 const csv=fixture.header.join(',')+'\n'+fixture.body.map(r=>r.map(v=>v==null?'':v).join(',')).join('\n');
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'ekm-scores-'));
 (async()=>{const browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||undefined,headless:true});let values=0,maxError=0;try{for(const width of [1440,400]){
-const ctx=await browser.newContext({viewport:{width,height:1100},acceptDownloads:true,reducedMotion:'reduce'}),page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('file://'+(process.env.EKM_TEST_HTML||path.join(__dirname,'../dist/index.html')));
+const ctx=await browser.newContext({viewport:{width,height:1100},acceptDownloads:true,reducedMotion:'reduce'}),page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(((u) => u.includes('#') ? u : u + '#data')('file://'+(process.env.EKM_TEST_HTML||path.join(__dirname,'../dist/index.html'))));
 for(const [meth,rot,k] of [['pca','none',1],['pca','none',2],['pca','varimax',2],['pca','promax',2],['paf','none',2],['paf','varimax',2],['paf','promax',2]]){
  await page.locator('#afile').setInputFiles({name:'Factors.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});await page.waitForFunction(()=>cur()&&!A.busy);
  await page.evaluate(({meth,rot,k})=>{PROJECT.remember=false;A.kind='factor';A.sel={fmeth:meth,fk:String(k),frot:rot,fitems:cur().cols.slice(1,7).map(c=>c.name),f:'Cohort',fv:'A'};nav('analyze');},{meth,rot,k});

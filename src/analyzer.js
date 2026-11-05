@@ -249,7 +249,7 @@ function runAnalysis(ds) {
     R.summary = {test: "Pearson and Spearman correlation", x: s.x, y: s.y, n: co.n, r: co.r, ci95: [co.ciLo, co.ciHi], p: co.p, spearman: co.rho, spearman_p: co.prho, slope: co.slope, r2: co.r2};
     R.head = figs([["Correlation (r)", f3(co.r)], ["95% range for r", f3(co.ciLo) + " to " + f3(co.ciHi)], ["p-value", fp(co.p)], ["Rows used", co.n]], true);
     R.chart = scatter(co.x, co.y, s.x, s.y, co);
-    R.reading.push("In these rows, there is an estimated " + rWord(co.r) + " " + (co.r >= 0 ? "positive" : "negative") + " link: when " + esc(s.x) + " is higher, " + esc(s.y) + " tends to be " + (co.r >= 0 ? "higher" : "lower") + ". It is " + pWord(co.p) + ".");
+    R.reading.push("In these rows, there is " + rWord(co.r) + " " + (co.r >= 0 ? "positive" : "negative") + " link: when " + esc(s.x) + " is higher, " + esc(s.y) + " tends to be " + (co.r >= 0 ? "higher" : "lower") + ". It is " + pWord(co.p) + ".");
     R.reading.push("On the fitted line, each 1-unit rise in " + esc(s.x) + " goes with a change of " + f3(co.slope) + " in " + esc(s.y) + ". " + esc(s.x) + " accounts for about " + Math.round(co.r2 * 100) + "% of the variation in " + esc(s.y) + ".");
     if (co.ciLo <= 0 && co.ciHi >= 0) R.caveats.push('The 95% interval includes zero; these data do not establish the direction of the population correlation.');
     if (Math.abs(co.rho - co.r) > 0.2) R.caveats.push("The rank-based correlation (" + f3(co.rho) + ") differs from r, so a few extreme points or a curved pattern may be driving the result. Look at the chart.");
@@ -304,7 +304,7 @@ function runAnalysis(ds) {
     R.chart = coefChart(o.coefs.slice(1));
     R.reading.push("Together, the predictors account for about " + Math.round(o.r2 * 100) + "% of the variation in " + esc(s.y) + " across " + o.n + " complete rows.");
     o.coefs.slice(1).forEach(function (k) {
-      R.reading.push("Holding the others fixed, each 1-unit rise in " + esc(k.name) + " goes with a change of " + f3(k.b) + " in " + esc(s.y) + (k.p < 0.05 ? " (a clear effect, p = " + fp(k.p) + ")." : " (not clearly different from zero, p = " + fp(k.p) + ")."));
+      R.reading.push("Holding the others fixed, each 1-unit rise in " + esc(k.name) + " goes with a change of " + f3(k.b) + " in " + esc(s.y) + (k.p < 0.05 ? " (a clear effect, p " + (k.p < 0.001 ? "< 0.001" : "= " + fp(k.p)) + ")." : " (not clearly different from zero, p = " + fp(k.p) + ")."));
     });
     if (o.n < 10 * use.length) R.caveats.push("A common rule of thumb asks for about 10 rows per predictor; this model has " + o.n + " rows for " + use.length + ". Results may not hold on new data.");
     R.caveats.push("Effects are associations after adjusting for the listed predictors only; anything left out can still confound them.");
@@ -334,19 +334,28 @@ function ticks(lo, hi, n) {
   for (var i = 0; i < count; i++) { var v = (start + i) * step; if (isFinite(v) && (!out.length || v > out[out.length - 1])) out.push(v); }
   return out.length ? out : [lo, hi];
 }
-function chartAxis(values) {
+// Tick labels share one number of decimals (0, 0.2, 0.4 … or 50, 100, 150), never a mix like 50.00 and 100.0
+function tickDecimals(vals) { var d = 0; vals.forEach(function (v) { if (!isFinite(v)) return; for (var k = 0; k <= 4; k++) { if (Math.abs(+v.toFixed(k) - v) <= 1e-9 * Math.max(1, Math.abs(v))) { d = Math.max(d, k); return; } } d = 4; }); return d; }
+function tickText(v, dec) { if (dec == null || !isFinite(v) || Math.abs(v) >= 1e6) return f3(v); return dec === 0 && Math.abs(v) >= 1000 ? Math.round(v).toLocaleString("en-US") : (Math.abs(v) < 1e-12 ? 0 : v).toFixed(dec); }
+function chartAxis(values, notTicks) {
   var max = 0, lo = Infinity, hi = -Infinity;
   values.forEach(function (v) { max = Math.max(max, Math.abs(v)); lo = Math.min(lo, v); hi = Math.max(hi,v); });
   var range = hi - lo, offset = range > 0 && isFinite(range) && max / range > 1000 ? lo : 0, size = offset ? range : max;
   var exponent = size && (size >= 1e9 || size < .001) ? Math.max(-323, Math.min(308, Math.floor(Math.log10(size)))) : 0, unit = Math.pow(10, exponent);
-  return {suffix: offset ? ' (offset ' + String(offset) + (exponent ? '; ×10^' + exponent : '') + ')' : exponent ? ' · ×10^' + exponent : '', scaled: !!exponent || !!offset, format: function (v) { return f3((v - offset) / unit); }};
+  var dec = notTicks ? null : tickDecimals(values.map(function (v) { return (v - offset) / unit; }));
+  return {suffix: offset ? ' (offset ' + String(offset) + (exponent ? '; ×10^' + exponent : '') + ')' : exponent ? ' · ×10^' + exponent : '', scaled: !!exponent || !!offset, format: function (v) { return tickText((v - offset) / unit, dec); }};
 }
 function frame(W, H, x, y, xt, yt, xl, yl, body, xfmt) {
   var xa = chartAxis(xt), ya = chartAxis(yt);
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="' + esc(yl + " by " + xl) + '">';
   yt.forEach(function (v) { g += '<line x1="56" x2="' + (W - 12) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)"/><text x="50" y="' + (y(v) + 4) + '" text-anchor="end" class="tk">' + ya.format(v) + "</text>"; });
-  xt.forEach(function (v) { g += '<text x="' + x(v) + '" y="' + (H - 26) + '" text-anchor="' + (x(v) > W - 40 ? 'end' : 'middle') + '" class="tk">' + (xa.scaled ? xa.format(v) : xfmt ? xfmt(v) : xa.format(v)) + "</text>"; });
-  return g + body + '<text x="' + ((W + 56) / 2) + '" y="' + (H - 6) + '" text-anchor="middle" class="ax">' + esc(xl + xa.suffix) + '</text>' + (W < 400 ? '<text x="60" y="11" text-anchor="start" class="ax">' + esc(yl + ya.suffix) + "</text>" : '<text x="14" y="' + (H / 2) + '" text-anchor="middle" class="ax" transform="rotate(-90 14 ' + (H / 2) + ')">' + esc(yl + ya.suffix) + "</text>") + "</svg>";
+  // Labels never collide: the first bottom label starts at the axis (clear of the side axis's lowest number),
+  // crowded bottom labels are thinned, and a long side-axis scale moves its title to the top.
+  var xlab = xt.map(function (v) { return String(xa.scaled ? xa.format(v) : xfmt ? xfmt(v) : xa.format(v)); }), widest = Math.max.apply(null, xlab.map(function (t) { return t.length; }).concat([1])) * 8 + 10;
+  var gap = xt.length > 1 ? Math.abs(x(xt[1]) - x(xt[0])) : W, every = Math.max(1, Math.ceil(widest / Math.max(gap, 1)));
+  xt.forEach(function (v, i) { if (i % every) return; var px = x(v); g += '<text x="' + px + '" y="' + (H - 26) + '" text-anchor="' + (px > W - 40 ? 'end' : px < 56 + widest / 2 ? 'start' : 'middle') + '" class="tk">' + xlab[i] + "</text>"; });
+  var ylong = yt.some(function (v) { return String(ya.format(v)).length > 4; });
+  return g + body + '<text x="' + ((W + 56) / 2) + '" y="' + (H - 6) + '" text-anchor="middle" class="ax">' + esc(xl + xa.suffix) + '</text>' + (W < 400 || ylong ? '<text x="60" y="11" text-anchor="start" class="ax">' + esc(yl + ya.suffix) + "</text>" : '<text x="14" y="' + (H / 2) + '" text-anchor="middle" class="ax" transform="rotate(-90 14 ' + (H / 2) + ')">' + esc(yl + ya.suffix) + "</text>") + "</svg>";
 }
 function histogram(v, label) {
   if (v.length < 2) return "";
@@ -358,7 +367,7 @@ function histogram(v, label) {
   return frame(W, H, x, y, xt, yt, label, "Rows", body);
 }
 function bars(items, yl) {
-  var ba = chartAxis(items.map(function (item) { return item[1]; })), W = CW(), rowH = 26, H = items.length * rowH + 30, mx = amax(items.map(function (i) { return i[1]; })) || 1;
+  var ba = chartAxis(items.map(function (item) { return item[1]; }), true), W = CW(), rowH = 26, H = items.length * rowH + 30, mx = amax(items.map(function (i) { return i[1]; })) || 1;
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="' + esc(yl) + '">';
   items.forEach(function (it, i) { var L = LW(W), w = it[1] / mx * (W - L - 64), yy = 10 + i * rowH; g += '<text x="' + (L - 6) + '" y="' + (yy + 15) + '" text-anchor="end" class="tk">' + esc(String(it[0]).slice(0, W < 400 ? 14 : 28)) + '</text><rect x="' + L + '" y="' + (yy + 3) + '" width="' + Math.max(1, w) + '" height="16" rx="2" fill="var(--accent)"/><text x="' + (L + 4 + w) + '" y="' + (yy + 15) + '" class="tk">' + ba.format(it[1]) + "</text>"; });
   return g + (ba.scaled ? '<text x="56" y="' + (H - 4) + '" class="ax">' + esc(yl + ba.suffix) + '</text>' : '') + "</svg>";
@@ -367,7 +376,8 @@ function boxplot(names, ds2, yl) {
   var W = CW(), rowH = 30, H = names.length * rowH + 44, lo = amin(ds2.map(function (d) { return d.min; })), hi = amax(ds2.map(function (d) { return d.max; })), xt = ticks(lo, hi, W < 400 ? 3 : 6).filter(function (t) { return t >= lo && t <= hi; });
   var xa = chartAxis(xt), L = LW(W), x = function (v) { return L + (v - lo) / ((hi - lo) || 1) * (W - L - 16); };
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="' + esc(yl) + ' by group">';
-  xt.forEach(function (t) { g += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="6" y2="' + (H - 34) + '" stroke="var(--line)"/><text x="' + x(t) + '" y="' + (H - 20) + '" text-anchor="middle" class="tk">' + xa.format(t) + "</text>"; });
+  var tw = Math.max.apply(null, xt.map(function (t) { return String(xa.format(t)).length; }).concat([1])) * 8 + 10, tstep = Math.max(1, Math.ceil(tw / Math.max(1, xt.length > 1 ? Math.abs(x(xt[1]) - x(xt[0])) : W)));
+  xt.forEach(function (t, ti) { g += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="6" y2="' + (H - 34) + '" stroke="var(--line)"/>' + (ti % tstep ? "" : '<text x="' + x(t) + '" y="' + (H - 20) + '" text-anchor="' + (x(t) > W - 30 ? "end" : "middle") + '" class="tk">' + xa.format(t) + "</text>"); });
   names.forEach(function (n, i) { var d = ds2[i], yy = 10 + i * rowH; g += '<text x="' + (L - 6) + '" y="' + (yy + 14) + '" text-anchor="end" class="tk">' + esc(String(n).slice(0, W < 400 ? 14 : 28)) + '</text><line x1="' + x(d.min) + '" x2="' + x(d.max) + '" y1="' + (yy + 10) + '" y2="' + (yy + 10) + '" stroke="var(--muted)"/><rect x="' + x(d.q1) + '" y="' + (yy + 2) + '" width="' + Math.max(2, x(d.q3) - x(d.q1)) + '" height="16" fill="var(--accent-soft)" stroke="var(--accent)"/><line x1="' + x(d.median) + '" x2="' + x(d.median) + '" y1="' + (yy + 2) + '" y2="' + (yy + 18) + '" stroke="var(--accent)" stroke-width="2.5"/><circle cx="' + x(d.mean) + '" cy="' + (yy + 10) + '" r="3" fill="var(--ink)"><title>Average ' + f3(d.mean) + "</title></circle>"; });
   return g + '<text x="' + ((W + L) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="ax">' + esc(yl + xa.suffix) + "</text></svg><p class=\"count\">Box = middle half; line = median; dot = average.</p>";
 }
@@ -392,7 +402,8 @@ function coefChart(coefs) {
   var W = CW(), rowH = 30, H = coefs.length * rowH + 44, lo = Math.min(0, amin(coefs.map(function (c) { return c.lo; }))), hi = Math.max(0, amax(coefs.map(function (c) { return c.hi; }))), xt = ticks(lo, hi, 5).filter(function (t) { return t >= lo && t <= hi; });
   var xa = chartAxis(xt), L = LW(W), x = function (v) { return L + (v - lo) / ((hi - lo) || 1) * (W - L - 16); };
   var g = '<svg viewBox="0 0 ' + W + " " + H + '" class="achart" role="img" aria-label="Effect of each predictor with 95% range">';
-  xt.forEach(function (t) { g += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="6" y2="' + (H - 34) + '" stroke="' + (t === 0 ? "var(--muted)" : "var(--line)") + '"/><text x="' + x(t) + '" y="' + (H - 20) + '" text-anchor="middle" class="tk">' + xa.format(t) + "</text>"; });
+  var tw = Math.max.apply(null, xt.map(function (t) { return String(xa.format(t)).length; }).concat([1])) * 8 + 10, tstep = Math.max(1, Math.ceil(tw / Math.max(1, xt.length > 1 ? Math.abs(x(xt[1]) - x(xt[0])) : W)));
+  xt.forEach(function (t, ti) { g += '<line x1="' + x(t) + '" x2="' + x(t) + '" y1="6" y2="' + (H - 34) + '" stroke="' + (t === 0 ? "var(--muted)" : "var(--line)") + '"/>' + (ti % tstep ? "" : '<text x="' + x(t) + '" y="' + (H - 20) + '" text-anchor="' + (x(t) > W - 30 ? "end" : "middle") + '" class="tk">' + xa.format(t) + "</text>"); });
   coefs.forEach(function (c, i) { var yy = 10 + i * rowH + 10, col = c.p < 0.05 ? "var(--accent)" : "var(--neutral)"; g += '<text x="' + (L - 6) + '" y="' + (yy + 4) + '" text-anchor="end" class="tk">' + esc(String(c.name).slice(0, W < 400 ? 14 : 28)) + '</text><line x1="' + x(c.lo) + '" x2="' + x(c.hi) + '" y1="' + yy + '" y2="' + yy + '" stroke="' + col + '" stroke-width="2"/><circle cx="' + x(c.b) + '" cy="' + yy + '" r="4.5" fill="' + col + '"/>'; });
   return g + '<text x="' + ((W + L) / 2) + '" y="' + (H - 4) + '" text-anchor="middle" class="ax">Effect per 1-unit rise' + esc(xa.suffix) + '</text></svg><p class="count">95% range; grey = not clearly different from zero.</p>';
 }
@@ -413,7 +424,7 @@ function dataView() {
   if (!ds.rows) { loadRows(ds).then(render).catch(function () { A.msg = "Could not load " + ds.name + "."; render(); }); return '<div class="agrid"><div class="amain"><p class="count" role="status">Loading ' + esc(ds.name) + "…</p></div><div>" + add + list + "</div></div>"; }
   var prof = '<div class="tablewrap"><table class="nosort"><thead><tr><th>Column</th><th>Type</th><th>Missing</th><th>Summary</th><th>Check</th></tr></thead><tbody>' + ds.cols.map(function (c, j) {
     var v = colVals(ds, j), miss = v.filter(function (x) { return x == null; }).length, sum = "", flag = [];
-    if (isNum(c)) { var d = S.describe(v); sum = "median " + f3(d.median) + " · " + f3(d.min) + " to " + f3(d.max); if (d.outliers) flag.push(d.outliers + " unusual"); if (d.sd === 0) flag.push("never changes"); }
+    if (isNum(c)) { var d = S.describe(v); var fw = function (x) { return x === Math.round(x) && Math.abs(x) < 1e6 ? String(x) : f3(x); }; sum = "median " + fw(d.median) + " · " + fw(d.min) + " to " + fw(d.max); if (d.outliers) flag.push(d.outliers + " unusual"); if (d.sd === 0) flag.push("never changes"); }
     else { var u = Object.create(null); v.forEach(function (x) { if (x != null) u[x] = (u[x] || 0) + 1; }); var k = Object.keys(u).sort(function (a, b) { return u[b] - u[a]; }); sum = k.length + " distinct" + (k[0] ? " · most often “" + esc(String(k[0]).slice(0, 24)) + "”" : ""); if (k.length === 1) flag.push("one value only"); }
     if (miss / v.length > 0.5) flag.push("mostly empty");
     return "<tr><td><b>" + esc(c.name) + '</b></td><td><select data-atype="' + j + '" aria-label="Type of ' + esc(c.name) + '">' + ["number", "year", "date", "category", "text"].map(function (t) { return '<option value="' + t + '"' + (c.type === t ? " selected" : "") + ">" + TYPE_LABEL[t] + "</option>"; }).join("") + '</select></td><td class="num">' + (miss ? Math.round(miss / v.length * 100) + "%" : "—") + "</td><td>" + sum + "</td><td>" + flag.map(function (f) { return '<span class="chip q-estimated">' + f + "</span>"; }).join(" ") + "</td></tr>";

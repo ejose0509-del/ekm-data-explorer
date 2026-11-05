@@ -31,7 +31,7 @@ async function scan() {
     const local = await address; browser = await chromium.launch({channel: process.env.BROWSER_CHANNEL || undefined, headless: true});
     for (const [name, url] of [['disk', 'file://' + path.join(root, 'dist/index.html')], ['local', local]]) for (width of [1440, 400]) {
       mode = name; const context = await browser.newContext({viewport: {width, height: 1100}, acceptDownloads: true});
-      page = await context.newPage(); page.on('pageerror', e => errors.push(e.message)); await page.goto(url);
+      page = await context.newPage(); page.on('pageerror', e => errors.push(e.message)); await page.goto(((u) => u.includes('#') ? u : u + '#data')(url));
       await check('identity and meaningful first screen', async () => { assert((await page.title()).includes('EKM')); assert((await page.locator('#view').innerText()).length > 30); });
       await check('negative levels stay signed and result appears early', async () => {
         await install(['Return'], [[-5],[-4],[-3],[-2],[-1]], {y: 'Return'});
