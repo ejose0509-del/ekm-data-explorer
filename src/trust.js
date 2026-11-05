@@ -63,6 +63,10 @@ var _trustEnhance = VIEWS.enhance;
 VIEWS.enhance = function () { var ds = cur(); return _trustEnhance() + (ds && ds.rows ? rangeCard(ds) : ""); };
 var _trustData = VIEWS.data;
 VIEWS.data = function () { return _trustData() + (cur() ? '<section class="card"><h2>Numeric units and precision</h2><p class="count">A value such as 2.5% is imported as 2.5 percentage points, not 0.025. Numeric calculations use binary floating-point arithmetic and may round decimal amounts. Original imported values remain available. For exact monetary ledgers, keep exact decimal strings or integer minor units within the safe integer range; EKM statistical results are not an accounting ledger.</p></section>' : ''); };
+view.addEventListener("input", function (e) {
+  if (e.target.id === "range-min") RANGE.min = e.target.value;
+  if (e.target.id === "range-max") RANGE.max = e.target.value;
+});
 view.addEventListener("change", function (e) {
   if (e.target.id === "range-col") { RANGE.col = e.target.value; var c = colMeta(cur(), RANGE.col), lim = c && c.limits; RANGE.min = lim && lim.min != null ? String(lim.min) : ""; RANGE.max = lim && lim.max != null ? String(lim.max) : ""; RANGE.msg = ""; render(); refocus("#range-col"); }
   if (e.target.id === "range-min") RANGE.min = e.target.value;

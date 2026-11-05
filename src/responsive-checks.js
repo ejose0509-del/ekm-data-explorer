@@ -16,6 +16,18 @@ function relationshipScan(rows, indices, emit, cancelled) {
   chunk();
 }
 function stopRelationships(job) { if (!job || job.state !== 'running') return; job.state = 'cancelled'; if (job.worker) job.worker.terminate(); job.worker = null; }
+// Background progress must not replace controls while people type or click.
+function relationshipPanel(job) {
+  var ds = cur(), status = view.querySelector('[data-relationship-status]');
+  if (st.tab !== 'enhance' || !ds || REL.cache.get(ds.rows) !== job || ds.cols !== job.cols || !status) return;
+  var complete = job.state === 'complete', cancelled = job.state === 'cancelled';
+  status.textContent = complete ? 'Relationship scan complete: ' + job.done + ' pairs checked. Choose Show scan findings to review the results.' : cancelled ? 'Relationship scan cancelled. Column checks remain available.' : 'Relationship scan: ' + job.done + ' of ' + job.total + ' pairs checked. Column checks are available now.';
+  var button = status.parentNode.querySelector('button');
+  if (!button) { button = document.createElement('button'); button.type = 'button'; button.className = 'btn'; status.parentNode.appendChild(button); }
+  button.removeAttribute('data-relationship-cancel'); button.removeAttribute('data-relationship-start'); button.removeAttribute('data-relationship-show');
+  button.setAttribute(complete ? 'data-relationship-show' : cancelled ? 'data-relationship-start' : 'data-relationship-cancel', '1');
+  button.textContent = complete ? 'Show scan findings' : cancelled ? 'Run relationship scan' : 'Cancel relationship scan';
+}
 function startRelationships(ds, job) {
   if (REL.current !== job) stopRelationships(REL.current);
   REL.current = job; job.state = 'running'; job.done = 0;
@@ -29,7 +41,7 @@ function startRelationships(ds, job) {
       job.findings = e.matches.map(function (m) { return {sev:'info', col: ds.cols[m.a].name, title: 'Nearly duplicates ' + ds.cols[m.b].name, detail:'Correlation ' + m.r.toFixed(2) + '. Using both as predictors makes a regression unstable; keep one.', fix:null, src:'Rule adapted from ydata-profiling'}; });
       if (e.count > e.matches.length) job.findings.push({sev:'info', col:'Relationships', title:e.count + ' strongly correlated pairs', detail:'All ' + e.total + ' pairs were screened. Showing the first 100 relationships; choose individual pairs under Analyze for full estimates.', fix:null, src:'Pairwise Pearson screening'});
     }
-    if (st.tab === 'enhance' && cur() && cur().rows === ds.rows && cur().cols === ds.cols && (e.complete || Date.now() - last > 250)) { last = Date.now(); render(); }
+    if (st.tab === 'enhance' && cur() && cur().rows === ds.rows && cur().cols === ds.cols && (e.complete || Date.now() - last > 250)) { last = Date.now(); relationshipPanel(job); }
   }
   if (!job.total) { receive({complete:true,done:0,total:0,matches:[],count:0}); return; }
   try {
@@ -60,9 +72,9 @@ VIEWS.enhance = function () {
   var html = _responsiveEnhance(), ds = cur(), job = ds && ds.rows && REL.cache.get(ds.rows);
   if (!job) return html;
   var text = job.state === 'complete' ? 'Relationship scan complete: ' + job.done + ' pairs checked.' : job.state === 'cancelled' ? 'Relationship scan cancelled. Column checks remain available.' : 'Relationship scan: ' + job.done + ' of ' + job.total + ' pairs checked. Column checks are available now.';
-  return '<section class="card"><h2>Relationship scan</h2><p class="count" role="status">' + esc(text) + '</p>' + (job.state === 'running' ? '<button type="button" class="btn" data-relationship-cancel="1">Cancel relationship scan</button>' : job.state === 'cancelled' ? '<button type="button" class="btn" data-relationship-start="1">Run relationship scan</button>' : '') + '</section>' + html;
+  return '<section class="card"><h2>Relationship scan</h2><p class="count" role="status" tabindex="-1" data-relationship-status="1">' + esc(text) + '</p>' + (job.state === 'running' ? '<button type="button" class="btn" data-relationship-cancel="1">Cancel relationship scan</button>' : job.state === 'cancelled' ? '<button type="button" class="btn" data-relationship-start="1">Run relationship scan</button>' : '') + '</section>' + html;
 };
-view.addEventListener('click', function (e) { var b = e.target.closest('button'), ds = cur(); if (!b || !ds) return; var job = REL.cache.get(ds.rows); if (b.dataset.relationshipCancel) { stopRelationships(job); render(); } if (b.dataset.relationshipStart && job) startRelationships(ds, job); });
+view.addEventListener('click', function (e) { var b = e.target.closest('button'), ds = cur(); if (!b || !ds) return; var job = REL.cache.get(ds.rows); if (b.dataset.relationshipCancel) { stopRelationships(job); relationshipPanel(job); } if (b.dataset.relationshipStart && job) { startRelationships(ds, job); relationshipPanel(job); } if (b.dataset.relationshipShow) { render(); refocus('[data-relationship-status]'); } });
 // Keep the keyboard user's position when innerHTML is replaced by any module.
 var _focusRender = render, focusTab = st.tab;
 render = function () {

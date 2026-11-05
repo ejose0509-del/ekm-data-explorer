@@ -16,7 +16,7 @@ rounding done before import cannot be recovered. Numerical tolerances are explic
 | E8 | Rare-class CV averages undefined folds | Verified for the acceptance cases below | Validation uses a feasible split or refuses it explicitly; valid fold counts match headline |
 | E9 | Premature rounding in cleaning, formulas and scale columns (found during this repair) | Verified for the acceptance cases below | Stored transformations retain binary64 precision; each changed operation has an independent numerical case |
 | E10 | Model calculations lose translation/scale stability (found during E8) | Verified for the acceptance cases below | Regression tree split/values, standardization and validation metrics against independent references on shifted/scaled inputs |
-| E11 | Background scan redraw corrupts in-progress input (reproduced after E4) | Pending | No scan redraw during editing; repeated real field interactions and saved ranges preserve the entered values |
+| E11 | Background scan redraw corrupts in-progress input (reproduced after E4) | Verified for the acceptance cases below | No scan redraw during editing; repeated real field interactions and saved ranges preserve the entered values |
 
 ## E1 acceptance record
 
@@ -116,8 +116,8 @@ source values/headers and explicitly identify themselves as unredacted.
   relative/absolute 1e-9; successful replay is not independent proof of an estimator.
 - Final `check_trust.js`: 26 groups pass, including all 17 analysis kinds in Node
   and actual Python model exports. An earlier run failed its UI range-message
-  assertion; the next two runs passed without a range-code change. This is an
-  unresolved intermittent test/interaction observation, not a repaired range defect.
+  assertion; the next two runs passed without a range-code change. E11 subsequently
+  reproduced the input-corruption race and repaired it with a deterministic regression.
 - `check_score_integrity.js` also passes; `check_stats.py` passes its fixed and strict
   gates. R script execution has not been verified (Rscript is unavailable).
 
@@ -292,3 +292,27 @@ refused rather than reported as successful estimates.
 - Scope: these model arithmetic and optimization cases. IEEE-754 storage remains
   finite precision. Unrepresentable coefficients/metrics require rescaling; these
   repairs do not certify all statistical methods over all extreme input ranges.
+
+## E11 acceptance record
+
+Relationship-scan progress and completion update their own status and button in
+place, never replacing the editing form. Completed findings open with an explicit
+Show scan findings action; cancellation/restart also preserve controls. Range drafts
+update on input, so opening findings preserves unblurred edits. Keyboard focus moves
+to the findings status after that explicit action.
+
+- Original 400px reproduction: cycle 24 typed minimum 200 / maximum 100 but stored
+  maximum 100100 after background replacement during select-all/typing.
+- `check_scan_input_integrity.js` gates actual worker completion until a number
+  field is focused and selected. The pre-repair HTML deterministically fails the
+  element-identity assertion. The repaired page preserves the field, selection,
+  entered values, explicit findings action, keyboard focus and saved bounds.
+- The deterministic race passes at 1440 and 400 pixels, followed by 30 actual
+  edit/save/undo/invalid-bound cycles at each width (60 total), with no page errors
+  or horizontal scroll. The invalid 200/100 range is consistently refused.
+- Final build and mandatory numerical gate pass: 171 fixed values, 1,017 Welch
+  cases/7,119 values, 195 model cases/1,755 comparisons. All 26 trust regressions,
+  100 full feature-flow checks, and both reliability/browser-restoration flows pass.
+- Scope: this reproduced background scan/input race. Explicit user actions can
+  still redraw views; this is not a proof that every possible asynchronous UI
+  interaction is free of defects.
